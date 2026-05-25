@@ -1,0 +1,47 @@
+<aside class="sidebar">
+    <div class="sidebar-brand">
+        <div class="brand-logo">S</div>
+        <div>
+            <div class="brand-name">Searvator</div>
+            <div class="brand-tagline">CRM Suite</div>
+        </div>
+    </div>
+    
+    <div class="nav-section-title">Overview</div>
+    <a href="/admin" class="nav-item <%= activePage === 'admin' ? 'active' : '' %>">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        Dashboard
+    </a>
+    
+    <div class="nav-section-title">Business Modules</div>
+    <a href="/admin" class="nav-item <%= activePage === 'hardware' ? 'active' : '' %>">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        Hardware & Repair
+    </a>
+    <a href="/ai-projects" class="nav-item <%= activePage === 'ai' ? 'active' : '' %>">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        AI Software
+    </a>
+    <a href="/cctv" class="nav-item <%= activePage === 'cctv' ? 'active' : '' %>">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+        CCTV & Biometric
+    </a>
+    <a href="/other-business" class="nav-item <%= activePage === 'other' ? 'active' : '' %>">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        Other Business
+    </a>
+    
+    <div class="sidebar-footer">
+        <div class="user-card">
+            <div class="user-avatar"><%= (user.username || 'A')[0].toUpperCase() %></div>
+            <div class="user-info">
+                <div class="user-name"><%= user.username %></div>
+                <div class="user-role"><%= user.role %></div>
+            </div>
+        </div>
+        <a href="/logout" class="logout-btn">
+            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+            Sign out
+        </a>
+    </div>
+</aside>

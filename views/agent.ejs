@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Panel — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .agent-shell {
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 24px 16px;
+            animation: fadeInUp 0.5s var(--ease-out);
+        }
+        .top-bar {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 16px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow-sm);
+        }
+        .top-bar-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .top-bar-logo {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            border-radius: 10px;
+            display: grid;
+            place-items: center;
+            color: white;
+            font-weight: 800;
+            font-size: 18px;
+        }
+        .pending-card {
+            background: var(--info-light);
+            border: 1px solid #bfdbfe;
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .pending-job {
+            background: var(--bg-elevated);
+            border: 1px solid #bfdbfe;
+            border-radius: var(--radius);
+            padding: 12px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .pending-job:last-child { margin-bottom: 0; }
+        .section-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-3);
+            margin-bottom: 10px;
+        }
+        .form-section {
+            margin-bottom: 24px;
+        }
+        .form-section-title {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-2);
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        .order-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: all 0.2s var(--ease);
+        }
+        .order-card:hover { box-shadow: var(--shadow-md); }
+        .order-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 12px;
+        }
+        .order-info {
+            background: var(--info-light);
+            border: 1px solid #bfdbfe;
+            border-radius: var(--radius);
+            padding: 12px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            font-size: 12px;
+            margin-bottom: 12px;
+        }
+        .order-info b { color: var(--text); }
+        .order-info span:not(b) { color: var(--text-2); }
+        .wa-btn {
+            background: #25D366;
+            color: white;
+            padding: 10px 14px;
+            border-radius: var(--radius);
+            border: none;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            text-decoration: none;
+            display: block;
+            text-align: center;
+            width: 100%;
+            transition: all 0.2s var(--ease);
+        }
+        .wa-btn:hover { background: #128C7E; transform: translateY(-1px); box-shadow: var(--shadow-md); }
+        .file-upload {
+            background: var(--surface-2);
+            border: 2px dashed var(--border-strong);
+            border-radius: var(--radius);
+            padding: 14px;
+            text-align: center;
+        }
+        .file-upload-success {
+            color: var(--success);
+            font-size: 12px;
+            font-weight: 700;
+            margin-top: 6px;
+            display: none;
+        }
+        .file-upload-success.show { display: block; }
+        .entry-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: all 0.2s var(--ease);
+        }
+        .entry-card:hover { box-shadow: var(--shadow-md); }
+        .checkbox-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .checkbox-grid label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text);
+            cursor: pointer;
+        }
+        .hw-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .hw-grid .form-group { margin-bottom: 0; }
+        .hw-grid label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-3);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+    </style>
+</head>
+<body>
+<div class="agent-shell">
+    <!-- TOP BAR -->
+    <div class="top-bar">
+        <div class="top-bar-brand">
+            <div class="top-bar-logo">S</div>
+            <div>
+                <div style="font-weight: 800; font-size: 16px; letter-spacing: -0.02em;">Searvator</div>
+                <div style="font-size: 11px; color: var(--text-3); text-transform: uppercase; font-weight: 600;">Agent Panel</div>
+            </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="text-align: right;">
+                <div style="font-weight: 700; font-size: 14px;">Hi, <%= agentName.toUpperCase() %></div>
+                <div style="font-size: 11px; color: var(--text-3);">Field Engineer</div>
+            </div>
+            <a href="/logout" class="btn btn-danger btn-sm">Logout</a>
+        </div>
+    </div>
+    
+    <!-- PENDING JOBS (if any) -->
+    <% if (pendingJobs && pendingJobs.length > 0) { %>
+        <div class="pending-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div style="font-weight: 700; color: #1e40af; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">
+                    🚨 Assigned Jobs Pending (<%= pendingJobs.length %>)
+                </div>
+            </div>
+            <% pendingJobs.forEach(job => { %>
+                <div class="pending-job">
+                    <div>
+                        <div class="font-bold" style="font-size: 13px;"><%= job.customerName %></div>
+                        <div class="text-muted" style="font-size: 11px;">📞 <%= job.mobileNumber %> · 📍 <%= job.location %></div>
+                    </div>
+                    <button onclick="loadJob('<%= job._id %>', '<%= job.customerName %>', '<%= job.mobileNumber %>', '<%= job.location %>')" class="btn btn-primary btn-sm">Process</button>
+                </div>
+            <% }) %>
+        </div>
+    <% } %>
+    
+    <!-- REQUEST NEW PART/SERVICE -->
+    <div class="card">
+        <div class="card-header" style="background: linear-gradient(135deg, #fef3c7, #fed7aa); border-bottom: 1px solid #fcd34d;">
+            <div>
+                <div class="card-title" style="color: #92400e;">📦 Request New Part or Service</div>
+                <div class="card-subtitle" style="color: #b45309;">Admin will source from vendor</div>
+            </div>
+        </div>
+        <div class="card-body">
+            <form action="/api/order/new" method="POST">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                    <input type="text" name="customerName" placeholder="Customer Name" required>
+                    <input type="tel" name="mobileNumber" placeholder="Mobile No." required>
+                </div>
+                <input type="text" name="location" placeholder="Address / Location" required style="margin-bottom: 10px;">
+                <textarea name="description" placeholder="Product/Part Details (e.g. 500GB SSD NVMe)" rows="2" required style="margin-bottom: 10px;"></textarea>
+                <div class="file-upload">
+                    <div class="form-label mb-2">📷 Upload Photo (Defective part/Site)</div>
+                    <input type="file" id="orderFileInput" accept="image/*">
+                    <input type="hidden" name="requestPhoto" id="orderPhotoData">
+                    <div class="file-upload-success" id="orderUploadSuccess">✓ Photo Ready</div>
+                </div>
+                <button type="submit" class="btn w-full" style="background: var(--warning); color: white; margin-top: 12px; padding: 12px;">Submit Request to Admin</button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- MY ORDERS -->
+    <% if (orders && orders.length > 0) { %>
+        <div class="section-title">My Part / Service Requests</div>
+        <% orders.forEach(order => { %>
+            <div class="order-card">
+                <div class="order-header">
+                    <div>
+                        <div class="font-bold" style="font-size: 14px;"><%= order.description %></div>
+                        <div class="text-muted" style="font-size: 11px;">Customer: <%= order.customerName %> · <%= order.location %></div>
+                    </div>
+                    <% 
+                    const sc = order.status === 'Completed' ? 'success' : order.status === 'In Progress' ? 'info' : 'warning';
+                    %>
+                    <span class="badge <%= sc %>"><%= order.status %></span>
+                </div>
+                
+                <div class="order-info">
+                    <div><b>Vendor:</b> <span><%= order.vendorName || 'Pending Admin' %></span></div>
+                    <div><b>Selling:</b> <span class="font-mono">₹<%= order.sellingPrice || 0 %></span></div>
+                    <div><b>Warranty:</b> <span><%= order.warranty || '-' %></span></div>
+                    <div><b>Elapsed:</b> <span class="live-timer" data-time="<%= order.createdAt.toISOString() %>" style="color: var(--danger); font-weight: 700;"></span></div>
+                </div>
+                
+                <% if (order.status === 'Assigned') { %>
+                    <form action="/api/order/status/<%= order._id %>" method="POST">
+                        <input type="hidden" name="status" value="In Progress">
+                        <button type="submit" class="btn btn-primary w-full">Start Work</button>
+                    </form>
+                <% } else if (order.status === 'In Progress') { %>
+                    <form action="/api/order/status/<%= order._id %>" method="POST">
+                        <input type="hidden" name="status" value="Completed">
+                        <button type="submit" class="btn btn-success w-full">Mark Delivered & Closed</button>
+                    </form>
+                <% } else if (order.status === 'Completed') { %>
+                    <% if (!order.whatsappSent) { %>
+                        <button onclick="markOrderWhatsAppSent('<%= order._id %>', '<%= order.mobileNumber %>', '<%= order.customerName %>')" class="wa-btn">
+                            📲 Send Product Invoice via WhatsApp
+                        </button>
+                    <% } else { %>
+                        <div style="background: var(--success-light); color: #047857; padding: 10px; border-radius: var(--radius); text-align: center; font-weight: 700; font-size: 13px;">
+                            ✓ Invoice WhatsApp Delivered
+                        </div>
+                    <% } %>
+                    <div style="margin-top: 8px; text-align: center;">
+                        <a href="/order-invoice/<%= order._id %>" target="_blank" class="btn btn-xs" style="background: var(--purple-light); color: #6d28d9; border: 1px solid #ddd6fe;">🧾 View Product Invoice</a>
+                    </div>
+                <% } %>
+            </div>
+        <% }) %>
+    <% } %>
+    
+    <!-- DIAGNOSTIC ENTRY FORM -->
+    <div class="card" id="formContainer">
+        <div class="card-header">
+            <div>
+                <div class="card-title" id="formTitle">Create New Diagnostic Entry</div>
+                <div class="card-subtitle">Fill in service details</div>
+            </div>
+            <button onclick="clearForm()" class="btn btn-xs btn-secondary" id="clearBtn" style="display: none;">Cancel</button>
+        </div>
+        <div class="card-body">
+            <form action="/api/entry" method="POST" id="entryForm">
+                <input type="hidden" name="entryId" id="entryIdInput">
+                
+                <!-- 1. CLIENT INFO -->
+                <div class="form-section">
+                    <div class="form-section-title">1. Client Info</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                        <input type="text" id="cName" name="customerName" placeholder="Full Name" required>
+                        <input type="tel" id="cMobile" name="mobileNumber" placeholder="Mobile No." required>
+                    </div>
+                    <input type="text" id="cLoc" name="location" placeholder="Address / Location" required style="margin-bottom: 10px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <input type="number" name="revenue" placeholder="₹ Amount" required style="background: var(--success-light); border-color: #6ee7b7; color: #047857; font-weight: 700;">
+                        <select name="paymentMode">
+                            <option value="Cash">Cash</option>
+                            <option value="UPI">UPI</option>
+                            <option value="Bank Transfer">Bank Transfer</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- 2. SALES & FOLLOWUP -->
+                <div class="form-section" style="background: var(--purple-light); padding: 14px; border-radius: var(--radius); border: 1px solid #ddd6fe;">
+                    <div class="form-section-title" style="color: #6d28d9; border-color: #ddd6fe;">2. Sales & Follow-up</div>
+                    <div class="checkbox-grid">
+                        <label><input type="checkbox" name="interestedServices" value="CCTV"> CCTV</label>
+                        <label><input type="checkbox" name="interestedServices" value="Networking"> Networking</label>
+                        <label><input type="checkbox" name="interestedServices" value="Software AI"> Software AI</label>
+                        <label><input type="checkbox" name="interestedServices" value="AMC"> AMC</label>
+                    </div>
+                    <div class="form-label mb-1" style="margin-top: 8px;">Follow-up Call Date:</div>
+                    <input type="date" name="followUpDate">
+                </div>
+                
+                <!-- 3. HARDWARE STATUS -->
+                <div class="form-section">
+                    <div class="form-section-title">3. Comprehensive Hardware Status</div>
+                    <input type="text" name="pcModel" placeholder="PC / Laptop Model Name" style="margin-bottom: 12px;">
+                    <div class="hw-grid">
+                        <div class="form-group"><label>CPU/Processor</label><select name="cpu"><option>Good</option><option>Issue Detected</option></select></div>
+                        <div class="form-group"><label>Motherboard</label><select name="motherboard"><option>Good</option><option>Repair Required</option></select></div>
+                        <div class="form-group"><label>RAM Status</label><select name="ramStatus"><option>Good</option><option>Faulty/Upgrade Req</option></select></div>
+                        <div class="form-group"><label>RAM Slots</label><select name="ramSlot"><option>Good</option><option>Dusty/Faulty</option></select></div>
+                        <div class="form-group"><label>Storage (HDD/SSD)</label><select name="hddHealth"><option>Good</option><option>Bad Sectors</option></select></div>
+                        <div class="form-group"><label>CD/DVD Drive</label><select name="drive"><option>Good</option><option>Not Working</option><option>N/A</option></select></div>
+                        <div class="form-group"><label>Cooling Fan</label><select name="fan"><option>Good</option><option>Noisy/Slow</option></select></div>
+                        <div class="form-group"><label>Temperature</label><select name="temperature"><option>Normal</option><option>Overheating</option></select></div>
+                        <div class="form-group"><label>Battery (Laptop)</label><select name="battery"><option>Good</option><option>Dead/Replace</option><option>N/A</option></select></div>
+                        <div class="form-group"><label>Charger/Power Supply</label><select name="charger"><option>Good</option><option>Faulty</option></select></div>
+                        <div class="form-group"><label>Power Cable</label><select name="powerCable"><option>Good</option><option>Damaged</option></select></div>
+                        <div class="form-group"><label>Ports/Connectors</label><select name="connectors"><option>Good</option><option>Loose</option></select></div>
+                        <div class="form-group"><label>Monitor/Screen</label><select name="monitor"><option>Good</option><option>Lines/Broken</option></select></div>
+                        <div class="form-group"><label>Webcam</label><select name="webcam"><option>Good</option><option>Not Working</option><option>N/A</option></select></div>
+                    </div>
+                    <textarea name="remarks" placeholder="Engineer Remarks..." rows="3" style="margin-top: 12px;"></textarea>
+                </div>
+                
+                <!-- 4. PROOF PHOTO -->
+                <div class="form-section">
+                    <div class="form-section-title">4. Upload Proof Photo</div>
+                    <div class="file-upload">
+                        <input type="file" id="fileInput" accept="image/*">
+                        <input type="hidden" name="proofPhoto" id="proofPhotoData">
+                        <div class="file-upload-success" id="uploadSuccess">✓ Photo Compressed & Ready</div>
+                    </div>
+                </div>
+                
+                <button type="submit" id="submitBtn" class="btn btn-primary w-full" style="padding: 14px; font-size: 14px;">
+                    Save Entry & Generate Docs
+                </button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- MY DIAGNOSTIC LOGS -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div class="section-title" style="margin-bottom: 0;">My Diagnostic Logs</div>
+        <form method="GET" action="/agent" style="display: flex; gap: 6px; align-items: center;">
+            <input type="date" name="date" value="<%= selectedDate %>" style="width: auto; padding: 6px 10px; font-size: 12px;">
+            <button type="submit" class="btn btn-sm" style="background: var(--accent); color: white;">Filter</button>
+            <a href="/agent" class="btn btn-sm btn-secondary">Today</a>
+        </form>
+    </div>
+    
+    <% if (entries.length === 0) { %>
+        <div class="empty-state" style="background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md);">
+            <div class="empty-icon">📋</div>
+            <div class="empty-title">No entries for this date</div>
+        </div>
+    <% } else { entries.forEach(entry => { %>
+        <div class="entry-card">
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                <div>
+                    <div class="font-bold" style="font-size: 14px;"><%= entry.customerName %></div>
+                    <div class="text-muted" style="font-size: 11px;">🕒 <%= entry.createdAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) %> · <%= entry.mobileNumber %></div>
+                </div>
+                <span class="badge success font-mono" style="font-size: 13px; font-weight: 800;">₹<%= entry.revenue %></span>
+            </div>
+            
+            <% if (!entry.whatsappSent) { %>
+                <button onclick="markWhatsAppSent('<%= entry._id %>', '<%= entry.mobileNumber %>', '<%= entry.customerName %>')" class="wa-btn">
+                    📲 Send Service Docs via WhatsApp
+                </button>
+            <% } else { %>
+                <div style="background: var(--success-light); color: #047857; padding: 10px; border-radius: var(--radius); text-align: center; font-weight: 700; font-size: 13px;">
+                    ✓ WhatsApp Delivered
+                </div>
+            <% } %>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                <a href="/invoice/<%= entry._id %>" target="_blank" class="btn btn-sm" style="background: var(--purple-light); color: #6d28d9; border: 1px solid #ddd6fe;">🧾 Invoice</a>
+                <a href="/report/<%= entry._id %>" target="_blank" class="btn btn-sm" style="background: var(--info-light); color: var(--primary); border: 1px solid #bfdbfe;">🛠️ Report</a>
+            </div>
+        </div>
+    <% }) } %>
+</div>
+
+<script>
+    function loadJob(id, name, mobile, location) {
+        document.getElementById('entryIdInput').value = id;
+        document.getElementById('cName').value = name;
+        document.getElementById('cMobile').value = mobile;
+        document.getElementById('cLoc').value = location;
+        document.getElementById('formTitle').innerText = "Processing Assigned Job";
+        document.getElementById('clearBtn').style.display = 'inline-flex';
+        window.scrollTo({ top: document.getElementById('formContainer').offsetTop - 20, behavior: 'smooth' });
+    }
+    
+    function clearForm() {
+        document.getElementById('entryIdInput').value = '';
+        document.getElementById('cName').value = '';
+        document.getElementById('cMobile').value = '';
+        document.getElementById('cLoc').value = '';
+        document.getElementById('formTitle').innerText = "Create New Diagnostic Entry";
+        document.getElementById('clearBtn').style.display = 'none';
+    }
+    
+    // WhatsApp for Service
+    function markWhatsAppSent(id, mobile, name) {
+        fetch(`/api/whatsapp-sent/${id}`, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    const host = window.location.origin;
+                    const pdfLink = `${host}/report/${id}`;
+                    const invLink = `${host}/invoice/${id}`;
+                    const message = `Hello ${name},\n\nThank you for choosing *Searvator IT Solutions*.\n\nAapka system service process ho chuka hai. Kripya niche diye gaye links se apni files download karein:\n\n🧾 *Service Invoice:* \n${invLink}\n\n🛠️ *Diagnostic Report:* \n${pdfLink}\n\nRegards,\nTeam Searvator`;
+                    let formattedMobile = mobile.replace(/\D/g, '');
+                    if (formattedMobile.length === 10) formattedMobile = '91' + formattedMobile;
+                    let waUrl = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) 
+                        ? `https://wa.me/${formattedMobile}?text=${encodeURIComponent(message)}` 
+                        : `https://web.whatsapp.com/send?phone=${formattedMobile}&text=${encodeURIComponent(message)}`;
+                    window.open(waUrl, '_blank');
+                    window.location.reload();
+                }
+            });
+    }
+    
+    // WhatsApp for Order
+    function markOrderWhatsAppSent(id, mobile, name) {
+        fetch(`/api/order/whatsapp-sent/${id}`, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    const host = window.location.origin;
+                    const invLink = `${host}/order-invoice/${id}`;
+                    const message = `Hello ${name},\n\nThank you for choosing *Searvator IT Solutions*.\n\nAapki product request complete ho chuki hai. Kripya niche diye gaye link se apna Tax Invoice download karein:\n\n🧾 *Product Invoice:* \n${invLink}\n\nRegards,\nTeam Searvator`;
+                    let formattedMobile = mobile.replace(/\D/g, '');
+                    if (formattedMobile.length === 10) formattedMobile = '91' + formattedMobile;
+                    let waUrl = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) 
+                        ? `https://wa.me/${formattedMobile}?text=${encodeURIComponent(message)}` 
+                        : `https://web.whatsapp.com/send?phone=${formattedMobile}&text=${encodeURIComponent(message)}`;
+                    window.open(waUrl, '_blank');
+                    window.location.reload();
+                }
+            });
+    }
+    
+    function updateTimers() {
+        document.querySelectorAll('.live-timer').forEach(el => {
+            const startTime = new Date(el.dataset.time).getTime();
+            const now = new Date().getTime();
+            const diff = now - startTime;
+            const hours = Math.floor(diff / (1000 * 60 * 60));
+            const days = Math.floor(hours / 24);
+            const displayHours = hours % 24;
+            el.innerText = days > 0 ? `${days}d ${displayHours}h` : `${hours}h ${Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))}m`;
+        });
+    }
+    setInterval(updateTimers, 60000);
+    updateTimers();
+    
+    // Image compression
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = function(event) {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = function() {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 800;
+                const scaleSize = MAX_WIDTH / img.width;
+                canvas.width = MAX_WIDTH;
+                canvas.height = img.height * scaleSize;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                document.getElementById('proofPhotoData').value = canvas.toDataURL('image/jpeg', 0.6);
+                document.getElementById('uploadSuccess').classList.add('show');
+            }
+        }
+    });
+    
+    document.getElementById('orderFileInput').addEventListener('change', function(e) {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = function(event) {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = function() {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 800;
+                const scaleSize = MAX_WIDTH / img.width;
+                canvas.width = MAX_WIDTH;
+                canvas.height = img.height * scaleSize;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                document.getElementById('orderPhotoData').value = canvas.toDataURL('image/jpeg', 0.6);
+                document.getElementById('orderUploadSuccess').classList.add('show');
+            }
+        }
+    });
+</script>
+</body>
+</html>

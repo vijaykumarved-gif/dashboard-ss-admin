@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= quotation ? 'Edit Quotation' : 'New Quotation' %> — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .builder-grid { display: grid; grid-template-columns: 1fr 380px; gap: 20px; align-items: start; }
+        @media (max-width: 1100px) { .builder-grid { grid-template-columns: 1fr; } }
+        .product-picker { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px; position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow-y: auto; }
+        .product-search { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; font-size: 13px; }
+        .product-item { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; cursor: pointer; transition: all 0.2s var(--ease); }
+        .product-item:hover { border-color: var(--accent); background: var(--surface-2); transform: translateX(2px); }
+        .product-item-name { font-weight: 600; font-size: 13px; }
+        .product-item-meta { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+        .item-row { display: grid; grid-template-columns: 1fr 80px 80px 100px 60px 100px 36px; gap: 8px; padding: 10px; border-bottom: 1px solid var(--border); align-items: center; }
+        .item-row:last-child { border-bottom: none; }
+        .item-row input { padding: 6px 8px; font-size: 12px; }
+        .items-header { display: grid; grid-template-columns: 1fr 80px 80px 100px 60px 100px 36px; gap: 8px; padding: 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.05em; }
+        .totals-row { display: flex; justify-content: space-between; padding: 8px 0; }
+        .totals-row.grand { padding-top: 12px; border-top: 2px solid var(--text); font-weight: 800; font-size: 18px; margin-top: 8px; }
+        .remove-btn { width: 28px; height: 28px; border-radius: 6px; background: var(--danger-light); color: var(--danger); border: none; cursor: pointer; font-size: 16px; display: grid; place-items: center; }
+    </style>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user, activePage: 'cctv' }) %>
+    
+    <main class="main-content">
+        <div style="margin-bottom: 12px;">
+            <a href="/cctv" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back to CCTV</a>
+        </div>
+        
+        <div class="page-header">
+            <div>
+                <h1 class="page-title"><%= quotation ? 'Edit Quotation' : 'New Quotation' %></h1>
+                <p class="page-subtitle">
+                    <% if (quotation) { %>
+                        <%= quotation.quotationNumber %>
+                    <% } else { %>
+                        Pick products from the catalog or add custom items
+                    <% } %>
+                </p>
+            </div>
+            <div class="flex gap-2">
+                <% if (quotation) { %>
+                    <a href="/api/quotations/<%= quotation._id %>/pdf" target="_blank" class="btn btn-secondary">📄 Preview PDF</a>
+                <% } %>
+                <button class="btn btn-primary" onclick="saveQuotation()">💾 Save Quotation</button>
+            </div>
+        </div>
+        
+        <div class="builder-grid">
+            <!-- LEFT: Quotation Form -->
+            <div>
+                <!-- Client Info -->
+                <div class="card">
+                    <div class="card-header"><div class="card-title">Client Information</div></div>
+                    <div class="card-body">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label class="form-label">Client Name *</label>
+                                <input type="text" id="q_client" value="<%= quotation ? quotation.clientName : '' %>">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Company</label>
+                                <input type="text" id="q_company" value="<%= quotation ? quotation.clientCompany : '' %>">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Mobile</label>
+                                <input type="text" id="q_mobile" value="<%= quotation ? quotation.clientMobile : '' %>">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Email</label>
+                                <input type="email" id="q_email" value="<%= quotation ? quotation.clientEmail : '' %>">
+                            </div>
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label class="form-label">Address</label>
+                                <textarea id="q_address" rows="2"><%= quotation ? quotation.clientAddress : '' %></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Project Type</label>
+                                <select id="q_type">
+                                    <% ['CCTV Installation','Biometric','AMC','Hybrid Setup','Other'].forEach(s => { %>
+                                        <option <%= quotation && quotation.projectType === s ? 'selected' : '' %>><%= s %></option>
+                                    <% }) %>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Site Location</label>
+                                <input type="text" id="q_site" value="<%= quotation ? quotation.siteLocation : '' %>">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Items -->
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">Items</div>
+                            <div class="card-subtitle">Pick products from catalog →, or add custom items below</div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" onclick="addCustomItem()">+ Custom Item</button>
+                    </div>
+                    <div>
+                        <div class="items-header">
+                            <div>Item Name</div>
+                            <div>Qty</div>
+                            <div>Unit</div>
+                            <div>Price</div>
+                            <div>GST%</div>
+                            <div class="text-right">Total</div>
+                            <div></div>
+                        </div>
+                        <div id="itemsContainer"></div>
+                        <div id="emptyItems" style="padding: 40px; text-align: center; color: var(--text-3);">
+                            No items added. Pick from product catalog on the right →
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Terms & Totals -->
+                <div class="card">
+                    <div class="card-header"><div class="card-title">Terms & Pricing</div></div>
+                    <div class="card-body">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label class="form-label">Installation Charges (₹)</label>
+                                <input type="number" id="q_install" value="<%= quotation ? quotation.installationCharges : 0 %>" onchange="recalcTotals()">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Discount (₹)</label>
+                                <input type="number" id="q_discount" value="<%= quotation ? quotation.discount : 0 %>" onchange="recalcTotals()">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Validity (days)</label>
+                                <input type="number" id="q_validity" value="<%= quotation ? quotation.validityDays : 15 %>">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Status</label>
+                                <select id="q_status">
+                                    <% ['Draft','Sent','Approved','Rejected','Expired'].forEach(s => { %>
+                                        <option <%= quotation && quotation.status === s ? 'selected' : '' %>><%= s %></option>
+                                    <% }) %>
+                                </select>
+                            </div>
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label class="form-label">Payment Terms</label>
+                                <input type="text" id="q_payment" value="<%= quotation ? quotation.paymentTerms : '50% advance, 50% on completion' %>">
+                            </div>
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label class="form-label">Warranty</label>
+                                <input type="text" id="q_warranty" value="<%= quotation ? quotation.warranty : '1 Year Manufacturer Warranty' %>">
+                            </div>
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label class="form-label">Additional Notes</label>
+                                <textarea id="q_notes" rows="2"><%= quotation ? quotation.notes : '' %></textarea>
+                            </div>
+                        </div>
+                        
+                        <div style="margin-top: 20px; padding: 16px; background: var(--surface-2); border-radius: var(--radius);">
+                            <div class="totals-row"><span>Subtotal:</span><span id="t_subtotal" class="font-mono">₹0</span></div>
+                            <div class="totals-row"><span>GST:</span><span id="t_gst" class="font-mono">₹0</span></div>
+                            <div class="totals-row"><span>Installation:</span><span id="t_install" class="font-mono">₹0</span></div>
+                            <div class="totals-row"><span>Discount:</span><span id="t_discount" class="font-mono text-danger">₹0</span></div>
+                            <div class="totals-row grand"><span>GRAND TOTAL:</span><span id="t_grand" class="font-mono">₹0</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- RIGHT: Product Picker -->
+            <div class="product-picker">
+                <div class="font-bold mb-2" style="font-size: 14px;">📦 Pick from Catalog</div>
+                <input type="text" class="product-search" id="productSearch" placeholder="Search products..." oninput="filterProducts()">
+                <div id="productList">
+                    <% if (products.length === 0) { %>
+                        <div style="padding: 20px; text-align: center; color: var(--text-3); font-size: 12px;">
+                            No products in catalog. <a href="/cctv">Add some first</a>
+                        </div>
+                    <% } else { products.forEach(p => { %>
+                        <div class="product-item" data-name="<%= p.productName.toLowerCase() %>" onclick='addProduct(<%- JSON.stringify(p) %>)'>
+                            <div class="product-item-name"><%= p.productName %></div>
+                            <div class="product-item-meta">
+                                <%= p.category %> · <%= p.brand %> · <strong>₹<%= p.sellingPrice.toLocaleString('en-IN') %></strong>/<%= p.unit %>
+                            </div>
+                        </div>
+                    <% }) } %>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    let items = <%- quotation ? JSON.stringify(quotation.items) : '[]' %>;
+    const QUOTATION_ID = '<%= quotation ? quotation._id : "" %>';
+    
+    function formatINR(n) { return '₹' + (Number(n) || 0).toLocaleString('en-IN'); }
+    
+    function renderItems() {
+        const container = document.getElementById('itemsContainer');
+        const empty = document.getElementById('emptyItems');
+        if (items.length === 0) {
+            container.innerHTML = '';
+            empty.style.display = 'block';
+        } else {
+            empty.style.display = 'none';
+            container.innerHTML = items.map((it, idx) => `
+                <div class="item-row">
+                    <div>
+                        <input type="text" value="${it.productName || ''}" oninput="updateItem(${idx}, 'productName', this.value)" placeholder="Item name">
+                        <input type="text" value="${it.specifications || ''}" oninput="updateItem(${idx}, 'specifications', this.value)" placeholder="Spec (optional)" style="margin-top: 4px; font-size: 11px;">
+                    </div>
+                    <input type="number" value="${it.quantity || 1}" oninput="updateItem(${idx}, 'quantity', this.value)" min="1">
+                    <input type="text" value="${it.unit || 'Pcs'}" oninput="updateItem(${idx}, 'unit', this.value)">
+                    <input type="number" value="${it.unitPrice || 0}" oninput="updateItem(${idx}, 'unitPrice', this.value)">
+                    <input type="number" value="${it.gstPercent || 18}" oninput="updateItem(${idx}, 'gstPercent', this.value)">
+                    <div class="font-mono font-bold text-right">${formatINR(it.total)}</div>
+                    <button class="remove-btn" onclick="removeItem(${idx})">×</button>
+                </div>
+            `).join('');
+        }
+        recalcTotals();
+    }
+    
+    function updateItem(idx, field, val) {
+        if (['quantity', 'unitPrice', 'gstPercent'].includes(field)) val = Number(val);
+        items[idx][field] = val;
+        const it = items[idx];
+        const sub = (it.quantity || 0) * (it.unitPrice || 0);
+        it.total = sub + (sub * (it.gstPercent || 0) / 100);
+        renderItems();
+    }
+    
+    function addProduct(p) {
+        items.push({
+            productId: p._id,
+            productName: p.productName,
+            specifications: p.specifications || '',
+            quantity: 1,
+            unit: p.unit || 'Pcs',
+            unitPrice: p.sellingPrice,
+            gstPercent: p.gstPercent || 18,
+            total: p.sellingPrice + (p.sellingPrice * (p.gstPercent || 18) / 100)
+        });
+        renderItems();
+        showToast(`Added: ${p.productName}`, 'success');
+    }
+    
+    function addCustomItem() {
+        items.push({
+            productName: '',
+            specifications: '',
+            quantity: 1,
+            unit: 'Pcs',
+            unitPrice: 0,
+            gstPercent: 18,
+            total: 0
+        });
+        renderItems();
+    }
+    
+    function removeItem(idx) {
+        items.splice(idx, 1);
+        renderItems();
+    }
+    
+    function recalcTotals() {
+        let subtotal = 0, gst = 0;
+        items.forEach(it => {
+            const s = (it.quantity || 0) * (it.unitPrice || 0);
+            subtotal += s;
+            gst += s * (it.gstPercent || 0) / 100;
+        });
+        const install = Number(document.getElementById('q_install').value || 0);
+        const disc = Number(document.getElementById('q_discount').value || 0);
+        const grand = subtotal + gst + install - disc;
+        document.getElementById('t_subtotal').textContent = formatINR(subtotal);
+        document.getElementById('t_gst').textContent = formatINR(gst);
+        document.getElementById('t_install').textContent = formatINR(install);
+        document.getElementById('t_discount').textContent = '-' + formatINR(disc);
+        document.getElementById('t_grand').textContent = formatINR(grand);
+    }
+    
+    function filterProducts() {
+        const q = document.getElementById('productSearch').value.toLowerCase();
+        document.querySelectorAll('.product-item').forEach(el => {
+            el.style.display = el.dataset.name.includes(q) ? 'block' : 'none';
+        });
+    }
+    
+    async function saveQuotation() {
+        const data = {
+            clientName: document.getElementById('q_client').value,
+            clientCompany: document.getElementById('q_company').value,
+            clientMobile: document.getElementById('q_mobile').value,
+            clientEmail: document.getElementById('q_email').value,
+            clientAddress: document.getElementById('q_address').value,
+            projectType: document.getElementById('q_type').value,
+            siteLocation: document.getElementById('q_site').value,
+            items: items,
+            installationCharges: Number(document.getElementById('q_install').value || 0),
+            discount: Number(document.getElementById('q_discount').value || 0),
+            validityDays: Number(document.getElementById('q_validity').value || 15),
+            paymentTerms: document.getElementById('q_payment').value,
+            warranty: document.getElementById('q_warranty').value,
+            notes: document.getElementById('q_notes').value,
+            status: document.getElementById('q_status').value
+        };
+        
+        if (!data.clientName) return showToast('Client name required', 'error');
+        if (items.length === 0) return showToast('Add at least one item', 'error');
+        
+        const url = QUOTATION_ID ? `/api/quotations/${QUOTATION_ID}` : '/api/quotations';
+        const method = QUOTATION_ID ? 'PUT' : 'POST';
+        const res = await api(url, { method, body: JSON.stringify(data) });
+        
+        if (res.success) {
+            showToast('Quotation saved!', 'success');
+            setTimeout(() => {
+                if (!QUOTATION_ID) location.href = `/cctv/quotation/${res.quotation._id}/edit`;
+                else location.reload();
+            }, 500);
+        }
+    }
+    
+    renderItems();
+</script>
+</body>
+</html>

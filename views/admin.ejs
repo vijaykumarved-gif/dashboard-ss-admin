@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        /* Order queue styles */
+        .queue-row {
+            display: grid;
+            grid-template-columns: 1fr 1.2fr 1.6fr 0.9fr;
+            gap: 16px;
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            align-items: start;
+        }
+        .queue-row:last-child { border-bottom: none; }
+        .queue-row:hover { background: var(--surface-2); }
+        .vendor-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .vendor-form input, .vendor-form select { padding: 6px 8px; font-size: 12px; }
+        .vendor-form .full { grid-column: span 2; }
+        .timer-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            color: var(--danger);
+            font-weight: 700;
+            font-size: 11px;
+            margin-top: 4px;
+        }
+        .wa-btn {
+            background: #25D366;
+            color: white;
+            padding: 10px 14px;
+            border-radius: var(--radius);
+            border: none;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            text-decoration: none;
+            display: block;
+            text-align: center;
+            transition: all 0.2s var(--ease);
+        }
+        .wa-btn:hover { background: #128C7E; transform: translateY(-1px); }
+        .inline-form { display: inline-flex; gap: 4px; align-items: center; }
+        .inline-form input { width: 60px; padding: 4px 6px; font-size: 12px; text-align: center; }
+        .inline-form select { padding: 4px 6px; font-size: 11px; }
+        .inline-form button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .photo-modal {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.85);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+            padding: 20px;
+        }
+        .photo-modal.open { display: flex; }
+        .photo-modal img { max-width: 90vw; max-height: 85vh; border-radius: 8px; }
+        .photo-modal-close {
+            position: absolute; top: 20px; right: 20px;
+            background: white; color: var(--danger);
+            width: 40px; height: 40px;
+            border-radius: 50%; border: none;
+            font-size: 22px; cursor: pointer; font-weight: bold;
+        }
+        .alert-card {
+            background: linear-gradient(135deg, #fef3c7 0%, #fed7aa 100%);
+            border: 1px solid #fcd34d;
+            border-radius: var(--radius-md);
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .alert-icon { font-size: 24px; }
+        @media (max-width: 1100px) {
+            .queue-row { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'hardware' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">Hardware & Repair</h1>
+                <p class="page-subtitle">Service operations, vendor pricing, agent dispatch & follow-ups</p>
+            </div>
+            <a href="/admin/export?agent=<%= query.agent || '' %>&date=<%= query.date || '' %>" class="btn btn-success">
+                ⬇️ Download Excel
+            </a>
+        </div>
+        
+        <!-- ===== KPI STATS ===== -->
+        <div class="stats-grid">
+            <div class="stat-card amber">
+                <div class="stat-label">Follow-up Impact</div>
+                <div class="stat-value" style="color: var(--warning)">₹<%= followUpRevenue %></div>
+                <div class="stat-meta">Converted lead revenue</div>
+            </div>
+            <div class="stat-card blue">
+                <div class="stat-label">Today's Revenue</div>
+                <div class="stat-value">₹<%= todayRevenue %></div>
+                <div class="stat-meta">Target: ₹<%= targets.dailyTarget %></div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Weekly</div>
+                <div class="stat-value" style="color: var(--purple)">₹<%= weekRevenue %></div>
+                <div class="stat-meta">Target: ₹<%= targets.weeklyTarget %></div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Monthly</div>
+                <div class="stat-value" style="color: var(--success)">₹<%= monthRevenue %></div>
+                <div class="stat-meta">Target: ₹<%= targets.monthlyTarget %></div>
+            </div>
+        </div>
+        
+        <!-- ===== TOTALS BAR ===== -->
+        <div style="background: var(--accent); border-radius: var(--radius-md); padding: 20px; margin-bottom: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; text-align: center; color: white;">
+            <div>
+                <div style="font-size: 11px; opacity: 0.7; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Gross Revenue</div>
+                <div style="font-size: 26px; font-weight: 800; color: #4ade80; margin-top: 4px;" class="font-mono">₹<%= totalRevenue %></div>
+            </div>
+            <div>
+                <div style="font-size: 11px; opacity: 0.7; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Total Travel Cost</div>
+                <div style="font-size: 26px; font-weight: 800; color: #f87171; margin-top: 4px;" class="font-mono">₹<%= totalExpense %></div>
+            </div>
+            <div>
+                <div style="font-size: 11px; opacity: 0.7; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Net Profit</div>
+                <div style="font-size: 26px; font-weight: 800; color: #60a5fa; margin-top: 4px;" class="font-mono">₹<%= totalRevenue - totalExpense %></div>
+            </div>
+        </div>
+        
+        <!-- ===== ALERT (Weak Point) ===== -->
+        <div class="alert-card" style="margin-bottom: 24px;">
+            <div class="alert-icon">⚠️</div>
+            <div>
+                <div style="font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #92400e; margin-bottom: 4px;">Area Improvement Analysis</div>
+                <div style="font-weight: 600; color: #78350f;"><%= weakPoint %></div>
+            </div>
+        </div>
+        
+        <!-- ===== PART & SERVICE QUEUE ===== -->
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">📦 Part & Service Requests Queue</div>
+                    <div class="card-subtitle">Vendor pricing & assign to agent</div>
+                </div>
+                <span class="badge warning"><%= orders.length %> total</span>
+            </div>
+            
+            <% if (orders.length === 0) { %>
+                <div class="empty-state">
+                    <div class="empty-icon">📦</div>
+                    <div class="empty-title">No requests yet</div>
+                    <div>Agent ke part requests yahan dikhenge</div>
+                </div>
+            <% } else { %>
+                <!-- Header row -->
+                <div class="queue-row" style="background: var(--surface-2); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-2);">
+                    <div>Customer & Timer</div>
+                    <div>Requirement</div>
+                    <div>Vendor Pricing & Assign</div>
+                    <div>Status / Action</div>
+                </div>
+                
+                <% orders.forEach(order => { %>
+                <div class="queue-row">
+                    <!-- Customer -->
+                    <div>
+                        <div class="font-bold"><%= order.customerName %></div>
+                        <div class="text-muted" style="font-size: 11px;"><%= order.mobileNumber %></div>
+                        <div class="timer-badge">⏳ <span class="live-timer" data-time="<%= order.createdAt.toISOString() %>"></span></div>
+                    </div>
+                    
+                    <!-- Requirement -->
+                    <div>
+                        <div style="font-weight: 600; color: var(--primary); font-size: 12px;"><%= order.description %></div>
+                        <div class="text-muted" style="font-size: 11px; margin-top: 2px;">Req by: <%= order.createdBy %></div>
+                        <% if (order.requestPhoto) { %>
+                            <button onclick="openPhotoModal('<%= order.requestPhoto %>')" class="btn btn-xs btn-secondary" style="margin-top: 6px;">📷 View Photo</button>
+                        <% } %>
+                    </div>
+                    
+                    <!-- Vendor pricing form -->
+                    <div>
+                        <form action="/api/admin/order/process/<%= order._id %>" method="POST" class="vendor-form">
+                            <input type="text" name="vendorName" value="<%= order.vendorName %>" placeholder="Vendor Name" required>
+                            <input type="text" name="warranty" value="<%= order.warranty %>" placeholder="Warranty">
+                            <input type="number" name="costPrice" value="<%= order.costPrice %>" placeholder="Cost ₹" style="color: var(--danger); font-weight: 700;" required>
+                            <input type="number" name="sellingPrice" value="<%= order.sellingPrice %>" placeholder="Selling ₹" style="color: var(--success); font-weight: 700;" required>
+                            <select name="assignedAgent" class="full">
+                                <option value="vijay" <%= order.assignedAgent === 'vijay' ? 'selected' : '' %>>Assign: Vijay</option>
+                                <option value="rahul" <%= order.assignedAgent === 'rahul' ? 'selected' : '' %>>Assign: Rahul</option>
+                            </select>
+                            <button type="submit" class="btn btn-primary btn-sm full" style="background: var(--warning); color: white;">Save & Send to Agent</button>
+                        </form>
+                    </div>
+                    
+                    <!-- Status / Action -->
+                    <div>
+                        <% 
+                        const sc = order.status === 'Completed' ? 'success' : order.status === 'In Progress' ? 'info' : 'warning';
+                        %>
+                        <span class="badge <%= sc %>" style="display: inline-block; margin-bottom: 8px;"><%= order.status %></span>
+                        
+                        <% if (order.status === 'Completed') { %>
+                            <div style="margin-top: 6px;">
+                                <% if (order.whatsappSent) { %>
+                                    <span class="badge success" style="display: block; margin-bottom: 6px;">✓ WA SENT</span>
+                                <% } else { %>
+                                    <span class="badge danger" style="display: block; margin-bottom: 6px;">❌ WA PENDING</span>
+                                <% } %>
+                                <a href="/order-invoice/<%= order._id %>" target="_blank" class="btn btn-xs" style="background: var(--purple); color: white; display: inline-block;">📄 Invoice</a>
+                            </div>
+                        <% } %>
+                    </div>
+                </div>
+                <% }) %>
+            <% } %>
+        </div>
+        
+        <!-- ===== ROW: TARGETS + DISPATCH ===== -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px;">
+            <!-- TARGETS -->
+            <div class="card" style="margin-bottom: 0;">
+                <div class="card-header">
+                    <div class="card-title">🎯 Set Revenue Targets</div>
+                </div>
+                <div class="card-body">
+                    <form action="/api/admin/targets" method="POST">
+                        <div class="form-group mb-2">
+                            <label class="form-label">Daily (₹)</label>
+                            <input type="number" name="dailyTarget" value="<%= targets.dailyTarget %>" style="color: var(--primary); font-weight: 700; text-align: right;">
+                        </div>
+                        <div class="form-group mb-2">
+                            <label class="form-label">Weekly (₹)</label>
+                            <input type="number" name="weeklyTarget" value="<%= targets.weeklyTarget %>" style="color: var(--purple); font-weight: 700; text-align: right;">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label">Monthly (₹)</label>
+                            <input type="number" name="monthlyTarget" value="<%= targets.monthlyTarget %>" style="color: var(--success); font-weight: 700; text-align: right;">
+                        </div>
+                        <button type="submit" class="btn btn-primary w-full">Update Targets</button>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- DISPATCH & WHATSAPP BULK -->
+            <div class="card" style="margin-bottom: 0;">
+                <div class="card-header">
+                    <div class="card-title">➕ Dispatch New Lead</div>
+                </div>
+                <div class="card-body">
+                    <form action="/api/admin/assign" method="POST">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                            <input type="text" name="customerName" placeholder="Customer Name" required>
+                            <input type="tel" name="mobileNumber" placeholder="Mobile" required>
+                        </div>
+                        <input type="text" name="location" placeholder="Address / Location" required style="margin-bottom: 8px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <select name="agentName" required>
+                                <option value="">Select Agent...</option>
+                                <option value="vijay">Vijay</option>
+                                <option value="rahul">Rahul</option>
+                            </select>
+                            <button type="submit" class="btn btn-primary">Assign Lead</button>
+                        </div>
+                    </form>
+                    
+                    <% 
+                    let msgVijay = "Hello Vijay, aaj ke pending tasks:\n\n";
+                    pendingVijay.forEach(e => msgVijay += `📌 *${e.customerName}*\n📞 ${e.mobileNumber}\n📍 ${e.location}\n\n`);
+                    let msgRahul = "Hello Rahul, aaj ke pending tasks:\n\n";
+                    pendingRahul.forEach(e => msgRahul += `📌 *${e.customerName}*\n📞 ${e.mobileNumber}\n📍 ${e.location}\n\n`);
+                    %>
+                    
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+                        <div class="form-label mb-2">📲 Bulk Dispatch Pending</div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <a href="https://api.whatsapp.com/send?text=<%= encodeURIComponent(msgVijay) %>" target="_blank" class="wa-btn">
+                                Send <%= pendingVijay.length %> to Vijay
+                            </a>
+                            <a href="https://api.whatsapp.com/send?text=<%= encodeURIComponent(msgRahul) %>" target="_blank" class="wa-btn">
+                                Send <%= pendingRahul.length %> to Rahul
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ===== LOG FILTERS ===== -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">🔍 Logs & Report Filters</div>
+            </div>
+            <div class="card-body">
+                <form method="GET" action="/admin" style="display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 12px; align-items: end;">
+                    <div class="form-group">
+                        <label class="form-label">Agent</label>
+                        <select name="agent">
+                            <option value="">All</option>
+                            <option value="vijay" <%= query.agent === 'vijay' ? 'selected' : '' %>>Vijay</option>
+                            <option value="rahul" <%= query.agent === 'rahul' ? 'selected' : '' %>>Rahul</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Specific Date</label>
+                        <input type="date" name="date" value="<%= query.date %>">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Apply</button>
+                    <a href="/admin" class="btn btn-secondary">Reset</a>
+                </form>
+            </div>
+        </div>
+        
+        <!-- ===== DETAILED OPERATIONS LEDGER ===== -->
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">📋 Detailed Operations Ledger</div>
+                    <div class="card-subtitle"><%= entries.length %> entries</div>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date & Time</th>
+                            <th>Customer / Agent</th>
+                            <th>Status / Revenue</th>
+                            <th>Travel Cost</th>
+                            <th>Follow-up</th>
+                            <th class="text-center">Report / Invoice</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% 
+                        const tDate = new Date().toISOString().split('T')[0];
+                        if (entries.length === 0) { %>
+                            <tr><td colspan="6" class="text-center" style="padding: 40px; color: var(--text-3);">No entries match these filters</td></tr>
+                        <% } else { entries.forEach(function(entry) {
+                            const followDateStr = entry.followUpDate ? entry.followUpDate.toISOString().split('T')[0] : null;
+                            const isToday = followDateStr === tDate && entry.callStatus !== 'Done';
+                        %>
+                        <tr>
+                            <td>
+                                <div class="font-bold"><%= entry.createdAt.toLocaleDateString() %></div>
+                                <div class="text-muted" style="font-size: 11px;">🕒 <%= entry.createdAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) %></div>
+                                <div style="margin-top: 6px;">
+                                    <% if (entry.whatsappSent) { %>
+                                        <span class="badge success">✓ WA SENT</span>
+                                    <% } else if (entry.jobStatus !== 'Assigned') { %>
+                                        <span class="badge danger">❌ WA PENDING</span>
+                                    <% } %>
+                                </div>
+                            </td>
+                            
+                            <td>
+                                <div class="font-bold"><%= entry.customerName %></div>
+                                <div class="text-muted" style="font-size: 11px;"><%= entry.mobileNumber %> · <%= entry.location %></div>
+                                <div style="font-size: 10px; font-weight: 700; color: var(--primary); text-transform: uppercase; margin-top: 3px;">Logged by: <%= entry.agentName %></div>
+                            </td>
+                            
+                            <td>
+                                <% if (entry.jobStatus === 'Assigned') { %>
+                                    <span class="badge warning">Pending</span>
+                                <% } else { %>
+                                    <span class="badge success font-mono" style="font-size: 12px; font-weight: 800;">₹<%= entry.revenue %></span>
+                                <% } %>
+                            </td>
+                            
+                            <td>
+                                <form action="/api/admin/update-km/<%= entry._id %>" method="POST" class="inline-form">
+                                    <input type="number" name="kmTraveled" value="<%= entry.kmTraveled %>" placeholder="KM">
+                                    <button type="submit">Save</button>
+                                </form>
+                                <% if (entry.travelExpense > 0) { %>
+                                    <div class="text-muted" style="font-size: 10px; margin-top: 4px;">₹<%= entry.travelExpense.toFixed(0) %></div>
+                                <% } %>
+                            </td>
+                            
+                            <td>
+                                <% if (entry.followUpDate) { %>
+                                    <div style="font-size: 11px; font-weight: 700; color: <%= isToday ? 'var(--danger)' : 'var(--text-2)' %>;">
+                                        Call: <%= entry.followUpDate.toLocaleDateString() %>
+                                    </div>
+                                    <% if (entry.callStatus !== 'Done') { %>
+                                        <form action="/api/admin/followup/<%= entry._id %>" method="POST" class="inline-form" style="margin-top: 4px;">
+                                            <select name="conversionStatus">
+                                                <option value="Converted">Converted</option>
+                                                <option value="Not Interested">Not Interested</option>
+                                            </select>
+                                            <button type="submit" style="background: var(--primary);">Done</button>
+                                        </form>
+                                    <% } else { %>
+                                        <div style="font-size: 10px; font-weight: 700; color: var(--success); margin-top: 4px;">✓ Done (<%= entry.conversionStatus %>)</div>
+                                    <% } %>
+                                <% } else { %>
+                                    <span class="text-muted" style="font-size: 11px;">No Lead</span>
+                                <% } %>
+                            </td>
+                            
+                            <td class="text-center">
+                                <% if (entry.jobStatus !== 'Assigned') { %>
+                                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                                        <a href="/invoice/<%= entry._id %>" target="_blank" class="btn btn-xs" style="background: var(--purple-light); color: #6d28d9; border: 1px solid #ddd6fe;">🧾 Invoice</a>
+                                        <a href="/report/<%= entry._id %>" target="_blank" class="btn btn-xs" style="background: var(--info-light); color: var(--primary); border: 1px solid #bfdbfe;">🛠️ Report</a>
+                                    </div>
+                                <% } %>
+                            </td>
+                        </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Photo Modal -->
+<div class="photo-modal" id="photoModal">
+    <button class="photo-modal-close" onclick="closePhotoModal()">×</button>
+    <img id="photoModalImg" src="" alt="">
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    function openPhotoModal(src) {
+        document.getElementById('photoModalImg').src = src;
+        document.getElementById('photoModal').classList.add('open');
+    }
+    function closePhotoModal() {
+        document.getElementById('photoModal').classList.remove('open');
+    }
+    document.getElementById('photoModal').addEventListener('click', (e) => {
+        if (e.target.id === 'photoModal') closePhotoModal();
+    });
+    
+    function updateTimers() {
+        document.querySelectorAll('.live-timer').forEach(el => {
+            const startTime = new Date(el.dataset.time).getTime();
+            const now = new Date().getTime();
+            const diff = now - startTime;
+            const hours = Math.floor(diff / (1000 * 60 * 60));
+            const days = Math.floor(hours / 24);
+            const displayHours = hours % 24;
+            el.innerText = days > 0 ? `${days}d ${displayHours}h` : `${hours}h ${Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))}m`;
+        });
+    }
+    setInterval(updateTimers, 60000);
+    updateTimers();
+</script>
+</body>
+</html>

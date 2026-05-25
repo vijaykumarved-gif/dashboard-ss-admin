@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Projects — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user, activePage: 'ai' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">AI Software Projects</h1>
+                <p class="page-subtitle">Track project profitability — revenue vs server, AI, and dev costs</p>
+            </div>
+            <button class="btn btn-primary" onclick="openModal('newProjectModal')">+ New Project</button>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">All Projects (<%= projects.length %>)</div>
+                    <div class="card-subtitle">Click any project to view detailed P&L</div>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Project</th>
+                            <th>Client</th>
+                            <th>Type</th>
+                            <th>Quoted</th>
+                            <th>Received</th>
+                            <th>Costs</th>
+                            <th>Net P&L</th>
+                            <th>Recurring/mo</th>
+                            <th>Status</th>
+                            <th>Started</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% if (projects.length === 0) { %>
+                            <tr><td colspan="10" class="text-center" style="padding: 60px; color: var(--text-3);">
+                                <div style="font-size: 32px; margin-bottom: 8px;">🤖</div>
+                                No projects yet. Click <strong>+ New Project</strong> to start tracking.
+                            </td></tr>
+                        <% } else { projects.forEach(p => {
+                            const totalRev = (p.revenues || []).reduce((s, r) => s + (r.amount || 0), 0);
+                            const totalCost = (p.costs || []).reduce((s, c) => s + (c.amount || 0), 0);
+                            const recur = (p.recurringCosts || []).filter(r => r.active).reduce((s, r) => s + (r.monthlyAmount || 0), 0);
+                            const net = totalRev - totalCost;
+                            const sc = p.status === 'Delivered' ? 'success' : p.status === 'In Progress' ? 'info' : p.status === 'On Hold' ? 'warning' : 'neutral';
+                        %>
+                            <tr style="cursor: pointer;" onclick="location.href='/ai-projects/<%= p._id %>'">
+                                <td class="font-bold"><%= p.projectName %></td>
+                                <td><%= p.clientName %></td>
+                                <td><span class="badge purple"><%= p.projectType %></span></td>
+                                <td class="font-mono"><%= formatINR(p.totalQuotedPrice) %></td>
+                                <td class="font-mono text-success"><%= formatINR(totalRev) %></td>
+                                <td class="font-mono text-danger"><%= formatINR(totalCost) %></td>
+                                <td class="font-mono font-bold" style="color: <%= net >= 0 ? 'var(--success)' : 'var(--danger)' %>">
+                                    <%= formatINR(net) %>
+                                </td>
+                                <td class="font-mono"><%= formatINR(recur) %></td>
+                                <td><span class="badge <%= sc %>"><%= p.status %></span></td>
+                                <td class="text-muted"><%= formatDate(p.startDate) %></td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- New Project Modal -->
+<div class="modal-overlay" id="newProjectModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">New AI Software Project</div>
+            <button class="modal-close" onclick="closeModal('newProjectModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Project Name *</label>
+                    <input type="text" id="np_name" placeholder="e.g. Chatbot for ABC Corp">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Client Name *</label>
+                    <input type="text" id="np_client">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Client Mobile</label>
+                    <input type="text" id="np_mobile">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Client Email</label>
+                    <input type="email" id="np_email">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Project Type</label>
+                    <select id="np_type">
+                        <option>AI Software</option>
+                        <option>Chatbot</option>
+                        <option>Automation</option>
+                        <option>Data Analytics</option>
+                        <option>Custom Development</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Total Quoted Price (₹)</label>
+                    <input type="number" id="np_price" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Billing Type</label>
+                    <select id="np_billing">
+                        <option>One-Time</option>
+                        <option>Monthly</option>
+                        <option>Milestone</option>
+                    </select>
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Description</label>
+                    <textarea id="np_desc" rows="3"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('newProjectModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="createProject()">Create Project</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    function formatINR(n) { return '₹' + (Number(n) || 0).toLocaleString('en-IN'); }
+    function formatDate(d) { return d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'; }
+    
+    async function createProject() {
+        const data = {
+            projectName: document.getElementById('np_name').value,
+            clientName: document.getElementById('np_client').value,
+            clientMobile: document.getElementById('np_mobile').value,
+            clientEmail: document.getElementById('np_email').value,
+            projectType: document.getElementById('np_type').value,
+            totalQuotedPrice: Number(document.getElementById('np_price').value),
+            billingType: document.getElementById('np_billing').value,
+            description: document.getElementById('np_desc').value
+        };
+        if (!data.projectName || !data.clientName) {
+            return showToast('Project name and client name required', 'error');
+        }
+        const res = await api('/api/ai-projects', { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) {
+            showToast('Project created', 'success');
+            setTimeout(() => location.href = '/ai-projects/' + res.project._id, 500);
+        }
+    }
+</script>
+</body>
+</html>

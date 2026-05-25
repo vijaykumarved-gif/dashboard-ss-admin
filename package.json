@@ -1,0 +1,27 @@
+{
+  "name": "sea-crm",
+  "version": "2.0.0",
+  "description": "Searvator CRM - Multi-vertical business management",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "archiver": "^5.3.2",
+    "body-parser": "^2.2.2",
+    "dayjs": "^1.11.20",
+    "dotenv": "^17.4.2",
+    "ejs": "^5.0.2",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
+    "mongoose": "^9.6.2",
+    "pdfkit": "^0.18.0",
+    "uuid": "^8.3.2"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}

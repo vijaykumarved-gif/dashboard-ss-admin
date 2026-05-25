@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Other Business — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user, activePage: 'other' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">Other Business</h1>
+                <p class="page-subtitle">Track miscellaneous work, side projects, and ad-hoc jobs</p>
+            </div>
+            <button class="btn btn-primary" onclick="openModal('bizModal')">+ New Work</button>
+        </div>
+        
+        <% 
+            let totalRev = 0, totalExp = 0, totalProf = 0, completed = 0;
+            items.forEach(i => { totalRev += i.revenue || 0; totalExp += i.expenses || 0; totalProf += i.profit || 0; if (i.status === 'Completed') completed++; });
+        %>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Total Revenue</div>
+                <div class="stat-value"><%= formatINR(totalRev) %></div>
+                <div class="stat-meta"><%= items.length %> work items</div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Total Expenses</div>
+                <div class="stat-value" style="color: var(--danger)"><%= formatINR(totalExp) %></div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Net Profit</div>
+                <div class="stat-value" style="color: var(--success)"><%= formatINR(totalProf) %></div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Completed</div>
+                <div class="stat-value"><%= completed %></div>
+                <div class="stat-meta">of <%= items.length %></div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">All Work Items</div>
+                    <div class="card-subtitle">Misc projects, consulting, side work</div>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Work</th>
+                            <th>Client</th>
+                            <th>Category</th>
+                            <th>Revenue</th>
+                            <th>Expense</th>
+                            <th>Profit</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% if (items.length === 0) { %>
+                            <tr><td colspan="9" class="text-center" style="padding: 60px; color: var(--text-3);">
+                                <div style="font-size: 32px; margin-bottom: 8px;">📋</div>
+                                No work items yet. Click <strong>+ New Work</strong> to add.
+                            </td></tr>
+                        <% } else { items.forEach(i => {
+                            const sc = i.status === 'Completed' ? 'success' : i.status === 'In Progress' ? 'info' : 'neutral';
+                        %>
+                            <tr>
+                                <td>
+                                    <div class="font-bold"><%= i.workTitle %></div>
+                                    <% if (i.description) { %>
+                                        <div class="text-muted" style="font-size: 11px;"><%= i.description.substring(0, 60) %><%= i.description.length > 60 ? '...' : '' %></div>
+                                    <% } %>
+                                </td>
+                                <td>
+                                    <div><%= i.clientName %></div>
+                                    <% if (i.clientMobile) { %>
+                                        <div class="text-muted" style="font-size: 11px;"><%= i.clientMobile %></div>
+                                    <% } %>
+                                </td>
+                                <td><span class="badge neutral"><%= i.workCategory %></span></td>
+                                <td class="font-mono"><%= formatINR(i.revenue) %></td>
+                                <td class="font-mono text-danger"><%= formatINR(i.expenses) %></td>
+                                <td class="font-mono font-bold" style="color: <%= i.profit >= 0 ? 'var(--success)' : 'var(--danger)' %>"><%= formatINR(i.profit) %></td>
+                                <td><span class="badge <%= sc %>"><%= i.status %></span></td>
+                                <td class="text-muted"><%= formatDate(i.workDate) %></td>
+                                <td>
+                                    <button class="btn btn-xs btn-secondary" onclick='editBiz(<%- JSON.stringify(i) %>)'>Edit</button>
+                                    <button class="btn btn-xs btn-danger" onclick="deleteBiz('<%= i._id %>')">Del</button>
+                                </td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- BIZ MODAL -->
+<div class="modal-overlay" id="bizModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title" id="bizModalTitle">New Work Item</div>
+            <button class="modal-close" onclick="closeModal('bizModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="b_id">
+            <div class="form-grid">
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Work Title *</label>
+                    <input type="text" id="b_title" placeholder="e.g. Website redesign for XYZ">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Client Name *</label>
+                    <input type="text" id="b_client">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Client Mobile</label>
+                    <input type="text" id="b_mobile">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Category</label>
+                    <input type="text" id="b_cat" placeholder="e.g. Consulting, Web Dev, Marketing">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Work Date</label>
+                    <input type="date" id="b_date">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Revenue (₹)</label>
+                    <input type="number" id="b_rev" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Expenses (₹)</label>
+                    <input type="number" id="b_exp" value="0">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Status</label>
+                    <select id="b_status">
+                        <option>In Progress</option>
+                        <option>Completed</option>
+                        <option>Cancelled</option>
+                    </select>
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Description / Notes</label>
+                    <textarea id="b_desc" rows="3"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('bizModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveBiz()">Save Work</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    function formatINR(n) { return '₹' + (Number(n) || 0).toLocaleString('en-IN'); }
+    function formatDate(d) { return d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'; }
+    
+    function editBiz(i) {
+        document.getElementById('bizModalTitle').textContent = 'Edit Work Item';
+        document.getElementById('b_id').value = i._id;
+        document.getElementById('b_title').value = i.workTitle;
+        document.getElementById('b_client').value = i.clientName;
+        document.getElementById('b_mobile').value = i.clientMobile || '';
+        document.getElementById('b_cat').value = i.workCategory || '';
+        document.getElementById('b_date').value = i.workDate ? new Date(i.workDate).toISOString().split('T')[0] : '';
+        document.getElementById('b_rev').value = i.revenue || 0;
+        document.getElementById('b_exp').value = i.expenses || 0;
+        document.getElementById('b_status').value = i.status;
+        document.getElementById('b_desc').value = i.description || '';
+        openModal('bizModal');
+    }
+    
+    async function saveBiz() {
+        const id = document.getElementById('b_id').value;
+        const data = {
+            workTitle: document.getElementById('b_title').value,
+            clientName: document.getElementById('b_client').value,
+            clientMobile: document.getElementById('b_mobile').value,
+            workCategory: document.getElementById('b_cat').value || 'Miscellaneous',
+            workDate: document.getElementById('b_date').value || new Date(),
+            revenue: Number(document.getElementById('b_rev').value),
+            expenses: Number(document.getElementById('b_exp').value),
+            status: document.getElementById('b_status').value,
+            description: document.getElementById('b_desc').value
+        };
+        if (!data.workTitle || !data.clientName) return showToast('Work title and client required', 'error');
+        const url = id ? `/api/other-business/${id}` : '/api/other-business';
+        const method = id ? 'PUT' : 'POST';
+        const res = await api(url, { method, body: JSON.stringify(data) });
+        if (res.success) { showToast(id ? 'Updated' : 'Added', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function deleteBiz(id) {
+        if (!confirm('Delete this work item?')) return;
+        const res = await api('/api/other-business/' + id, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.reload(), 400); }
+    }
+    
+    document.querySelector('#bizModal .modal-close').addEventListener('click', () => {
+        document.getElementById('b_id').value = '';
+        document.getElementById('bizModalTitle').textContent = 'New Work Item';
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CCTV & Biometric — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user, activePage: 'cctv' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">CCTV & Biometric</h1>
+                <p class="page-subtitle">Manage product catalog and generate professional quotations</p>
+            </div>
+            <div class="flex gap-2">
+                <button class="btn btn-secondary" onclick="openModal('productModal')">+ Product</button>
+                <a href="/cctv/quotation/new" class="btn btn-primary">+ New Quotation</a>
+            </div>
+        </div>
+        
+        <div class="tabs">
+            <button class="tab active" data-tab-group="cctv" data-tab="quotes" onclick="switchTab('cctv','quotes')">📋 Quotations (<%= quotations.length %>)</button>
+            <button class="tab" data-tab-group="cctv" data-tab="catalog" onclick="switchTab('cctv','catalog')">📦 Product Catalog (<%= products.length %>)</button>
+        </div>
+        
+        <!-- QUOTATIONS -->
+        <div class="tab-content active" data-tab-content="cctv" data-content="quotes">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">All Quotations</div>
+                        <div class="card-subtitle">Download PDF, edit, or update status</div>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Number</th>
+                                <th>Client</th>
+                                <th>Project</th>
+                                <th>Items</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                                <th>Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <% if (quotations.length === 0) { %>
+                                <tr><td colspan="8" class="text-center" style="padding: 60px; color: var(--text-3);">
+                                    <div style="font-size: 32px; margin-bottom: 8px;">📋</div>
+                                    No quotations yet. <a href="/cctv/quotation/new">Create your first quotation</a>
+                                </td></tr>
+                            <% } else { quotations.forEach(q => {
+                                const sc = q.status === 'Approved' ? 'success' : q.status === 'Sent' ? 'info' : q.status === 'Rejected' ? 'danger' : q.status === 'Expired' ? 'warning' : 'neutral';
+                            %>
+                                <tr>
+                                    <td class="font-mono font-bold"><%= q.quotationNumber %></td>
+                                    <td>
+                                        <div class="font-bold"><%= q.clientName %></div>
+                                        <% if (q.clientCompany) { %>
+                                            <div class="text-muted" style="font-size: 11px;"><%= q.clientCompany %></div>
+                                        <% } %>
+                                    </td>
+                                    <td><%= q.projectType %></td>
+                                    <td class="text-muted"><%= (q.items || []).length %> items</td>
+                                    <td class="font-mono font-bold"><%= formatINR(q.grandTotal) %></td>
+                                    <td>
+                                        <select onchange="updateQuoteStatus('<%= q._id %>', this.value)" style="padding: 4px 8px; font-size: 11px; border-radius: 999px; background: var(--<%= sc === 'neutral' ? 'surface-3' : sc + '-light' %>); border: none; color: var(--<%= sc === 'success' ? 'success' : sc === 'danger' ? 'danger' : sc === 'warning' ? 'warning' : 'text-2' %>); font-weight: 600;">
+                                            <% ['Draft','Sent','Approved','Rejected','Expired'].forEach(s => { %>
+                                                <option <%= q.status === s ? 'selected' : '' %>><%= s %></option>
+                                            <% }) %>
+                                        </select>
+                                    </td>
+                                    <td class="text-muted"><%= formatDate(q.createdAt) %></td>
+                                    <td>
+                                        <a href="/api/quotations/<%= q._id %>/pdf" target="_blank" class="btn btn-xs btn-primary">📄 PDF</a>
+                                        <a href="/cctv/quotation/<%= q._id %>/edit" class="btn btn-xs btn-secondary">Edit</a>
+                                        <button class="btn btn-xs btn-danger" onclick="deleteQuote('<%= q._id %>')">Del</button>
+                                    </td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- CATALOG -->
+        <div class="tab-content" data-tab-content="cctv" data-content="catalog">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Product Catalog</div>
+                        <div class="card-subtitle">Add products here to use them in quotations</div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('productModal')">+ Add Product</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Category</th>
+                                <th>Brand/Model</th>
+                                <th>Specs</th>
+                                <th>Cost</th>
+                                <th>Selling</th>
+                                <th>GST</th>
+                                <th>Stock</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <% if (products.length === 0) { %>
+                                <tr><td colspan="9" class="text-center" style="padding: 60px; color: var(--text-3);">
+                                    <div style="font-size: 32px; margin-bottom: 8px;">📦</div>
+                                    No products yet. Add products to build quotations faster.
+                                </td></tr>
+                            <% } else { products.forEach(p => { %>
+                                <tr>
+                                    <td class="font-bold"><%= p.productName %></td>
+                                    <td><span class="badge info"><%= p.category %></span></td>
+                                    <td><%= p.brand %> <%= p.model %></td>
+                                    <td class="text-muted" style="font-size: 12px;"><%= p.specifications || '-' %></td>
+                                    <td class="font-mono"><%= formatINR(p.costPrice) %></td>
+                                    <td class="font-mono font-bold"><%= formatINR(p.sellingPrice) %></td>
+                                    <td><%= p.gstPercent %>%</td>
+                                    <td><span class="badge <%= p.inStock ? 'success' : 'neutral' %>"><%= p.inStock ? 'In Stock' : 'Out' %></span></td>
+                                    <td>
+                                        <button class="btn btn-xs btn-secondary" onclick='editProduct(<%- JSON.stringify(p) %>)'>Edit</button>
+                                        <button class="btn btn-xs btn-danger" onclick="deleteProduct('<%= p._id %>')">Del</button>
+                                    </td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- PRODUCT MODAL -->
+<div class="modal-overlay" id="productModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title" id="productModalTitle">Add Product</div>
+            <button class="modal-close" onclick="closeModal('productModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="p_id">
+            <div class="form-grid">
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Product Name *</label>
+                    <input type="text" id="p_name" placeholder="e.g. 2MP IR Bullet Camera">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Category *</label>
+                    <select id="p_cat">
+                        <option>Camera</option>
+                        <option>DVR/NVR</option>
+                        <option>Cable</option>
+                        <option>Storage</option>
+                        <option>Biometric</option>
+                        <option>Accessory</option>
+                        <option>Installation</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Unit</label>
+                    <select id="p_unit">
+                        <option>Pcs</option>
+                        <option>Meter</option>
+                        <option>Roll</option>
+                        <option>Hour</option>
+                        <option>Set</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Brand</label>
+                    <input type="text" id="p_brand" placeholder="e.g. Hikvision">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Model</label>
+                    <input type="text" id="p_model" placeholder="e.g. DS-2CE16D0T">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Specifications</label>
+                    <input type="text" id="p_specs" placeholder="e.g. 2MP, 30m IR, Metal Body, IP67">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Cost Price (₹)</label>
+                    <input type="number" id="p_cost" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Selling Price (₹) *</label>
+                    <input type="number" id="p_selling" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">HSN Code</label>
+                    <input type="text" id="p_hsn">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">GST %</label>
+                    <input type="number" id="p_gst" value="18">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('productModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveProduct()">Save Product</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    function formatINR(n) { return '₹' + (Number(n) || 0).toLocaleString('en-IN'); }
+    function formatDate(d) { return d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'; }
+    
+    function editProduct(p) {
+        document.getElementById('productModalTitle').textContent = 'Edit Product';
+        document.getElementById('p_id').value = p._id;
+        document.getElementById('p_name').value = p.productName;
+        document.getElementById('p_cat').value = p.category;
+        document.getElementById('p_unit').value = p.unit || 'Pcs';
+        document.getElementById('p_brand').value = p.brand || '';
+        document.getElementById('p_model').value = p.model || '';
+        document.getElementById('p_specs').value = p.specifications || '';
+        document.getElementById('p_cost').value = p.costPrice || 0;
+        document.getElementById('p_selling').value = p.sellingPrice || 0;
+        document.getElementById('p_hsn').value = p.hsnCode || '';
+        document.getElementById('p_gst').value = p.gstPercent || 18;
+        openModal('productModal');
+    }
+    
+    async function saveProduct() {
+        const id = document.getElementById('p_id').value;
+        const data = {
+            productName: document.getElementById('p_name').value,
+            category: document.getElementById('p_cat').value,
+            unit: document.getElementById('p_unit').value,
+            brand: document.getElementById('p_brand').value,
+            model: document.getElementById('p_model').value,
+            specifications: document.getElementById('p_specs').value,
+            costPrice: Number(document.getElementById('p_cost').value),
+            sellingPrice: Number(document.getElementById('p_selling').value),
+            hsnCode: document.getElementById('p_hsn').value,
+            gstPercent: Number(document.getElementById('p_gst').value)
+        };
+        if (!data.productName || !data.sellingPrice) return showToast('Name and selling price required', 'error');
+        const url = id ? `/api/cctv/products/${id}` : '/api/cctv/products';
+        const method = id ? 'PUT' : 'POST';
+        const res = await api(url, { method, body: JSON.stringify(data) });
+        if (res.success) { showToast(id ? 'Product updated' : 'Product added', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function deleteProduct(id) {
+        if (!confirm('Delete this product?')) return;
+        const res = await api('/api/cctv/products/' + id, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.reload(), 400); }
+    }
+    
+    async function deleteQuote(id) {
+        if (!confirm('Delete this quotation?')) return;
+        const res = await api('/api/quotations/' + id, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.reload(), 400); }
+    }
+    
+    async function updateQuoteStatus(id, status) {
+        const res = await api('/api/quotations/' + id, { method: 'PUT', body: JSON.stringify({ status }) });
+        if (res.success) showToast('Status updated', 'success');
+    }
+    
+    document.querySelector('#productModal .modal-close').addEventListener('click', () => {
+        document.getElementById('p_id').value = '';
+        document.getElementById('productModalTitle').textContent = 'Add Product';
+    });
+</script>
+</body>
+</html>

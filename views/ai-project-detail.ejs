@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= project.projectName %> — AI Project</title>
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+<%
+    const totalRev = (project.revenues || []).reduce((s, r) => s + (r.amount || 0), 0);
+    const totalCost = (project.costs || []).reduce((s, c) => s + (c.amount || 0), 0);
+    const recurMonthly = (project.recurringCosts || []).filter(r => r.active).reduce((s, r) => s + (r.monthlyAmount || 0), 0);
+    const net = totalRev - totalCost;
+    const margin = totalRev > 0 ? ((net / totalRev) * 100).toFixed(1) : 0;
+%>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user, activePage: 'ai' }) %>
+    
+    <main class="main-content">
+        <div style="margin-bottom: 12px;">
+            <a href="/ai-projects" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back to projects</a>
+        </div>
+        
+        <div class="page-header">
+            <div>
+                <h1 class="page-title"><%= project.projectName %></h1>
+                <p class="page-subtitle">
+                    <%= project.clientName %>
+                    <% if (project.clientMobile) { %> · <%= project.clientMobile %><% } %>
+                    <% if (project.clientEmail) { %> · <%= project.clientEmail %><% } %>
+                </p>
+            </div>
+            <div class="flex gap-2">
+                <select id="statusSelect" onchange="updateStatus()" style="width: auto;">
+                    <% ['Planning','In Progress','Testing','Delivered','On Hold','Cancelled'].forEach(s => { %>
+                        <option <%= project.status === s ? 'selected' : '' %>><%= s %></option>
+                    <% }) %>
+                </select>
+                <button class="btn btn-danger btn-sm" onclick="deleteProject()">Delete</button>
+            </div>
+        </div>
+        
+        <!-- P&L Stats -->
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Quoted Price</div>
+                <div class="stat-value"><%= formatINR(project.totalQuotedPrice) %></div>
+                <div class="stat-meta"><%= project.billingType %></div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Total Received</div>
+                <div class="stat-value" style="color: var(--success)"><%= formatINR(totalRev) %></div>
+                <div class="stat-meta"><%= (project.revenues || []).length %> payments</div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Total Costs</div>
+                <div class="stat-value" style="color: var(--danger)"><%= formatINR(totalCost) %></div>
+                <div class="stat-meta"><%= (project.costs || []).length %> entries</div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Recurring/month</div>
+                <div class="stat-value"><%= formatINR(recurMonthly) %></div>
+                <div class="stat-meta">Active subscriptions</div>
+            </div>
+            <div class="stat-card <%= net >= 0 ? 'green' : 'red' %>">
+                <div class="stat-label">Net Profit</div>
+                <div class="stat-value" style="color: <%= net >= 0 ? 'var(--success)' : 'var(--danger)' %>"><%= formatINR(net) %></div>
+                <div class="stat-meta">Margin: <%= margin %>%</div>
+            </div>
+        </div>
+        
+        <!-- Description -->
+        <% if (project.description) { %>
+        <div class="card">
+            <div class="card-body">
+                <div class="form-label mb-2">Description</div>
+                <div><%= project.description %></div>
+            </div>
+        </div>
+        <% } %>
+        
+        <!-- Tabs for Costs / Recurring / Revenue -->
+        <div class="tabs">
+            <button class="tab active" data-tab-group="proj" data-tab="costs" onclick="switchTab('proj','costs')">💸 Costs (<%= (project.costs || []).length %>)</button>
+            <button class="tab" data-tab-group="proj" data-tab="recurring" onclick="switchTab('proj','recurring')">🔁 Recurring (<%= (project.recurringCosts || []).length %>)</button>
+            <button class="tab" data-tab-group="proj" data-tab="revenue" onclick="switchTab('proj','revenue')">💰 Revenue (<%= (project.revenues || []).length %>)</button>
+        </div>
+        
+        <!-- COSTS TAB -->
+        <div class="tab-content active" data-tab-content="proj" data-content="costs">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">One-time Costs</div>
+                        <div class="card-subtitle">Server setup, API charges, dev time, tools, misc</div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('costModal')">+ Add Cost</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            <% if ((project.costs || []).length === 0) { %>
+                                <tr><td colspan="5" class="text-center" style="padding: 40px; color: var(--text-3);">No costs yet</td></tr>
+                            <% } else { project.costs.slice().reverse().forEach(c => { %>
+                                <tr>
+                                    <td class="text-muted"><%= formatDate(c.date) %></td>
+                                    <td><span class="badge neutral"><%= c.category %></span></td>
+                                    <td><%= c.description %></td>
+                                    <td class="font-mono font-bold text-danger"><%= formatINR(c.amount) %></td>
+                                    <td><button class="btn btn-xs btn-danger" onclick="deleteCost('<%= c._id %>')">Del</button></td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- RECURRING TAB -->
+        <div class="tab-content" data-tab-content="proj" data-content="recurring">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Monthly Recurring Costs</div>
+                        <div class="card-subtitle">Server hosting, API subscriptions — these repeat every month</div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('recurModal')">+ Add Recurring</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Name</th><th>Category</th><th>Start Date</th><th>Monthly</th><th>Active</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            <% if ((project.recurringCosts || []).length === 0) { %>
+                                <tr><td colspan="6" class="text-center" style="padding: 40px; color: var(--text-3);">No recurring costs yet</td></tr>
+                            <% } else { project.recurringCosts.forEach(r => { %>
+                                <tr>
+                                    <td class="font-bold"><%= r.name %></td>
+                                    <td><span class="badge info"><%= r.category %></span></td>
+                                    <td class="text-muted"><%= formatDate(r.startDate) %></td>
+                                    <td class="font-mono font-bold"><%= formatINR(r.monthlyAmount) %></td>
+                                    <td><span class="badge <%= r.active ? 'success' : 'neutral' %>"><%= r.active ? 'Active' : 'Inactive' %></span></td>
+                                    <td><button class="btn btn-xs btn-danger" onclick="deleteRecurring('<%= r._id %>')">Del</button></td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- REVENUE TAB -->
+        <div class="tab-content" data-tab-content="proj" data-content="revenue">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Revenue Received</div>
+                        <div class="card-subtitle">Payments received from client — advances, milestones, monthly fees</div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('revModal')">+ Add Payment</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Date</th><th>Description</th><th>Amount</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            <% if ((project.revenues || []).length === 0) { %>
+                                <tr><td colspan="4" class="text-center" style="padding: 40px; color: var(--text-3);">No payments recorded yet</td></tr>
+                            <% } else { project.revenues.slice().reverse().forEach(r => { %>
+                                <tr>
+                                    <td class="text-muted"><%= formatDate(r.date) %></td>
+                                    <td><%= r.description %></td>
+                                    <td class="font-mono font-bold text-success"><%= formatINR(r.amount) %></td>
+                                    <td><button class="btn btn-xs btn-danger" onclick="deleteRevenue('<%= r._id %>')">Del</button></td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- COST MODAL -->
+<div class="modal-overlay" id="costModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Cost Entry</div>
+            <button class="modal-close" onclick="closeModal('costModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Category</label>
+                    <select id="c_cat">
+                        <option>Server</option>
+                        <option>AI/API</option>
+                        <option>Development</option>
+                        <option>Tools</option>
+                        <option>Misc</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Amount (₹)</label>
+                    <input type="number" id="c_amt" value="0">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Description</label>
+                    <input type="text" id="c_desc" placeholder="e.g. OpenAI API charges for Oct">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('costModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="addCost()">Add Cost</button>
+        </div>
+    </div>
+</div>
+
+<!-- RECURRING MODAL -->
+<div class="modal-overlay" id="recurModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Recurring Cost</div>
+            <button class="modal-close" onclick="closeModal('recurModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Name</label>
+                    <input type="text" id="r_name" placeholder="e.g. AWS Server, OpenAI API">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Category</label>
+                    <select id="r_cat">
+                        <option>Server</option>
+                        <option>AI/API</option>
+                        <option>Tools</option>
+                        <option>Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Monthly Amount (₹)</label>
+                    <input type="number" id="r_amt" value="0">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('recurModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="addRecurring()">Add Recurring</button>
+        </div>
+    </div>
+</div>
+
+<!-- REVENUE MODAL -->
+<div class="modal-overlay" id="revModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Revenue Entry</div>
+            <button class="modal-close" onclick="closeModal('revModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Description</label>
+                    <input type="text" id="rv_desc" placeholder="e.g. Advance Payment, Milestone 1">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Amount (₹)</label>
+                    <input type="number" id="rv_amt" value="0">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('revModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="addRevenue()">Add Revenue</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    const PROJECT_ID = '<%= project._id %>';
+    function formatINR(n) { return '₹' + (Number(n) || 0).toLocaleString('en-IN'); }
+    function formatDate(d) { return d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'; }
+    
+    async function addCost() {
+        const data = {
+            category: document.getElementById('c_cat').value,
+            description: document.getElementById('c_desc').value,
+            amount: Number(document.getElementById('c_amt').value)
+        };
+        if (!data.amount) return showToast('Amount required', 'error');
+        const res = await api(`/api/ai-projects/${PROJECT_ID}/costs`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Cost added', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function deleteCost(costId) {
+        if (!confirm('Delete this cost?')) return;
+        const res = await api(`/api/ai-projects/${PROJECT_ID}/costs/${costId}`, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.reload(), 400); }
+    }
+    
+    async function addRecurring() {
+        const data = {
+            name: document.getElementById('r_name').value,
+            category: document.getElementById('r_cat').value,
+            monthlyAmount: Number(document.getElementById('r_amt').value)
+        };
+        if (!data.name || !data.monthlyAmount) return showToast('Name and amount required', 'error');
+        const res = await api(`/api/ai-projects/${PROJECT_ID}/recurring`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Recurring cost added', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function deleteRecurring(id) {
+        if (!confirm('Delete this recurring cost?')) return;
+        const res = await api(`/api/ai-projects/${PROJECT_ID}/recurring/${id}`, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.reload(), 400); }
+    }
+    
+    async function addRevenue() {
+        const data = {
+            description: document.getElementById('rv_desc').value || 'Payment',
+            amount: Number(document.getElementById('rv_amt').value)
+        };
+        if (!data.amount) return showToast('Amount required', 'error');
+        const res = await api(`/api/ai-projects/${PROJECT_ID}/revenues`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Revenue added', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function deleteRevenue(id) {
+        if (!confirm('Delete this payment?')) return;
+        const res = await api(`/api/ai-projects/${PROJECT_ID}/revenues/${id}`, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.reload(), 400); }
+    }
+    
+    async function updateStatus() {
+        const status = document.getElementById('statusSelect').value;
+        const res = await api(`/api/ai-projects/${PROJECT_ID}`, { method: 'PUT', body: JSON.stringify({ status }) });
+        if (res.success) showToast('Status updated', 'success');
+    }
+    
+    async function deleteProject() {
+        if (!confirm('Delete this project and all its data? This cannot be undone.')) return;
+        const res = await api(`/api/ai-projects/${PROJECT_ID}`, { method: 'DELETE' });
+        if (res.success) { showToast('Project deleted', 'success'); setTimeout(() => location.href = '/ai-projects', 500); }
+    }
+</script>
+</body>
+</html>
