@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AMC Management — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'amc' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">AMC Management</h1>
+                <p class="page-subtitle">Office contracts, PC fleet tracking, scheduled visits & revenue</p>
+            </div>
+            <button class="btn btn-primary" onclick="openModal('newOfficeModal')">+ Register New Office</button>
+        </div>
+        
+        <!-- KPI STATS -->
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Total Offices</div>
+                <div class="stat-value"><%= stats.totalOffices %></div>
+                <div class="stat-meta"><%= stats.totalPCs %> total systems</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Healthy Systems</div>
+                <div class="stat-value" style="color: var(--success)"><%= stats.healthyPCs %></div>
+                <div class="stat-meta"><%= stats.totalPCs > 0 ? ((stats.healthyPCs/stats.totalPCs)*100).toFixed(0) : 0 %>% of fleet</div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Needs Attention</div>
+                <div class="stat-value" style="color: var(--warning)"><%= stats.issuePCs %></div>
+                <div class="stat-meta"><%= stats.criticalPCs %> critical</div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Total Revenue</div>
+                <div class="stat-value" style="color: var(--purple)"><%= formatINR(stats.totalRevenue) %></div>
+                <div class="stat-meta">Received payments</div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Pending Payment</div>
+                <div class="stat-value" style="color: var(--danger)"><%= formatINR(stats.totalPending) %></div>
+                <div class="stat-meta">To be collected</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Net Profit</div>
+                <div class="stat-value" style="color: <%= stats.netProfit >= 0 ? 'var(--success)' : 'var(--danger)' %>"><%= formatINR(stats.netProfit) %></div>
+                <div class="stat-meta">Expense: <%= formatINR(stats.totalExpense) %></div>
+            </div>
+        </div>
+        
+        <!-- UPCOMING VISITS -->
+        <% if (upcomingVisits.length > 0) { %>
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">📅 Upcoming Visits (Next 7 Days)</div>
+                    <div class="card-subtitle"><%= stats.upcomingVisitsCount %> scheduled</div>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date & Time</th>
+                            <th>Office</th>
+                            <th>Agent</th>
+                            <th>Purpose</th>
+                            <th>PCs</th>
+                            <th>Notification</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% upcomingVisits.forEach(v => { 
+                            const visitDate = new Date(v.visitDate);
+                            const today = new Date(); today.setHours(0,0,0,0);
+                            const isToday = visitDate.toDateString() === today.toDateString();
+                        %>
+                            <tr>
+                                <td>
+                                    <div class="font-bold" style="color: <%= isToday ? 'var(--danger)' : 'var(--text)' %>">
+                                        <%= visitDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) %>
+                                        <% if (isToday) { %><span class="badge danger" style="margin-left: 4px;">TODAY</span><% } %>
+                                    </div>
+                                    <div class="text-muted" style="font-size: 11px;">🕒 <%= v.visitTime %></div>
+                                </td>
+                                <td><a href="/amc/<%= v.officeId %>" class="font-bold" style="color: var(--primary); text-decoration: none;"><%= v.officeName %></a></td>
+                                <td><span class="badge info"><%= v.assignedAgent.toUpperCase() %></span></td>
+                                <td><%= v.purpose %></td>
+                                <td class="text-muted"><%= (v.pcsToService || []).length || 'All' %></td>
+                                <td>
+                                    <% if (v.notificationSent) { %>
+                                        <span class="badge success">✓ WA SENT</span>
+                                    <% } else { %>
+                                        <span class="badge warning">⏳ Pending</span>
+                                    <% } %>
+                                </td>
+                                <td><a href="/amc/<%= v.officeId %>" class="btn btn-xs btn-secondary">View</a></td>
+                            </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <% } %>
+        
+        <!-- OFFICES LIST -->
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">All Offices Under AMC</div>
+                    <div class="card-subtitle">Click any office to manage PCs, visits & payments</div>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Office / Company</th>
+                            <th>Contact</th>
+                            <th>PCs</th>
+                            <th>Health</th>
+                            <th>Monthly Fee</th>
+                            <th>Received</th>
+                            <th>Expense</th>
+                            <th>Profit</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% if (offices.length === 0) { %>
+                            <tr><td colspan="9" class="text-center" style="padding: 60px; color: var(--text-3);">
+                                <div style="font-size: 32px; margin-bottom: 8px;">🏢</div>
+                                No AMC offices yet. Click <strong>+ Register New Office</strong> to start.
+                            </td></tr>
+                        <% } else { offices.forEach(o => {
+                            const healthy = o.pcs.filter(p => p.overallStatus === 'Healthy').length;
+                            const issues = o.pcs.filter(p => p.overallStatus === 'Issues').length;
+                            const critical = o.pcs.filter(p => p.overallStatus === 'Critical').length;
+                            const paid = (o.payments || []).reduce((s, p) => s + p.amount, 0);
+                            const exp = (o.expenses || []).reduce((s, e) => s + e.amount, 0);
+                            const profit = paid - exp;
+                            const sc = o.status === 'Active' ? 'success' : o.status === 'Paused' ? 'warning' : 'neutral';
+                        %>
+                            <tr style="cursor: pointer;" onclick="location.href='/amc/<%= o._id %>'">
+                                <td>
+                                    <div class="font-bold"><%= o.officeName %></div>
+                                    <% if (o.companyName) { %><div class="text-muted" style="font-size: 11px;"><%= o.companyName %></div><% } %>
+                                </td>
+                                <td>
+                                    <div><%= o.contactPerson %></div>
+                                    <div class="text-muted" style="font-size: 11px;"><%= o.contactMobile %></div>
+                                </td>
+                                <td class="font-bold font-mono"><%= o.pcs.length %></td>
+                                <td>
+                                    <div style="display: flex; gap: 4px;">
+                                        <span class="badge success" title="Healthy"><%= healthy %></span>
+                                        <% if (issues > 0) { %><span class="badge warning" title="Issues"><%= issues %></span><% } %>
+                                        <% if (critical > 0) { %><span class="badge danger" title="Critical"><%= critical %></span><% } %>
+                                    </div>
+                                </td>
+                                <td class="font-mono"><%= formatINR(o.monthlyFee) %></td>
+                                <td class="font-mono text-success"><%= formatINR(paid) %></td>
+                                <td class="font-mono text-danger"><%= formatINR(exp) %></td>
+                                <td class="font-mono font-bold" style="color: <%= profit >= 0 ? 'var(--success)' : 'var(--danger)' %>"><%= formatINR(profit) %></td>
+                                <td><span class="badge <%= sc %>"><%= o.status %></span></td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- NEW OFFICE MODAL -->
+<div class="modal-overlay" id="newOfficeModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">Register New AMC Office</div>
+            <button class="modal-close" onclick="closeModal('newOfficeModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Office Name *</label>
+                    <input type="text" id="o_name" placeholder="e.g. ABC Corp Head Office">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Company Name</label>
+                    <input type="text" id="o_company" placeholder="ABC Corporation Pvt. Ltd.">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Contact Person *</label>
+                    <input type="text" id="o_person">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Contact Mobile *</label>
+                    <input type="tel" id="o_mobile">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Contact Email</label>
+                    <input type="email" id="o_email">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Contract Type</label>
+                    <select id="o_contract">
+                        <option>Monthly</option>
+                        <option>Quarterly</option>
+                        <option>Annual</option>
+                    </select>
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Address</label>
+                    <textarea id="o_address" rows="2"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Monthly Fee (₹)</label>
+                    <input type="number" id="o_fee" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Visits Per Month</label>
+                    <input type="number" id="o_visits" value="1">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Contract Start</label>
+                    <input type="date" id="o_start">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Contract End</label>
+                    <input type="date" id="o_end">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('newOfficeModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="createOffice()">Register Office</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    async function createOffice() {
+        const data = {
+            officeName: document.getElementById('o_name').value,
+            companyName: document.getElementById('o_company').value,
+            contactPerson: document.getElementById('o_person').value,
+            contactMobile: document.getElementById('o_mobile').value,
+            contactEmail: document.getElementById('o_email').value,
+            address: document.getElementById('o_address').value,
+            contractType: document.getElementById('o_contract').value,
+            monthlyFee: Number(document.getElementById('o_fee').value),
+            visitsPerMonth: Number(document.getElementById('o_visits').value),
+            contractStartDate: document.getElementById('o_start').value || new Date(),
+            contractEndDate: document.getElementById('o_end').value || null
+        };
+        if (!data.officeName || !data.contactPerson || !data.contactMobile) {
+            return showToast('Office name, contact person, and mobile required', 'error');
+        }
+        const res = await api('/api/amc/offices', { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) {
+            showToast('Office registered', 'success');
+            setTimeout(() => location.href = '/amc/' + res.office._id, 500);
+        }
+    }
+</script>
+</body>
+</html>

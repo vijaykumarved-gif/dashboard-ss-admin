@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= office.officeName %> — AMC Office</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .pc-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            transition: all 0.2s var(--ease);
+        }
+        .pc-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+        .pc-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 14px;
+        }
+        .health-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-top: 10px;
+            font-size: 11px;
+        }
+        .health-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 8px;
+            background: var(--surface-2);
+            border-radius: 4px;
+        }
+        .suggestion-chip {
+            display: inline-block;
+            background: var(--warning-light);
+            color: #92400e;
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 600;
+            margin: 2px;
+        }
+        .photo-thumb {
+            width: 60px;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 6px;
+            cursor: pointer;
+            border: 1px solid var(--border);
+        }
+        .wa-btn {
+            background: #25D366;
+            color: white;
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
+            border: none;
+            font-weight: 700;
+            font-size: 12px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .wa-btn:hover { background: #128C7E; }
+    </style>
+</head>
+<body>
+<%
+    const totalPCs = office.pcs.length;
+    const healthy = office.pcs.filter(p => p.overallStatus === 'Healthy').length;
+    const issues = office.pcs.filter(p => p.overallStatus === 'Issues').length;
+    const critical = office.pcs.filter(p => p.overallStatus === 'Critical').length;
+    const totalPaid = (office.payments || []).reduce((s, p) => s + p.amount, 0);
+    const totalExp = (office.expenses || []).reduce((s, e) => s + e.amount, 0);
+    const netProfit = totalPaid - totalExp;
+    
+    // Calculate pending
+    let pending = 0;
+    if (office.contractStartDate && office.monthlyFee) {
+        const monthsElapsed = Math.max(1, Math.ceil((new Date() - new Date(office.contractStartDate)) / (1000 * 60 * 60 * 24 * 30)));
+        const expected = monthsElapsed * office.monthlyFee;
+        pending = Math.max(0, expected - totalPaid);
+    }
+    
+    // Aggregate suggestions from all PCs
+    const allSuggestions = {};
+    office.pcs.forEach(p => {
+        (p.suggestions || []).forEach(s => {
+            allSuggestions[s] = (allSuggestions[s] || 0) + 1;
+        });
+    });
+%>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'amc' }) %>
+    
+    <main class="main-content">
+        <div style="margin-bottom: 12px;">
+            <a href="/amc" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back to AMC Dashboard</a>
+        </div>
+        
+        <div class="page-header">
+            <div>
+                <h1 class="page-title"><%= office.officeName %></h1>
+                <p class="page-subtitle">
+                    <% if (office.companyName) { %><%= office.companyName %> · <% } %>
+                    <%= office.contactPerson %> · <%= office.contactMobile %>
+                </p>
+            </div>
+            <div class="flex gap-2">
+                <a href="/api/amc/offices/<%= office._id %>/export" class="btn btn-success">⬇️ Export Excel</a>
+                <button class="btn btn-danger btn-sm" onclick="deleteOffice()">Delete Office</button>
+            </div>
+        </div>
+        
+        <!-- STATS -->
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Total Systems</div>
+                <div class="stat-value"><%= totalPCs %></div>
+                <div class="stat-meta">@ ₹<%= office.monthlyFee %>/month</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Healthy</div>
+                <div class="stat-value" style="color: var(--success)"><%= healthy %></div>
+                <div class="stat-meta"><%= totalPCs > 0 ? ((healthy/totalPCs)*100).toFixed(0) : 0 %>% healthy</div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Issues</div>
+                <div class="stat-value" style="color: var(--warning)"><%= issues %></div>
+                <div class="stat-meta"><%= critical %> critical</div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Received</div>
+                <div class="stat-value" style="color: var(--purple)"><%= formatINR(totalPaid) %></div>
+                <div class="stat-meta"><%= (office.payments||[]).length %> payments</div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Pending</div>
+                <div class="stat-value" style="color: var(--danger)"><%= formatINR(pending) %></div>
+                <div class="stat-meta">To collect</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Net Profit</div>
+                <div class="stat-value font-mono" style="color: <%= netProfit >= 0 ? 'var(--success)' : 'var(--danger)' %>"><%= formatINR(netProfit) %></div>
+                <div class="stat-meta">Exp: <%= formatINR(totalExp) %></div>
+            </div>
+        </div>
+        
+        <!-- SMART SUGGESTIONS BOX -->
+        <% if (Object.keys(allSuggestions).length > 0) { %>
+        <div class="card" style="background: linear-gradient(135deg, #fef3c7, #fde68a); border: 1px solid #fcd34d;">
+            <div class="card-body">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                    <div style="font-size: 22px;">💡</div>
+                    <div>
+                        <div style="font-weight: 800; color: #78350f; font-size: 14px;">SMART UPGRADE SUGGESTIONS</div>
+                        <div style="color: #92400e; font-size: 12px;">Based on current PC health, suggest these to client:</div>
+                    </div>
+                </div>
+                <div>
+                    <% Object.entries(allSuggestions).forEach(([sug, count]) => { %>
+                        <span class="suggestion-chip"><%= sug %> (<%= count %> PCs)</span>
+                    <% }) %>
+                </div>
+            </div>
+        </div>
+        <% } %>
+        
+        <!-- TABS -->
+        <div class="tabs">
+            <button class="tab active" data-tab-group="amc" data-tab="pcs" onclick="switchTab('amc','pcs')">💻 PCs / Systems (<%= totalPCs %>)</button>
+            <button class="tab" data-tab-group="amc" data-tab="visits" onclick="switchTab('amc','visits')">📅 Visit Schedule (<%= office.visits.length %>)</button>
+            <button class="tab" data-tab-group="amc" data-tab="payments" onclick="switchTab('amc','payments')">💰 Payments (<%= office.payments.length %>)</button>
+            <button class="tab" data-tab-group="amc" data-tab="expenses" onclick="switchTab('amc','expenses')">💸 Expenses (<%= office.expenses.length %>)</button>
+        </div>
+        
+        <!-- PCS TAB -->
+        <div class="tab-content active" data-tab-content="amc" data-content="pcs">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">PCs / Systems</div>
+                        <div class="card-subtitle">Click any PC to update health status & suggestions</div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('pcModal')">+ Add PC</button>
+                </div>
+                <div class="card-body">
+                    <% if (office.pcs.length === 0) { %>
+                        <div class="empty-state">
+                            <div class="empty-icon">💻</div>
+                            <div class="empty-title">No PCs added yet</div>
+                            <div>Click + Add PC to start tracking systems</div>
+                        </div>
+                    <% } else { %>
+                        <div class="pc-grid">
+                            <% office.pcs.forEach(pc => { 
+                                const sc = pc.overallStatus === 'Healthy' ? 'success' : pc.overallStatus === 'Issues' ? 'warning' : 'danger';
+                            %>
+                                <div class="pc-card">
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                                        <div>
+                                            <div class="font-bold" style="font-size: 14px;"><%= pc.pcId %> · <%= pc.pcType %></div>
+                                            <div class="text-muted" style="font-size: 11px;"><%= pc.pcModel || 'Unknown model' %></div>
+                                            <% if (pc.user) { %><div class="text-muted" style="font-size: 11px;">👤 <%= pc.user %><% if (pc.department) { %> · <%= pc.department %><% } %></div><% } %>
+                                        </div>
+                                        <span class="badge <%= sc %>"><%= pc.overallStatus %></span>
+                                    </div>
+                                    
+                                    <div class="health-grid">
+                                        <div class="health-item"><span>Motherboard:</span><span style="color: <%= pc.motherboard === 'Good' ? 'var(--success)' : 'var(--danger)' %>; font-weight: 600;"><%= pc.motherboard %></span></div>
+                                        <div class="health-item"><span>CPU:</span><span style="color: <%= pc.cpu === 'Good' ? 'var(--success)' : 'var(--danger)' %>; font-weight: 600;"><%= pc.cpu %></span></div>
+                                        <div class="health-item"><span>RAM:</span><span style="color: <%= pc.ramStatus === 'Good' ? 'var(--success)' : 'var(--danger)' %>; font-weight: 600;"><%= pc.ramStatus %></span></div>
+                                        <div class="health-item"><span>Storage:</span><span style="color: <%= pc.hddHealth === 'Good' ? 'var(--success)' : 'var(--danger)' %>; font-weight: 600;"><%= pc.hddHealth %></span></div>
+                                        <div class="health-item"><span>Fan/Temp:</span><span style="color: <%= pc.fan === 'Good' && pc.temperature === 'Normal' ? 'var(--success)' : 'var(--danger)' %>; font-weight: 600;"><%= pc.temperature %></span></div>
+                                        <div class="health-item"><span>Battery:</span><span style="color: <%= pc.battery === 'Good' || pc.battery === 'N/A' ? 'var(--success)' : 'var(--danger)' %>; font-weight: 600;"><%= pc.battery %></span></div>
+                                    </div>
+                                    
+                                    <% if ((pc.suggestions || []).length > 0) { %>
+                                        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border);">
+                                            <div style="font-size: 10px; font-weight: 700; color: var(--warning); text-transform: uppercase; margin-bottom: 4px;">Suggested:</div>
+                                            <% pc.suggestions.forEach(s => { %>
+                                                <span class="suggestion-chip"><%= s %></span>
+                                            <% }) %>
+                                        </div>
+                                    <% } %>
+                                    
+                                    <% if (pc.beforePhoto || pc.afterPhoto) { %>
+                                        <div style="margin-top: 8px; display: flex; gap: 6px;">
+                                            <% if (pc.beforePhoto) { %>
+                                                <div>
+                                                    <div style="font-size: 9px; font-weight: 700; color: var(--text-3); text-align: center;">BEFORE</div>
+                                                    <img src="<%= pc.beforePhoto %>" class="photo-thumb" onclick="openPhotoModal('<%= pc.beforePhoto %>')">
+                                                </div>
+                                            <% } %>
+                                            <% if (pc.afterPhoto) { %>
+                                                <div>
+                                                    <div style="font-size: 9px; font-weight: 700; color: var(--success); text-align: center;">AFTER</div>
+                                                    <img src="<%= pc.afterPhoto %>" class="photo-thumb" onclick="openPhotoModal('<%= pc.afterPhoto %>')">
+                                                </div>
+                                            <% } %>
+                                        </div>
+                                    <% } %>
+                                    
+                                    <div style="margin-top: 10px; display: flex; gap: 6px;">
+                                        <button class="btn btn-xs btn-secondary" style="flex: 1;" onclick='editPC(<%- JSON.stringify(pc) %>)'>Update Health</button>
+                                        <button class="btn btn-xs btn-danger" onclick="deletePC('<%= pc._id %>')">×</button>
+                                    </div>
+                                </div>
+                            <% }) %>
+                        </div>
+                    <% } %>
+                </div>
+            </div>
+        </div>
+        
+        <!-- VISITS TAB -->
+        <div class="tab-content" data-tab-content="amc" data-content="visits">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Visit Schedule</div>
+                        <div class="card-subtitle">Schedule visits & notify agents via WhatsApp</div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('visitModal')">+ Schedule Visit</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Date</th><th>Time</th><th>Agent</th><th>Purpose</th><th>Status</th><th>Notify</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody>
+                            <% if (office.visits.length === 0) { %>
+                                <tr><td colspan="7" class="text-center" style="padding: 40px; color: var(--text-3);">No visits scheduled. Click <strong>+ Schedule Visit</strong> to plan one.</td></tr>
+                            <% } else { 
+                                const sortedVisits = [...office.visits].sort((a, b) => new Date(b.visitDate) - new Date(a.visitDate));
+                                sortedVisits.forEach(v => {
+                                const sc = v.status === 'Completed' ? 'success' : v.status === 'In Progress' ? 'info' : v.status === 'Missed' ? 'danger' : 'warning';
+                                const visitDate = new Date(v.visitDate);
+                                const today = new Date(); today.setHours(0,0,0,0);
+                                const isToday = visitDate.toDateString() === today.toDateString();
+                            %>
+                                <tr>
+                                    <td>
+                                        <div class="font-bold"><%= visitDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) %></div>
+                                        <% if (isToday) { %><span class="badge danger" style="font-size: 9px;">TODAY</span><% } %>
+                                    </td>
+                                    <td class="font-mono"><%= v.visitTime %></td>
+                                    <td><span class="badge info"><%= v.assignedAgent.toUpperCase() %></span></td>
+                                    <td><%= v.purpose %></td>
+                                    <td>
+                                        <select onchange="updateVisitStatus('<%= v._id %>', this.value)" style="padding: 4px 8px; font-size: 11px; width: auto;">
+                                            <% ['Scheduled','In Progress','Completed','Missed','Rescheduled'].forEach(s => { %>
+                                                <option <%= v.status === s ? 'selected' : '' %>><%= s %></option>
+                                            <% }) %>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <% if (v.notificationSent) { %>
+                                            <span class="badge success">✓ SENT</span>
+                                        <% } else { %>
+                                            <button class="wa-btn" onclick="sendVisitWA('<%= v._id %>', '<%= visitDate.toLocaleDateString('en-IN') %>', '<%= v.visitTime %>', '<%= v.assignedAgent %>', '<%= v.purpose %>')">📲 Notify</button>
+                                        <% } %>
+                                    </td>
+                                    <td>
+                                        <% if (v.status === 'Completed' || v.status === 'In Progress') { %>
+                                            <a href="/amc/visit/<%= office._id %>/<%= v._id %>/report" target="_blank" class="btn btn-xs" style="background: var(--purple-light); color: #6d28d9; border: 1px solid #ddd6fe;">📄 PDF</a>
+                                        <% } %>
+                                        <button class="btn btn-xs btn-danger" onclick="deleteVisit('<%= v._id %>')">Del</button>
+                                    </td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- PAYMENTS TAB -->
+        <div class="tab-content" data-tab-content="amc" data-content="payments">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Payments Received</div>
+                        <div class="card-subtitle">Total received: <strong><%= formatINR(totalPaid) %></strong></div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('paymentModal')">+ Add Payment</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Date</th><th>Amount</th><th>Mode</th><th>Invoice</th><th>Notes</th><th></th></tr></thead>
+                        <tbody>
+                            <% if (office.payments.length === 0) { %>
+                                <tr><td colspan="6" class="text-center" style="padding: 40px; color: var(--text-3);">No payments recorded</td></tr>
+                            <% } else { office.payments.slice().reverse().forEach(p => { %>
+                                <tr>
+                                    <td class="text-muted"><%= formatDate(p.paidDate) %></td>
+                                    <td class="font-mono font-bold text-success"><%= formatINR(p.amount) %></td>
+                                    <td><span class="badge info"><%= p.paymentMode %></span></td>
+                                    <td class="font-mono"><%= p.invoiceNumber || '-' %></td>
+                                    <td class="text-muted"><%= p.notes || '-' %></td>
+                                    <td><button class="btn btn-xs btn-danger" onclick="deletePayment('<%= p._id %>')">Del</button></td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- EXPENSES TAB -->
+        <div class="tab-content" data-tab-content="amc" data-content="expenses">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Expenses</div>
+                        <div class="card-subtitle">Total expense: <strong><%= formatINR(totalExp) %></strong></div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('expenseModal')">+ Add Expense</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th></th></tr></thead>
+                        <tbody>
+                            <% if (office.expenses.length === 0) { %>
+                                <tr><td colspan="5" class="text-center" style="padding: 40px; color: var(--text-3);">No expenses recorded</td></tr>
+                            <% } else { office.expenses.slice().reverse().forEach(e => { %>
+                                <tr>
+                                    <td class="text-muted"><%= formatDate(e.date) %></td>
+                                    <td><span class="badge neutral"><%= e.category %></span></td>
+                                    <td><%= e.description %></td>
+                                    <td class="font-mono font-bold text-danger"><%= formatINR(e.amount) %></td>
+                                    <td><button class="btn btn-xs btn-danger" onclick="deleteExpense('<%= e._id %>')">Del</button></td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- PC MODAL -->
+<div class="modal-overlay" id="pcModal">
+    <div class="modal" style="max-width: 700px;">
+        <div class="modal-header">
+            <div class="modal-title" id="pcModalTitle">Add PC / System</div>
+            <button class="modal-close" onclick="closeModal('pcModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="pc_id">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">PC ID *</label>
+                    <input type="text" id="pc_pcid" placeholder="PC-01, LAP-05">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Type</label>
+                    <select id="pc_type">
+                        <option>Desktop</option><option>Laptop</option><option>Server</option><option>AIO</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Model</label>
+                    <input type="text" id="pc_model" placeholder="Dell OptiPlex 7090">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">User</label>
+                    <input type="text" id="pc_user" placeholder="Employee name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Department</label>
+                    <input type="text" id="pc_dept" placeholder="Accounts, IT, HR">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Rate per PC (₹)</label>
+                    <input type="number" id="pc_rate" value="0">
+                </div>
+                
+                <div style="grid-column: span 2; border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px;">
+                    <div class="form-section-title" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-2); margin-bottom: 10px;">Component Health Status</div>
+                </div>
+                
+                <div class="form-group"><label class="form-label">Motherboard</label><select id="pc_mb"><option>Good</option><option>Repair Required</option></select></div>
+                <div class="form-group"><label class="form-label">CPU</label><select id="pc_cpu"><option>Good</option><option>Issue Detected</option></select></div>
+                <div class="form-group"><label class="form-label">RAM</label><select id="pc_ram"><option>Good</option><option>Faulty/Upgrade Req</option></select></div>
+                <div class="form-group"><label class="form-label">Storage</label><select id="pc_hdd"><option>Good</option><option>Bad Sectors</option></select></div>
+                <div class="form-group"><label class="form-label">Fan</label><select id="pc_fan"><option>Good</option><option>Noisy/Slow</option></select></div>
+                <div class="form-group"><label class="form-label">Temperature</label><select id="pc_temp"><option>Normal</option><option>Overheating</option></select></div>
+                <div class="form-group"><label class="form-label">Battery</label><select id="pc_bat"><option>Good</option><option>Dead/Replace</option><option>N/A</option></select></div>
+                <div class="form-group"><label class="form-label">Monitor</label><select id="pc_mon"><option>Good</option><option>Lines/Broken</option></select></div>
+                
+                <div class="form-group">
+                    <label class="form-label">Before Photo</label>
+                    <input type="file" accept="image/*" id="pc_beforefile">
+                    <input type="hidden" id="pc_before">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">After Photo</label>
+                    <input type="file" accept="image/*" id="pc_afterfile">
+                    <input type="hidden" id="pc_after">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Remarks</label>
+                    <textarea id="pc_remarks" rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('pcModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="savePC()">Save PC</button>
+        </div>
+    </div>
+</div>
+
+<!-- VISIT MODAL -->
+<div class="modal-overlay" id="visitModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Schedule Visit</div>
+            <button class="modal-close" onclick="closeModal('visitModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Date *</label>
+                    <input type="date" id="v_date">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Time</label>
+                    <input type="time" id="v_time" value="10:00">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Agent *</label>
+                    <select id="v_agent">
+                        <option value="vijay">Vijay</option>
+                        <option value="rahul">Rahul</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Purpose</label>
+                    <select id="v_purpose">
+                        <option>Monthly Maintenance</option>
+                        <option>Quarterly Service</option>
+                        <option>On-Demand</option>
+                        <option>Emergency</option>
+                    </select>
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Notes</label>
+                    <textarea id="v_notes" rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('visitModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveVisit()">Schedule</button>
+        </div>
+    </div>
+</div>
+
+<!-- PAYMENT MODAL -->
+<div class="modal-overlay" id="paymentModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Payment</div>
+            <button class="modal-close" onclick="closeModal('paymentModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Amount (₹) *</label>
+                    <input type="number" id="p_amt">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Date</label>
+                    <input type="date" id="p_date">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Mode</label>
+                    <select id="p_mode">
+                        <option>Bank Transfer</option><option>UPI</option><option>Cheque</option><option>Cash</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Invoice Number</label>
+                    <input type="text" id="p_inv">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Notes</label>
+                    <input type="text" id="p_notes">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('paymentModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="savePayment()">Save Payment</button>
+        </div>
+    </div>
+</div>
+
+<!-- EXPENSE MODAL -->
+<div class="modal-overlay" id="expenseModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Expense</div>
+            <button class="modal-close" onclick="closeModal('expenseModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Category</label>
+                    <select id="e_cat">
+                        <option>Travel</option><option>Parts</option><option>Tools</option><option>Labor</option><option>Misc</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Amount (₹) *</label>
+                    <input type="number" id="e_amt">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Description</label>
+                    <input type="text" id="e_desc">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('expenseModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveExpense()">Save Expense</button>
+        </div>
+    </div>
+</div>
+
+<!-- Photo modal -->
+<div class="modal-overlay" id="photoModal">
+    <div class="modal" style="background: transparent; box-shadow: none; max-width: 90vw;">
+        <button class="modal-close" onclick="closeModal('photoModal')" style="position: absolute; top: 10px; right: 10px;">×</button>
+        <img id="photoModalImg" style="width: 100%; border-radius: 8px;">
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    const OFFICE_ID = '<%= office._id %>';
+    const CONTACT_MOBILE = '<%= office.contactMobile %>';
+    const OFFICE_NAME = '<%= office.officeName %>';
+    
+    function openPhotoModal(src) {
+        document.getElementById('photoModalImg').src = src;
+        document.getElementById('photoModal').classList.add('active');
+    }
+    
+    // Photo compression
+    function compressPhoto(file, hiddenId) {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = function(event) {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = function() {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 800;
+                canvas.width = MAX_WIDTH;
+                canvas.height = img.height * (MAX_WIDTH / img.width);
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                document.getElementById(hiddenId).value = canvas.toDataURL('image/jpeg', 0.6);
+            }
+        }
+    }
+    document.getElementById('pc_beforefile').addEventListener('change', (e) => { if (e.target.files[0]) compressPhoto(e.target.files[0], 'pc_before'); });
+    document.getElementById('pc_afterfile').addEventListener('change', (e) => { if (e.target.files[0]) compressPhoto(e.target.files[0], 'pc_after'); });
+    
+    function editPC(pc) {
+        document.getElementById('pcModalTitle').textContent = 'Update PC: ' + pc.pcId;
+        document.getElementById('pc_id').value = pc._id;
+        document.getElementById('pc_pcid').value = pc.pcId;
+        document.getElementById('pc_type').value = pc.pcType;
+        document.getElementById('pc_model').value = pc.pcModel || '';
+        document.getElementById('pc_user').value = pc.user || '';
+        document.getElementById('pc_dept').value = pc.department || '';
+        document.getElementById('pc_rate').value = pc.ratePerPC || 0;
+        document.getElementById('pc_mb').value = pc.motherboard;
+        document.getElementById('pc_cpu').value = pc.cpu;
+        document.getElementById('pc_ram').value = pc.ramStatus;
+        document.getElementById('pc_hdd').value = pc.hddHealth;
+        document.getElementById('pc_fan').value = pc.fan;
+        document.getElementById('pc_temp').value = pc.temperature;
+        document.getElementById('pc_bat').value = pc.battery;
+        document.getElementById('pc_mon').value = pc.monitor;
+        document.getElementById('pc_before').value = pc.beforePhoto || '';
+        document.getElementById('pc_after').value = pc.afterPhoto || '';
+        document.getElementById('pc_remarks').value = pc.remarks || '';
+        openModal('pcModal');
+    }
+    
+    async function savePC() {
+        const id = document.getElementById('pc_id').value;
+        const data = {
+            pcId: document.getElementById('pc_pcid').value,
+            pcType: document.getElementById('pc_type').value,
+            pcModel: document.getElementById('pc_model').value,
+            user: document.getElementById('pc_user').value,
+            department: document.getElementById('pc_dept').value,
+            ratePerPC: Number(document.getElementById('pc_rate').value),
+            motherboard: document.getElementById('pc_mb').value,
+            cpu: document.getElementById('pc_cpu').value,
+            ramStatus: document.getElementById('pc_ram').value,
+            hddHealth: document.getElementById('pc_hdd').value,
+            fan: document.getElementById('pc_fan').value,
+            temperature: document.getElementById('pc_temp').value,
+            battery: document.getElementById('pc_bat').value,
+            monitor: document.getElementById('pc_mon').value,
+            beforePhoto: document.getElementById('pc_before').value,
+            afterPhoto: document.getElementById('pc_after').value,
+            remarks: document.getElementById('pc_remarks').value,
+            lastServicedDate: new Date()
+        };
+        if (!data.pcId) return showToast('PC ID required', 'error');
+        const url = id ? `/api/amc/offices/${OFFICE_ID}/pcs/${id}` : `/api/amc/offices/${OFFICE_ID}/pcs`;
+        const method = id ? 'PUT' : 'POST';
+        const res = await api(url, { method, body: JSON.stringify(data) });
+        if (res.success) { showToast('PC saved', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function deletePC(id) {
+        if (!confirm('Delete this PC?')) return;
+        const res = await api(`/api/amc/offices/${OFFICE_ID}/pcs/${id}`, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.reload(), 400); }
+    }
+    
+    async function saveVisit() {
+        const data = {
+            visitDate: document.getElementById('v_date').value,
+            visitTime: document.getElementById('v_time').value,
+            assignedAgent: document.getElementById('v_agent').value,
+            purpose: document.getElementById('v_purpose').value,
+            notes: document.getElementById('v_notes').value
+        };
+        if (!data.visitDate) return showToast('Date required', 'error');
+        const res = await api(`/api/amc/offices/${OFFICE_ID}/visits`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Visit scheduled', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function updateVisitStatus(vId, status) {
+        const res = await api(`/api/amc/offices/${OFFICE_ID}/visits/${vId}`, { method: 'PUT', body: JSON.stringify({ status }) });
+        if (res.success) showToast('Status updated', 'success');
+    }
+    
+    async function deleteVisit(vId) {
+        if (!confirm('Delete this visit?')) return;
+        const res = await api(`/api/amc/offices/${OFFICE_ID}/visits/${vId}`, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.reload(), 400); }
+    }
+    
+    // Send WhatsApp notification for visit
+    function sendVisitWA(vId, dateStr, time, agent, purpose) {
+        const adminMobile = '9106959092'; // your admin mobile
+        const agentMobile = agent === 'vijay' ? '9106959092' : '9106959092'; // configure agent numbers
+        
+        // Message to client (office contact)
+        const clientMsg = `*Visit Scheduled - Searvator IT Solutions*\n\nDear ${OFFICE_NAME},\n\nOur engineer *${agent.toUpperCase()}* will visit your office:\n\n📅 *Date:* ${dateStr}\n🕒 *Time:* ${time}\n🎯 *Purpose:* ${purpose}\n\nFor any rescheduling, please contact us.\n\nRegards,\nTeam Searvator`;
+        
+        // Message to agent
+        const agentMsg = `*New Visit Assigned*\n\n🏢 *Office:* ${OFFICE_NAME}\n📅 *Date:* ${dateStr}\n🕒 *Time:* ${time}\n🎯 *Purpose:* ${purpose}\n📞 *Client Contact:* ${CONTACT_MOBILE}\n\nPlease confirm.\n\n- Searvator Admin`;
+        
+        // Mark sent in DB
+        fetch(`/api/amc/offices/${OFFICE_ID}/visits/${vId}/wa-sent`, { method: 'POST' });
+        
+        // Open WA for client
+        let clientPhone = CONTACT_MOBILE.replace(/\D/g, '');
+        if (clientPhone.length === 10) clientPhone = '91' + clientPhone;
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        const clientUrl = isMobile 
+            ? `https://wa.me/${clientPhone}?text=${encodeURIComponent(clientMsg)}` 
+            : `https://web.whatsapp.com/send?phone=${clientPhone}&text=${encodeURIComponent(clientMsg)}`;
+        
+        // Open both messages — client first, then agent in new tab
+        window.open(clientUrl, '_blank');
+        setTimeout(() => {
+            let agentPhone = agentMobile.replace(/\D/g, '');
+            if (agentPhone.length === 10) agentPhone = '91' + agentPhone;
+            const agentUrl = isMobile 
+                ? `https://wa.me/${agentPhone}?text=${encodeURIComponent(agentMsg)}` 
+                : `https://web.whatsapp.com/send?phone=${agentPhone}&text=${encodeURIComponent(agentMsg)}`;
+            window.open(agentUrl, '_blank');
+            location.reload();
+        }, 1500);
+    }
+    
+    async function savePayment() {
+        const data = {
+            amount: Number(document.getElementById('p_amt').value),
+            paidDate: document.getElementById('p_date').value || new Date(),
+            paymentMode: document.getElementById('p_mode').value,
+            invoiceNumber: document.getElementById('p_inv').value,
+            notes: document.getElementById('p_notes').value
+        };
+        if (!data.amount) return showToast('Amount required', 'error');
+        const res = await api(`/api/amc/offices/${OFFICE_ID}/payments`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Payment added', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function deletePayment(pId) {
+        if (!confirm('Delete this payment?')) return;
+        const res = await api(`/api/amc/offices/${OFFICE_ID}/payments/${pId}`, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.reload(), 400); }
+    }
+    
+    async function saveExpense() {
+        const data = {
+            category: document.getElementById('e_cat').value,
+            amount: Number(document.getElementById('e_amt').value),
+            description: document.getElementById('e_desc').value
+        };
+        if (!data.amount) return showToast('Amount required', 'error');
+        const res = await api(`/api/amc/offices/${OFFICE_ID}/expenses`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Expense added', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function deleteExpense(eId) {
+        if (!confirm('Delete this expense?')) return;
+        const res = await api(`/api/amc/offices/${OFFICE_ID}/expenses/${eId}`, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.reload(), 400); }
+    }
+    
+    async function deleteOffice() {
+        if (!confirm('Delete this office and ALL its data? This cannot be undone.')) return;
+        const res = await api(`/api/amc/offices/${OFFICE_ID}`, { method: 'DELETE' });
+        if (res.success) { showToast('Office deleted', 'success'); setTimeout(() => location.href = '/amc', 500); }
+    }
+    
+    // Reset PC modal on close
+    document.querySelector('#pcModal .modal-close').addEventListener('click', () => {
+        document.getElementById('pc_id').value = '';
+        document.getElementById('pcModalTitle').textContent = 'Add PC / System';
+    });
+</script>
+</body>
+</html>

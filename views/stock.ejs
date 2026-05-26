@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Management — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'stock' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">Smart Stock</h1>
+                <p class="page-subtitle">Auto-managed inventory · Linked to vendor bills</p>
+            </div>
+            <div class="flex gap-2">
+                <a href="/api/stock/export" class="btn btn-success">⬇️ Export Excel</a>
+                <button class="btn btn-primary" onclick="openModal('newItemModal')">+ Add Item Manually</button>
+            </div>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Total Products</div>
+                <div class="stat-value"><%= stats.totalProducts %></div>
+                <div class="stat-meta"><%= stats.totalItems %> total units</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Stock Value</div>
+                <div class="stat-value" style="color: var(--success)"><%= formatINR(stats.totalValue) %></div>
+                <div class="stat-meta">At avg cost</div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Low Stock Alerts</div>
+                <div class="stat-value" style="color: var(--warning)"><%= stats.lowStockCount %></div>
+                <div class="stat-meta">Need reorder</div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Categories</div>
+                <div class="stat-value"><%= Object.keys(stats.categoryStats).length %></div>
+                <div class="stat-meta">Different types</div>
+            </div>
+        </div>
+        
+        <% if (Object.keys(stats.categoryStats).length > 0) { %>
+        <div class="card">
+            <div class="card-header"><div class="card-title">📊 Value by Category</div></div>
+            <div class="card-body">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+                    <% Object.entries(stats.categoryStats).forEach(([cat, val]) => { %>
+                        <div style="background: var(--surface-2); padding: 10px; border-radius: 8px;">
+                            <div style="font-size: 11px; color: var(--text-3); text-transform: uppercase;"><%= cat %></div>
+                            <div class="font-bold font-mono" style="font-size: 18px; color: var(--primary);"><%= formatINR(val) %></div>
+                        </div>
+                    <% }) %>
+                </div>
+            </div>
+        </div>
+        <% } %>
+        
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">All Items in Stock</div>
+                <input type="text" id="searchBox" placeholder="🔍 Search products..." style="width: 240px;" oninput="filterRows()">
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Product</th>
+                            <th>Category</th>
+                            <th>Stock</th>
+                            <th>Min</th>
+                            <th>Avg Cost</th>
+                            <th>Selling</th>
+                            <th>Total Value</th>
+                            <th>Vendor</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stockBody">
+                        <% if (items.length === 0) { %>
+                            <tr><td colspan="9" class="text-center" style="padding: 60px; color: var(--text-3);">
+                                <div style="font-size: 32px; margin-bottom: 8px;">📦</div>
+                                No stock yet. Add vendor bills — items auto-add. Or click + Add Item.
+                            </td></tr>
+                        <% } else { items.forEach(i => {
+                            const isLow = i.currentStock <= i.minStockLevel;
+                            const totalVal = i.currentStock * (i.avgCostPrice || i.lastCostPrice);
+                        %>
+                            <tr class="stock-row" data-search="<%= (i.productName + ' ' + i.category + ' ' + (i.brand||'') + ' ' + (i.model||'')).toLowerCase() %>">
+                                <td>
+                                    <div class="font-bold"><a href="/stock/<%= i._id %>" style="color: var(--text); text-decoration: none;"><%= i.productName %></a></div>
+                                    <% if (i.brand || i.model) { %><div class="text-muted" style="font-size: 11px;"><%= i.brand %> <%= i.model %></div><% } %>
+                                </td>
+                                <td><span class="badge info"><%= i.category %></span></td>
+                                <td>
+                                    <span class="font-bold font-mono <%= isLow ? 'text-danger' : '' %>" style="font-size: 14px;"><%= i.currentStock %></span>
+                                    <span class="text-muted" style="font-size: 11px;"><%= i.unit %></span>
+                                    <% if (isLow) { %><div><span class="badge danger" style="font-size: 9px;">LOW</span></div><% } %>
+                                </td>
+                                <td class="text-muted"><%= i.minStockLevel %></td>
+                                <td class="font-mono"><%= formatINR(Math.round(i.avgCostPrice)) %></td>
+                                <td class="font-mono"><%= formatINR(i.sellingPrice) %></td>
+                                <td class="font-mono font-bold"><%= formatINR(Math.round(totalVal)) %></td>
+                                <td class="text-muted" style="font-size: 11px;"><%= i.primaryVendor || '-' %></td>
+                                <td>
+                                    <button class="btn btn-xs btn-primary" onclick='openMovement("<%= i._id %>", "<%= i.productName %>", "IN")'>+ IN</button>
+                                    <button class="btn btn-xs" style="background: var(--warning-light); color: #92400e;" onclick='openMovement("<%= i._id %>", "<%= i.productName %>", "OUT")'>− OUT</button>
+                                    <a href="/stock/<%= i._id %>" class="btn btn-xs btn-secondary">View</a>
+                                </td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- NEW ITEM MODAL -->
+<div class="modal-overlay" id="newItemModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">Add Stock Item Manually</div>
+            <button class="modal-close" onclick="closeModal('newItemModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Product Name *</label>
+                    <input type="text" id="i_name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Category</label>
+                    <input type="text" id="i_cat" placeholder="Camera, RAM, Cable, etc.">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Unit</label>
+                    <input type="text" id="i_unit" value="Pcs">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Brand</label>
+                    <input type="text" id="i_brand">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Model</label>
+                    <input type="text" id="i_model">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Initial Stock</label>
+                    <input type="number" id="i_stock" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Min Stock Level</label>
+                    <input type="number" id="i_min" value="1">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Cost Price (₹)</label>
+                    <input type="number" id="i_cost" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Selling Price (₹)</label>
+                    <input type="number" id="i_sell" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">GST %</label>
+                    <input type="number" id="i_gst" value="18">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Primary Vendor</label>
+                    <input type="text" id="i_vendor">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('newItemModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="createItem()">Add to Stock</button>
+        </div>
+    </div>
+</div>
+
+<!-- MOVEMENT MODAL -->
+<div class="modal-overlay" id="movementModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title" id="movTitle">Stock Movement</div>
+            <button class="modal-close" onclick="closeModal('movementModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="m_id">
+            <input type="hidden" id="m_type">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Quantity *</label>
+                    <input type="number" id="m_qty" value="1">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Unit Cost (₹)</label>
+                    <input type="number" id="m_cost" value="0">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Source / Reason</label>
+                    <select id="m_source">
+                        <option value="Manual">Manual</option>
+                        <option value="Sale">Sale</option>
+                        <option value="Quotation">Quotation</option>
+                        <option value="Hardware Order">Hardware Order</option>
+                        <option value="AMC Visit">AMC Visit</option>
+                        <option value="Damage">Damage / Loss</option>
+                        <option value="Return">Return from Customer</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Reference</label>
+                    <input type="text" id="m_ref" placeholder="Bill / Invoice #">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Client / To</label>
+                    <input type="text" id="m_client" placeholder="If sold/given to client">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Serial Numbers (comma)</label>
+                    <input type="text" id="m_serials">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Notes</label>
+                    <input type="text" id="m_notes">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('movementModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveMovement()">Save Movement</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    async function createItem() {
+        const data = {
+            productName: document.getElementById('i_name').value,
+            category: document.getElementById('i_cat').value || 'General',
+            unit: document.getElementById('i_unit').value,
+            brand: document.getElementById('i_brand').value,
+            model: document.getElementById('i_model').value,
+            currentStock: Number(document.getElementById('i_stock').value),
+            minStockLevel: Number(document.getElementById('i_min').value),
+            avgCostPrice: Number(document.getElementById('i_cost').value),
+            lastCostPrice: Number(document.getElementById('i_cost').value),
+            sellingPrice: Number(document.getElementById('i_sell').value),
+            gstPercent: Number(document.getElementById('i_gst').value),
+            primaryVendor: document.getElementById('i_vendor').value
+        };
+        if (!data.productName) return showToast('Product name required', 'error');
+        const res = await api('/api/stock', { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Added', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    function openMovement(id, name, type) {
+        document.getElementById('m_id').value = id;
+        document.getElementById('m_type').value = type;
+        document.getElementById('movTitle').textContent = (type === 'IN' ? '+ Add to Stock: ' : '− Remove from Stock: ') + name;
+        openModal('movementModal');
+    }
+    
+    async function saveMovement() {
+        const data = {
+            type: document.getElementById('m_type').value,
+            quantity: Number(document.getElementById('m_qty').value),
+            unitCost: Number(document.getElementById('m_cost').value || 0),
+            source: document.getElementById('m_source').value,
+            sourceRef: document.getElementById('m_ref').value,
+            clientName: document.getElementById('m_client').value,
+            notes: document.getElementById('m_notes').value,
+            serialNumbers: document.getElementById('m_serials').value ? document.getElementById('m_serials').value.split(',').map(s => s.trim()).filter(Boolean) : []
+        };
+        if (!data.quantity) return showToast('Quantity required', 'error');
+        const id = document.getElementById('m_id').value;
+        const res = await api(`/api/stock/${id}/movement`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Movement recorded', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    function filterRows() {
+        const q = document.getElementById('searchBox').value.toLowerCase();
+        document.querySelectorAll('.stock-row').forEach(r => {
+            r.style.display = r.dataset.search.includes(q) ? '' : 'none';
+        });
+    }
+</script>
+</body>
+</html>

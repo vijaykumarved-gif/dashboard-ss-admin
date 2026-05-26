@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My AMC Visits — <%= agentName.toUpperCase() %></title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .agent-shell { max-width: 900px; margin: 0 auto; padding: 24px 16px; animation: fadeInUp 0.5s var(--ease-out); }
+        .top-bar { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; box-shadow: var(--shadow-sm); }
+        .top-bar-brand { display: flex; align-items: center; gap: 10px; }
+        .top-bar-logo { width: 36px; height: 36px; background: linear-gradient(135deg, #0f172a, #1e293b); border-radius: 10px; display: grid; place-items: center; color: white; font-weight: 800; font-size: 18px; }
+        .visit-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: all 0.2s var(--ease);
+        }
+        .visit-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+        .visit-card.today { border-left: 4px solid var(--danger); background: #fef2f2; }
+        .visit-card.progress { border-left: 4px solid var(--primary); background: #eff6ff; }
+        .section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); margin: 24px 0 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title .count { background: var(--surface-3); padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+        .visit-date-box {
+            background: var(--accent);
+            color: white;
+            padding: 8px 12px;
+            border-radius: var(--radius);
+            text-align: center;
+            min-width: 60px;
+        }
+        .visit-date-box .day { font-size: 22px; font-weight: 800; line-height: 1; }
+        .visit-date-box .month { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+        .visit-card.today .visit-date-box { background: var(--danger); }
+        .visit-card.progress .visit-date-box { background: var(--primary); }
+    </style>
+</head>
+<body>
+<div class="agent-shell">
+    <div class="top-bar">
+        <div class="top-bar-brand">
+            <div class="top-bar-logo">S</div>
+            <div>
+                <div style="font-weight: 800; font-size: 16px;">Searvator</div>
+                <div style="font-size: 11px; color: var(--text-3); text-transform: uppercase; font-weight: 600;">My AMC Visits</div>
+            </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <a href="/agent" class="btn btn-sm btn-secondary">← Back to Dashboard</a>
+            <a href="/logout" class="btn btn-danger btn-sm">Logout</a>
+        </div>
+    </div>
+    
+    <!-- TODAY'S VISITS -->
+    <% if (todayVisits.length > 0) { %>
+        <div class="section-title">🚨 Today's Visits <span class="count"><%= todayVisits.length %></span></div>
+        <% todayVisits.forEach(v => { 
+            const visitDate = new Date(v.visitDate);
+        %>
+            <div class="visit-card today">
+                <div style="display: flex; gap: 14px; align-items: start;">
+                    <div class="visit-date-box">
+                        <div class="day"><%= visitDate.getDate() %></div>
+                        <div class="month"><%= visitDate.toLocaleDateString('en-US', { month: 'short' }) %></div>
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 6px;">
+                            <div>
+                                <div class="font-bold" style="font-size: 16px;"><%= v.officeName %></div>
+                                <div class="text-muted" style="font-size: 12px;">🕒 <%= v.visitTime %> · <%= v.purpose %></div>
+                            </div>
+                            <span class="badge danger">TODAY</span>
+                        </div>
+                        <div class="text-muted" style="font-size: 12px; margin-bottom: 10px;">
+                            👤 <%= v.contactPerson %> · 📞 <%= v.contactMobile %>
+                            <% if (v.address) { %><br>📍 <%= v.address %><% } %>
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <a href="/agent/amc/<%= v.officeId %>/visit/<%= v._id %>" class="btn btn-primary btn-sm">▶ Start / Continue Visit</a>
+                            <a href="tel:<%= v.contactMobile %>" class="btn btn-sm btn-secondary">📞 Call</a>
+                            <a href="https://www.google.com/maps/search/?api=1&query=<%= encodeURIComponent(v.address || v.officeName) %>" target="_blank" class="btn btn-sm btn-secondary">🗺️ Map</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        <% }) %>
+    <% } %>
+    
+    <!-- IN PROGRESS -->
+    <% if (inProgressVisits.length > 0) { %>
+        <div class="section-title">▶️ In Progress <span class="count"><%= inProgressVisits.length %></span></div>
+        <% inProgressVisits.forEach(v => { 
+            const visitDate = new Date(v.visitDate);
+        %>
+            <div class="visit-card progress">
+                <div style="display: flex; gap: 14px; align-items: start;">
+                    <div class="visit-date-box">
+                        <div class="day"><%= visitDate.getDate() %></div>
+                        <div class="month"><%= visitDate.toLocaleDateString('en-US', { month: 'short' }) %></div>
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 6px;">
+                            <div>
+                                <div class="font-bold" style="font-size: 16px;"><%= v.officeName %></div>
+                                <div class="text-muted" style="font-size: 12px;">🕒 <%= v.visitTime %> · <%= v.purpose %></div>
+                                <div class="text-muted" style="font-size: 11px; margin-top: 4px;">✓ <%= v.pcServiceLogs.length %> PCs serviced so far</div>
+                            </div>
+                            <span class="badge info">IN PROGRESS</span>
+                        </div>
+                        <a href="/agent/amc/<%= v.officeId %>/visit/<%= v._id %>" class="btn btn-primary btn-sm">Continue Visit →</a>
+                    </div>
+                </div>
+            </div>
+        <% }) %>
+    <% } %>
+    
+    <!-- UPCOMING -->
+    <div class="section-title">📅 Upcoming Visits <span class="count"><%= upcomingVisits.length %></span></div>
+    <% if (upcomingVisits.length === 0) { %>
+        <div class="empty-state" style="background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md);">
+            <div class="empty-icon">📅</div>
+            <div class="empty-title">No upcoming visits</div>
+            <div>Admin will schedule visits for you</div>
+        </div>
+    <% } else { upcomingVisits.forEach(v => { 
+        const visitDate = new Date(v.visitDate);
+    %>
+        <div class="visit-card">
+            <div style="display: flex; gap: 14px; align-items: start;">
+                <div class="visit-date-box">
+                    <div class="day"><%= visitDate.getDate() %></div>
+                    <div class="month"><%= visitDate.toLocaleDateString('en-US', { month: 'short' }) %></div>
+                </div>
+                <div style="flex: 1;">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 6px;">
+                        <div>
+                            <div class="font-bold" style="font-size: 15px;"><%= v.officeName %></div>
+                            <div class="text-muted" style="font-size: 12px;">🕒 <%= v.visitTime %> · <%= v.purpose %></div>
+                        </div>
+                        <span class="badge warning">SCHEDULED</span>
+                    </div>
+                    <div class="text-muted" style="font-size: 11px;">👤 <%= v.contactPerson %> · 📞 <%= v.contactMobile %></div>
+                    <div style="margin-top: 8px;">
+                        <a href="/agent/amc/<%= v.officeId %>/visit/<%= v._id %>" class="btn btn-sm btn-secondary">View Details</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    <% }) } %>
+    
+    <!-- COMPLETED -->
+    <% if (completedVisits.length > 0) { %>
+        <div class="section-title">✅ Recently Completed <span class="count"><%= completedVisits.length %></span></div>
+        <% completedVisits.forEach(v => { 
+            const visitDate = new Date(v.visitDate);
+        %>
+            <div class="visit-card" style="opacity: 0.85;">
+                <div style="display: flex; gap: 14px; align-items: start;">
+                    <div class="visit-date-box" style="background: var(--success);">
+                        <div class="day"><%= visitDate.getDate() %></div>
+                        <div class="month"><%= visitDate.toLocaleDateString('en-US', { month: 'short' }) %></div>
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                            <div>
+                                <div class="font-bold" style="font-size: 14px;"><%= v.officeName %></div>
+                                <div class="text-muted" style="font-size: 11px;"><%= v.pcServiceLogs.length %> PCs serviced · Extra bill: ₹<%= (v.extraBillAmount || 0).toLocaleString('en-IN') %></div>
+                            </div>
+                            <span class="badge success">DONE</span>
+                        </div>
+                        <div style="margin-top: 8px; display: flex; gap: 6px;">
+                            <a href="/agent/amc/<%= v.officeId %>/visit/<%= v._id %>" class="btn btn-xs btn-secondary">View</a>
+                            <a href="/amc/visit/<%= v.officeId %>/<%= v._id %>/report" target="_blank" class="btn btn-xs" style="background: var(--purple-light); color: #6d28d9; border: 1px solid #ddd6fe;">📄 Service Report</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        <% }) %>
+    <% } %>
+</div>
+</body>
+</html>

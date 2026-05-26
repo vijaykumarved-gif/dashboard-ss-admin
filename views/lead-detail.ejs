@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= lead.leadNumber %> — <%= lead.leadName %></title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .wa-btn { background: #25D366; color: white; padding: 6px 12px; border-radius: 6px; border: none; font-weight: 700; font-size: 12px; cursor: pointer; text-decoration: none; display: inline-flex; gap: 4px; }
+        .wa-btn:hover { background: #128C7E; }
+    </style>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'leads' }) %>
+    
+    <main class="main-content">
+        <div style="margin-bottom: 12px;">
+            <a href="/leads" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back to Leads</a>
+        </div>
+        
+        <div class="page-header">
+            <div>
+                <h1 class="page-title"><%= lead.leadName %></h1>
+                <p class="page-subtitle">
+                    <%= lead.leadNumber %>
+                    <% if (lead.companyName) { %> · <%= lead.companyName %><% } %>
+                    · 📞 <%= lead.mobile %>
+                </p>
+            </div>
+            <div class="flex gap-2">
+                <a href="tel:<%= lead.mobile %>" class="btn btn-secondary">📞 Call</a>
+                <a href="https://wa.me/91<%= lead.mobile.replace(/\D/g,'').slice(-10) %>" target="_blank" class="wa-btn">📲 WhatsApp</a>
+                <% if (lead.status !== 'Won' && lead.status !== 'Lost') { %>
+                    <button class="btn btn-success" onclick="openModal('convertModal')">🏆 Convert to Customer</button>
+                <% } %>
+            </div>
+        </div>
+        
+        <!-- LEAD INFO CARD -->
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px;">
+            <div class="card" style="margin-bottom: 0;">
+                <div class="card-body">
+                    <div class="form-grid">
+                        <div><strong>Email:</strong> <%= lead.email || '-' %></div>
+                        <div><strong>Source:</strong> <%= lead.source %></div>
+                        <% if (lead.referredBy) { %><div><strong>Referred By:</strong> <%= lead.referredBy %></div><% } %>
+                        <div><strong>Timeline:</strong> <%= lead.timeline %></div>
+                        <div style="grid-column: span 2;"><strong>Address:</strong> <%= lead.address || '-' %></div>
+                        <div style="grid-column: span 2;"><strong>Requirement:</strong> <%= lead.requirement || '-' %></div>
+                        <div style="grid-column: span 2;">
+                            <strong>Interested In:</strong>
+                            <% (lead.interestedIn || []).forEach(i => { %>
+                                <span class="badge info" style="margin: 2px;"><%= i %></span>
+                            <% }) %>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card" style="margin-bottom: 0;">
+                <div class="card-body">
+                    <div class="form-group mb-2">
+                        <label class="form-label">Status</label>
+                        <select id="l_status" onchange="updateLead('status', this.value)">
+                            <% ['New','Contacted','Meeting Scheduled','Quote Sent','Negotiation','Won','Lost','On Hold'].forEach(s => { %>
+                                <option <%= lead.status === s ? 'selected' : '' %>><%= s %></option>
+                            <% }) %>
+                        </select>
+                    </div>
+                    <div class="form-group mb-2">
+                        <label class="form-label">Priority</label>
+                        <select id="l_priority" onchange="updateLead('priority', this.value)">
+                            <option <%= lead.priority === 'High' ? 'selected' : '' %>>High</option>
+                            <option <%= lead.priority === 'Medium' ? 'selected' : '' %>>Medium</option>
+                            <option <%= lead.priority === 'Low' ? 'selected' : '' %>>Low</option>
+                        </select>
+                    </div>
+                    <div class="form-group mb-2">
+                        <label class="form-label">Assigned To</label>
+                        <select id="l_assigned" onchange="updateLead('assignedTo', this.value)">
+                            <option value="">Unassigned</option>
+                            <option value="admin" <%= lead.assignedTo === 'admin' ? 'selected' : '' %>>Admin</option>
+                            <option value="vijay" <%= lead.assignedTo === 'vijay' ? 'selected' : '' %>>Vijay</option>
+                            <option value="rahul" <%= lead.assignedTo === 'rahul' ? 'selected' : '' %>>Rahul</option>
+                        </select>
+                    </div>
+                    <div class="form-group mb-2">
+                        <label class="form-label">Estimated Value (₹)</label>
+                        <input type="number" id="l_value" value="<%= lead.estimatedValue %>" onchange="updateLead('estimatedValue', Number(this.value))">
+                    </div>
+                    <% if (lead.status === 'Won' && lead.convertedTo) { %>
+                        <div style="background: var(--success-light); padding: 10px; border-radius: 8px; margin-top: 8px; font-size: 12px;">
+                            <strong>✓ Converted to:</strong> <%= lead.convertedTo %><br>
+                            <strong>Date:</strong> <%= formatDate(lead.convertedAt) %>
+                        </div>
+                    <% } %>
+                </div>
+            </div>
+        </div>
+        
+        <div class="tabs">
+            <button class="tab active" data-tab-group="ld" data-tab="followups" onclick="switchTab('ld','followups')">📞 Follow-ups (<%= lead.followUps.length %>)</button>
+            <button class="tab" data-tab-group="ld" data-tab="meetings" onclick="switchTab('ld','meetings')">🤝 Meetings (<%= lead.meetings.length %>)</button>
+            <button class="tab" data-tab-group="ld" data-tab="notes" onclick="switchTab('ld','notes')">📝 Notes</button>
+        </div>
+        
+        <!-- FOLLOWUPS -->
+        <div class="tab-content active" data-tab-content="ld" data-content="followups">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">Follow-up Activities</div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('fuModal')">+ Schedule Follow-up</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Date & Time</th><th>Type</th><th>Status</th><th>Notes</th><th>Outcome</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            <% if (lead.followUps.length === 0) { %>
+                                <tr><td colspan="6" class="text-center" style="padding: 40px; color: var(--text-3);">No follow-ups scheduled</td></tr>
+                            <% } else { lead.followUps.slice().reverse().forEach(f => {
+                                const sc = f.status === 'Done' ? 'success' : f.status === 'Scheduled' ? 'warning' : 'danger';
+                            %>
+                                <tr>
+                                    <td>
+                                        <div class="font-bold"><%= formatDate(f.date) %></div>
+                                        <div class="text-muted" style="font-size: 11px;">🕒 <%= f.time %></div>
+                                    </td>
+                                    <td><span class="badge info"><%= f.type %></span></td>
+                                    <td>
+                                        <select onchange="updateFu('<%= f._id %>', 'status', this.value)" style="padding: 4px 8px; font-size: 11px;">
+                                            <option>Scheduled</option><option <%= f.status==='Done'?'selected':'' %>>Done</option>
+                                            <option <%= f.status==='Missed'?'selected':'' %>>Missed</option>
+                                            <option <%= f.status==='Rescheduled'?'selected':'' %>>Rescheduled</option>
+                                        </select>
+                                    </td>
+                                    <td class="text-muted"><%= f.notes || '-' %></td>
+                                    <td class="text-muted"><%= f.outcome || '-' %></td>
+                                    <td>
+                                        <button class="wa-btn" onclick="sendFuWA('<%= f.date %>', '<%= f.time %>', '<%= f.type %>')">📲</button>
+                                        <button class="btn btn-xs btn-danger" onclick="deleteFu('<%= f._id %>')">×</button>
+                                    </td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- MEETINGS -->
+        <div class="tab-content" data-tab-content="ld" data-content="meetings">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">Meetings</div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('mtModal')">+ Schedule Meeting</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Date & Time</th><th>Venue</th><th>Agenda</th><th>Status</th><th>Outcome</th><th></th></tr></thead>
+                        <tbody>
+                            <% if (lead.meetings.length === 0) { %>
+                                <tr><td colspan="6" class="text-center" style="padding: 40px; color: var(--text-3);">No meetings scheduled</td></tr>
+                            <% } else { lead.meetings.slice().reverse().forEach(m => { %>
+                                <tr>
+                                    <td>
+                                        <div class="font-bold"><%= formatDate(m.meetingDate) %></div>
+                                        <div class="text-muted" style="font-size: 11px;">🕒 <%= m.meetingTime %></div>
+                                    </td>
+                                    <td><%= m.venue %></td>
+                                    <td class="text-muted"><%= m.agenda || '-' %></td>
+                                    <td><span class="badge info"><%= m.status %></span></td>
+                                    <td class="text-muted"><%= m.outcome || '-' %></td>
+                                    <td><button class="btn btn-xs btn-danger" onclick="deleteMt('<%= m._id %>')">×</button></td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- NOTES -->
+        <div class="tab-content" data-tab-content="ld" data-content="notes">
+            <div class="card">
+                <div class="card-body">
+                    <textarea id="l_notes" rows="6" onchange="updateLead('notes', this.value)" placeholder="Notes about this lead..."><%= lead.notes %></textarea>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<div class="modal-overlay" id="fuModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Schedule Follow-up</div>
+            <button class="modal-close" onclick="closeModal('fuModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Date *</label>
+                    <input type="date" id="f_date">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Time</label>
+                    <input type="time" id="f_time" value="10:00">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Type</label>
+                    <select id="f_type">
+                        <option>Call</option><option>Meeting</option><option>WhatsApp</option><option>Email</option><option>Visit</option>
+                    </select>
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Notes</label>
+                    <textarea id="f_notes" rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('fuModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveFu()">Schedule</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="mtModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Schedule Meeting</div>
+            <button class="modal-close" onclick="closeModal('mtModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Date *</label>
+                    <input type="date" id="mt_date">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Time</label>
+                    <input type="time" id="mt_time" value="11:00">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Venue</label>
+                    <input type="text" id="mt_venue" placeholder="Office / Client site / Online">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Agenda</label>
+                    <textarea id="mt_agenda" rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('mtModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveMt()">Schedule</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="convertModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">🏆 Convert Lead to Customer</div>
+            <button class="modal-close" onclick="closeModal('convertModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <p style="margin-bottom: 16px;">Convert this lead to which module?</p>
+            <div style="display: grid; gap: 10px;">
+                <button class="btn btn-primary" style="padding: 14px;" onclick="convertLead('Hardware Order')">📦 Hardware Order</button>
+                <button class="btn btn-primary" style="padding: 14px; background: #8b5cf6;" onclick="convertLead('AMC Office')">🏢 AMC Office</button>
+                <button class="btn btn-primary" style="padding: 14px; background: var(--success);" onclick="convertLead('CCTV Quote')">📋 CCTV Quotation</button>
+            </div>
+            <div style="margin-top: 16px; padding: 10px; background: var(--surface-2); border-radius: 8px; font-size: 12px; color: var(--text-2);">
+                Lead data will auto-fill the new record. Lead status → Won.
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    const LEAD_ID = '<%= lead._id %>';
+    const MOBILE = '<%= lead.mobile %>';
+    const NAME = '<%= lead.leadName %>';
+    
+    async function updateLead(field, value) {
+        const data = {}; data[field] = value;
+        await api(`/api/leads/${LEAD_ID}`, { method: 'PUT', body: JSON.stringify(data) });
+        showToast('Updated', 'success');
+    }
+    
+    async function saveFu() {
+        const data = {
+            date: document.getElementById('f_date').value,
+            time: document.getElementById('f_time').value,
+            type: document.getElementById('f_type').value,
+            notes: document.getElementById('f_notes').value
+        };
+        if (!data.date) return showToast('Date required', 'error');
+        const res = await api(`/api/leads/${LEAD_ID}/followups`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Saved', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function updateFu(fId, field, value) {
+        const data = {}; data[field] = value;
+        await api(`/api/leads/${LEAD_ID}/followups/${fId}`, { method: 'PUT', body: JSON.stringify(data) });
+        showToast('Updated', 'success');
+    }
+    
+    async function deleteFu(fId) {
+        if (!confirm('Delete this follow-up?')) return;
+        const res = await api(`/api/leads/${LEAD_ID}/followups/${fId}`, { method: 'DELETE' });
+        if (res.success) { setTimeout(() => location.reload(), 400); }
+    }
+    
+    async function saveMt() {
+        const data = {
+            meetingDate: document.getElementById('mt_date').value,
+            meetingTime: document.getElementById('mt_time').value,
+            venue: document.getElementById('mt_venue').value,
+            agenda: document.getElementById('mt_agenda').value
+        };
+        if (!data.meetingDate) return showToast('Date required', 'error');
+        const res = await api(`/api/leads/${LEAD_ID}/meetings`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Saved', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function deleteMt(mId) {
+        if (!confirm('Delete?')) return;
+        const res = await api(`/api/leads/${LEAD_ID}/meetings/${mId}`, { method: 'DELETE' });
+        if (res.success) { setTimeout(() => location.reload(), 400); }
+    }
+    
+    function sendFuWA(date, time, type) {
+        const msg = `Hello ${NAME},\n\nThis is from *Searvator IT Solutions*.\n\nReminder for our scheduled ${type} on ${date} at ${time}.\n\nPlease confirm.\n\nRegards,\nTeam Searvator`;
+        let phone = MOBILE.replace(/\D/g, '');
+        if (phone.length === 10) phone = '91' + phone;
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        const url = isMobile ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`;
+        window.open(url, '_blank');
+    }
+    
+    async function convertLead(target) {
+        if (!confirm('Convert this lead to ' + target + '?')) return;
+        const res = await api(`/api/leads/${LEAD_ID}/convert`, { method: 'POST', body: JSON.stringify({ convertTo: target }) });
+        if (res.success) {
+            showToast('Converted!', 'success');
+            setTimeout(() => {
+                if (target === 'Hardware Order') location.href = '/admin';
+                else if (target === 'AMC Office') location.href = '/amc/' + res.refId;
+                else if (target === 'CCTV Quote') location.href = '/cctv/quotation/new';
+            }, 700);
+        }
+    }
+</script>
+</body>
+</html>

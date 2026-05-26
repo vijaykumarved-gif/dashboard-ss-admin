@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leads & Enquiries — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .priority-high { border-left: 4px solid var(--danger); }
+        .priority-medium { border-left: 4px solid var(--warning); }
+        .priority-low { border-left: 4px solid var(--info); }
+        .pipeline-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s var(--ease);
+        }
+        .pipeline-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+        .pipeline-card .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); font-weight: 600; }
+        .pipeline-card .count { font-size: 24px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
+        .wa-btn { background: #25D366; color: white; padding: 4px 10px; border-radius: 6px; border: none; font-weight: 700; font-size: 11px; cursor: pointer; text-decoration: none; }
+        .wa-btn:hover { background: #128C7E; }
+    </style>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'leads' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">Leads & Enquiries</h1>
+                <p class="page-subtitle">Sales pipeline · Follow-ups · Conversions</p>
+            </div>
+            <button class="btn btn-primary" onclick="openModal('newLeadModal')">+ New Lead</button>
+        </div>
+        
+        <!-- PIPELINE OVERVIEW -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 24px;">
+            <div class="pipeline-card" style="border-color: var(--info);" onclick="filterStatus('New')">
+                <div class="label">New</div>
+                <div class="count" style="color: var(--info)"><%= stats.new %></div>
+            </div>
+            <div class="pipeline-card" style="border-color: var(--primary);" onclick="filterStatus('Contacted')">
+                <div class="label">Contacted</div>
+                <div class="count" style="color: var(--primary)"><%= stats.contacted %></div>
+            </div>
+            <div class="pipeline-card" style="border-color: var(--purple);" onclick="filterStatus('Meeting Scheduled')">
+                <div class="label">Meeting</div>
+                <div class="count" style="color: var(--purple)"><%= stats.meeting %></div>
+            </div>
+            <div class="pipeline-card" style="border-color: var(--warning);" onclick="filterStatus('Quote Sent')">
+                <div class="label">Quote Sent</div>
+                <div class="count" style="color: var(--warning)"><%= stats.quoteSent %></div>
+            </div>
+            <div class="pipeline-card" style="border-color: var(--success);" onclick="filterStatus('Won')">
+                <div class="label">Won 🏆</div>
+                <div class="count" style="color: var(--success)"><%= stats.won %></div>
+            </div>
+            <div class="pipeline-card" style="border-color: var(--danger);" onclick="filterStatus('Lost')">
+                <div class="label">Lost</div>
+                <div class="count" style="color: var(--danger)"><%= stats.lost %></div>
+            </div>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Total Pipeline Value</div>
+                <div class="stat-value"><%= formatINR(stats.totalValue) %></div>
+                <div class="stat-meta"><%= stats.total %> total leads</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Won Revenue</div>
+                <div class="stat-value" style="color: var(--success)"><%= formatINR(stats.wonValue) %></div>
+                <div class="stat-meta">Conversion: <%= stats.total > 0 ? ((stats.won/stats.total)*100).toFixed(1) : 0 %>%</div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Today's Follow-ups</div>
+                <div class="stat-value" style="color: var(--warning)"><%= todayFollowUps.length %></div>
+                <div class="stat-meta">Pending action</div>
+            </div>
+        </div>
+        
+        <!-- TODAY'S FOLLOW-UPS -->
+        <% if (todayFollowUps.length > 0) { %>
+            <div class="card">
+                <div class="card-header" style="background: var(--warning-light); border-bottom: 1px solid #fcd34d;">
+                    <div class="card-title" style="color: #92400e;">📞 Today's Follow-ups</div>
+                </div>
+                <div class="card-body">
+                    <% todayFollowUps.forEach(f => { %>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background: var(--bg-elevated); border-radius: 8px; margin-bottom: 6px;">
+                            <div>
+                                <div class="font-bold"><%= f.leadName %></div>
+                                <div class="text-muted" style="font-size: 11px;">🕒 <%= f.time %> · <%= f.type %> · 📞 <%= f.mobile %></div>
+                                <% if (f.notes) { %><div class="text-muted" style="font-size: 11px;"><%= f.notes %></div><% } %>
+                            </div>
+                            <div style="display: flex; gap: 6px;">
+                                <a href="tel:<%= f.mobile %>" class="btn btn-xs btn-secondary">📞 Call</a>
+                                <a href="https://wa.me/91<%= f.mobile.replace(/\D/g,'').slice(-10) %>" target="_blank" class="wa-btn">WhatsApp</a>
+                                <a href="/leads/<%= f.leadId %>" class="btn btn-xs btn-primary">Open</a>
+                            </div>
+                        </div>
+                    <% }) %>
+                </div>
+            </div>
+        <% } %>
+        
+        <!-- ALL LEADS -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">All Leads</div>
+                <select id="statusFilter" onchange="filterRows()">
+                    <option value="">All Status</option>
+                    <option>New</option><option>Contacted</option><option>Meeting Scheduled</option>
+                    <option>Quote Sent</option><option>Negotiation</option><option>Won</option><option>Lost</option><option>On Hold</option>
+                </select>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Lead #</th>
+                            <th>Lead / Company</th>
+                            <th>Mobile</th>
+                            <th>Interested</th>
+                            <th>Value</th>
+                            <th>Status</th>
+                            <th>Priority</th>
+                            <th>Assigned</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leadsBody">
+                        <% if (leads.length === 0) { %>
+                            <tr><td colspan="9" class="text-center" style="padding: 60px; color: var(--text-3);">
+                                <div style="font-size: 32px; margin-bottom: 8px;">🎯</div>
+                                No leads yet. Click <strong>+ New Lead</strong>.
+                            </td></tr>
+                        <% } else { leads.forEach(l => {
+                            const sc = l.status === 'Won' ? 'success' : l.status === 'Lost' ? 'danger' : l.status === 'New' ? 'info' : l.status === 'Quote Sent' ? 'warning' : 'neutral';
+                            const pc = l.priority === 'High' ? 'danger' : l.priority === 'Medium' ? 'warning' : 'info';
+                        %>
+                            <tr class="lead-row priority-<%= l.priority.toLowerCase() %>" data-status="<%= l.status %>" style="cursor: pointer;" onclick="location.href='/leads/<%= l._id %>'">
+                                <td class="font-mono font-bold"><%= l.leadNumber %></td>
+                                <td>
+                                    <div class="font-bold"><%= l.leadName %></div>
+                                    <% if (l.companyName) { %><div class="text-muted" style="font-size: 11px;"><%= l.companyName %></div><% } %>
+                                </td>
+                                <td class="font-mono"><%= l.mobile %></td>
+                                <td>
+                                    <% (l.interestedIn || []).forEach(i => { %>
+                                        <span class="badge info" style="margin: 1px;"><%= i %></span>
+                                    <% }) %>
+                                </td>
+                                <td class="font-mono font-bold"><%= formatINR(l.estimatedValue) %></td>
+                                <td><span class="badge <%= sc %>"><%= l.status %></span></td>
+                                <td><span class="badge <%= pc %>"><%= l.priority %></span></td>
+                                <td><%= l.assignedTo || '-' %></td>
+                                <td class="text-muted"><%= formatDate(l.createdAt) %></td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<div class="modal-overlay" id="newLeadModal">
+    <div class="modal" style="max-width: 700px;">
+        <div class="modal-header">
+            <div class="modal-title">New Lead / Enquiry</div>
+            <button class="modal-close" onclick="closeModal('newLeadModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Lead Name *</label>
+                    <input type="text" id="l_name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Company</label>
+                    <input type="text" id="l_company">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Mobile *</label>
+                    <input type="tel" id="l_mobile">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <input type="email" id="l_email">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Address</label>
+                    <textarea id="l_addr" rows="2"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Source</label>
+                    <select id="l_source">
+                        <option>Direct</option><option>Website</option><option>Reference</option>
+                        <option>Walk-in</option><option>Cold Call</option><option>Social Media</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Referred By</label>
+                    <input type="text" id="l_ref">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Interested In (check)</label>
+                    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                        <label style="font-size: 13px;"><input type="checkbox" name="interest" value="CCTV"> CCTV</label>
+                        <label style="font-size: 13px;"><input type="checkbox" name="interest" value="Hardware"> Hardware</label>
+                        <label style="font-size: 13px;"><input type="checkbox" name="interest" value="AI Software"> AI Software</label>
+                        <label style="font-size: 13px;"><input type="checkbox" name="interest" value="AMC"> AMC</label>
+                        <label style="font-size: 13px;"><input type="checkbox" name="interest" value="Biometric"> Biometric</label>
+                        <label style="font-size: 13px;"><input type="checkbox" name="interest" value="Other"> Other</label>
+                    </div>
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Requirement</label>
+                    <textarea id="l_req" rows="2" placeholder="Detailed requirement..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Estimated Value (₹)</label>
+                    <input type="number" id="l_value" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Timeline</label>
+                    <select id="l_timeline">
+                        <option>Immediate</option><option>1 week</option><option>1 month</option><option>3 months</option><option>Future</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Priority</label>
+                    <select id="l_priority">
+                        <option>Medium</option><option>High</option><option>Low</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Assigned To</label>
+                    <select id="l_assigned">
+                        <option value="">Unassigned</option>
+                        <option value="admin">Admin</option>
+                        <option value="vijay">Vijay</option>
+                        <option value="rahul">Rahul</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('newLeadModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="createLead()">Save Lead</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    async function createLead() {
+        const interested = Array.from(document.querySelectorAll('input[name="interest"]:checked')).map(el => el.value);
+        const data = {
+            leadName: document.getElementById('l_name').value,
+            companyName: document.getElementById('l_company').value,
+            mobile: document.getElementById('l_mobile').value,
+            email: document.getElementById('l_email').value,
+            address: document.getElementById('l_addr').value,
+            source: document.getElementById('l_source').value,
+            referredBy: document.getElementById('l_ref').value,
+            interestedIn: interested,
+            requirement: document.getElementById('l_req').value,
+            estimatedValue: Number(document.getElementById('l_value').value),
+            timeline: document.getElementById('l_timeline').value,
+            priority: document.getElementById('l_priority').value,
+            assignedTo: document.getElementById('l_assigned').value
+        };
+        if (!data.leadName || !data.mobile) return showToast('Name and mobile required', 'error');
+        const res = await api('/api/leads', { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Lead added', 'success'); setTimeout(() => location.href = '/leads/' + res.lead._id, 500); }
+    }
+    
+    function filterStatus(s) {
+        document.getElementById('statusFilter').value = s;
+        filterRows();
+    }
+    
+    function filterRows() {
+        const f = document.getElementById('statusFilter').value;
+        document.querySelectorAll('.lead-row').forEach(r => {
+            r.style.display = (!f || r.dataset.status === f) ? '' : 'none';
+        });
+    }
+</script>
+</body>
+</html>

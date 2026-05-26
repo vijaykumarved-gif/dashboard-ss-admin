@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= tool.toolName %> — Tool</title>
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+<%
+    const totalMaint = (tool.maintenanceLogs || []).reduce((s, m) => s + m.cost, 0);
+    const totalInvest = (tool.purchaseCost || 0) + totalMaint;
+    const activeLogs = (tool.issueLogs || []).filter(l => l.status === 'Issued');
+%>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'tools' }) %>
+    
+    <main class="main-content">
+        <div style="margin-bottom: 12px;">
+            <a href="/tools" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back to Tools</a>
+        </div>
+        
+        <div class="page-header">
+            <div>
+                <h1 class="page-title"><%= tool.toolName %></h1>
+                <p class="page-subtitle">
+                    <%= tool.category %>
+                    <% if (tool.brand) { %> · <%= tool.brand %><% } %>
+                    <% if (tool.serialNumber) { %> · SN: <%= tool.serialNumber %><% } %>
+                </p>
+            </div>
+            <div class="flex gap-2">
+                <button class="btn btn-primary" onclick="openModal('issueModal')">📤 Issue Tool</button>
+                <button class="btn btn-secondary" onclick="openModal('maintModal')">🔧 Add Maintenance</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteTool()">Delete</button>
+            </div>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Available</div>
+                <div class="stat-value"><%= tool.availableQuantity %> / <%= tool.quantity %></div>
+                <div class="stat-meta">Currently in store</div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Purchase Cost</div>
+                <div class="stat-value"><%= formatINR(tool.purchaseCost) %></div>
+                <div class="stat-meta">From: <%= tool.purchasedFrom || '-' %></div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Maintenance Cost</div>
+                <div class="stat-value" style="color: var(--warning)"><%= formatINR(totalMaint) %></div>
+                <div class="stat-meta"><%= tool.maintenanceLogs.length %> entries</div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Total Investment</div>
+                <div class="stat-value" style="color: var(--danger)"><%= formatINR(totalInvest) %></div>
+            </div>
+        </div>
+        
+        <div class="tabs">
+            <button class="tab active" data-tab-group="t" data-tab="issue" onclick="switchTab('t','issue')">📤 Issue Logs (<%= tool.issueLogs.length %>)</button>
+            <button class="tab" data-tab-group="t" data-tab="maint" onclick="switchTab('t','maint')">🔧 Maintenance (<%= tool.maintenanceLogs.length %>)</button>
+        </div>
+        
+        <div class="tab-content active" data-tab-content="t" data-content="issue">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">Issue / Return History</div>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Issued To</th><th>Date</th><th>Qty</th><th>Purpose</th><th>Status</th><th>Returned</th><th>Condition</th><th></th></tr></thead>
+                        <tbody>
+                            <% if (tool.issueLogs.length === 0) { %>
+                                <tr><td colspan="8" class="text-center" style="padding: 40px; color: var(--text-3);">No issue logs yet</td></tr>
+                            <% } else { tool.issueLogs.slice().reverse().forEach(l => { 
+                                const sc = l.status === 'Issued' ? 'warning' : l.status === 'Returned' ? 'success' : 'danger';
+                            %>
+                                <tr>
+                                    <td class="font-bold"><%= l.issuedTo.toUpperCase() %></td>
+                                    <td class="text-muted"><%= formatDate(l.issuedDate) %></td>
+                                    <td class="font-mono"><%= l.quantity %></td>
+                                    <td><%= l.purpose %></td>
+                                    <td><span class="badge <%= sc %>"><%= l.status %></span></td>
+                                    <td class="text-muted"><%= l.returnedDate ? formatDate(l.returnedDate) : '-' %></td>
+                                    <td><%= l.returnCondition || '-' %></td>
+                                    <td>
+                                        <% if (l.status === 'Issued') { %>
+                                            <button class="btn btn-xs btn-success" onclick='openReturn("<%= l._id %>", <%= l.quantity %>)'>Return</button>
+                                        <% } %>
+                                    </td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div class="tab-content" data-tab-content="t" data-content="maint">
+            <div class="card">
+                <div class="card-header"><div class="card-title">Maintenance / Repair History</div></div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Cost</th><th>By</th></tr></thead>
+                        <tbody>
+                            <% if (tool.maintenanceLogs.length === 0) { %>
+                                <tr><td colspan="5" class="text-center" style="padding: 40px; color: var(--text-3);">No maintenance yet</td></tr>
+                            <% } else { tool.maintenanceLogs.slice().reverse().forEach(m => { %>
+                                <tr>
+                                    <td class="text-muted"><%= formatDate(m.date) %></td>
+                                    <td><span class="badge info"><%= m.type %></span></td>
+                                    <td><%= m.description %></td>
+                                    <td class="font-mono font-bold"><%= formatINR(m.cost) %></td>
+                                    <td><%= m.handledBy %></td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<div class="modal-overlay" id="issueModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Issue Tool</div>
+            <button class="modal-close" onclick="closeModal('issueModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Issue To *</label>
+                    <select id="i_to">
+                        <option value="vijay">Vijay</option>
+                        <option value="rahul">Rahul</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Quantity</label>
+                    <input type="number" id="i_qty" value="1">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Purpose / Job</label>
+                    <input type="text" id="i_purpose">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Expected Return Date</label>
+                    <input type="date" id="i_ret">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('issueModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="issueTool()">Issue Now</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="returnModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Return Tool</div>
+            <button class="modal-close" onclick="closeModal('returnModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="r_logid">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Quantity Returned</label>
+                    <input type="number" id="r_qty">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Condition</label>
+                    <select id="r_cond">
+                        <option>Good</option><option>Working</option><option>Damaged</option><option>Lost</option>
+                    </select>
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Notes</label>
+                    <input type="text" id="r_notes">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('returnModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="returnTool()">Return</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="maintModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Maintenance Record</div>
+            <button class="modal-close" onclick="closeModal('maintModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Type</label>
+                    <select id="mn_type">
+                        <option>Repair</option><option>Service</option><option>Calibration</option><option>Replacement</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Cost (₹) *</label>
+                    <input type="number" id="mn_cost">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Description</label>
+                    <input type="text" id="mn_desc">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Handled By</label>
+                    <input type="text" id="mn_by" value="<%= user.username %>">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('maintModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveMaint()">Save</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    const TOOL_ID = '<%= tool._id %>';
+    
+    async function issueTool() {
+        const data = {
+            issuedTo: document.getElementById('i_to').value,
+            quantity: Number(document.getElementById('i_qty').value),
+            purpose: document.getElementById('i_purpose').value,
+            expectedReturnDate: document.getElementById('i_ret').value || null
+        };
+        const res = await api(`/api/tools/${TOOL_ID}/issue`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Issued', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    function openReturn(logId, qty) {
+        document.getElementById('r_logid').value = logId;
+        document.getElementById('r_qty').value = qty;
+        openModal('returnModal');
+    }
+    
+    async function returnTool() {
+        const data = {
+            returnedQuantity: Number(document.getElementById('r_qty').value),
+            returnCondition: document.getElementById('r_cond').value,
+            notes: document.getElementById('r_notes').value
+        };
+        const logId = document.getElementById('r_logid').value;
+        const res = await api(`/api/tools/${TOOL_ID}/return/${logId}`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Returned', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function saveMaint() {
+        const data = {
+            type: document.getElementById('mn_type').value,
+            cost: Number(document.getElementById('mn_cost').value),
+            description: document.getElementById('mn_desc').value,
+            handledBy: document.getElementById('mn_by').value
+        };
+        if (!data.cost) return showToast('Cost required', 'error');
+        const res = await api(`/api/tools/${TOOL_ID}/maintenance`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Saved', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function deleteTool() {
+        if (!confirm('Delete this tool?')) return;
+        const res = await api(`/api/tools/${TOOL_ID}`, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.href = '/tools', 500); }
+    }
+</script>
+</body>
+</html>

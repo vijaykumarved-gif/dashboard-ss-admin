@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visit: <%= office.officeName %></title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .agent-shell { max-width: 900px; margin: 0 auto; padding: 20px 16px; animation: fadeInUp 0.5s var(--ease-out); }
+        .top-bar { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; box-shadow: var(--shadow-sm); }
+        .visit-header {
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            color: white;
+            border-radius: var(--radius-md);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .visit-header h1 { font-size: 22px; font-weight: 800; margin-bottom: 6px; letter-spacing: -0.02em; }
+        .visit-header .meta { font-size: 13px; color: #94a3b8; }
+        .visit-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        .visit-stat .v { font-size: 22px; font-weight: 800; color: #60a5fa; font-family: 'JetBrains Mono', monospace; }
+        .visit-stat .l { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+        .pc-row {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 14px;
+            margin-bottom: 10px;
+            transition: all 0.2s var(--ease);
+        }
+        .pc-row.serviced { border-left: 4px solid var(--success); background: #f0fdf4; }
+        .pc-row:hover { box-shadow: var(--shadow-md); }
+        .pc-row-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        .pc-row-body {
+            display: none;
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid var(--border);
+        }
+        .pc-row.open .pc-row-body { display: block; }
+        .pc-row.open .pc-row-chevron { transform: rotate(180deg); }
+        .pc-row-chevron { transition: transform 0.2s; }
+        .hw-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .hw-grid .form-group { margin-bottom: 0; }
+        .hw-grid label { font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; }
+        .photo-upload-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .photo-preview {
+            width: 70px; height: 70px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            margin-top: 6px;
+            display: none;
+        }
+        .photo-preview.show { display: block; }
+        .extra-work-box {
+            background: var(--warning-light);
+            border: 1px dashed #fcd34d;
+            border-radius: var(--radius);
+            padding: 12px;
+            margin-top: 12px;
+        }
+        .start-visit-card {
+            background: linear-gradient(135deg, #3b82f6, #1e40af);
+            color: white;
+            border-radius: var(--radius-md);
+            padding: 24px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .start-visit-card h2 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+        .start-visit-card p { font-size: 13px; opacity: 0.9; margin-bottom: 16px; }
+        .complete-visit-card {
+            background: linear-gradient(135deg, #10b981, #047857);
+            color: white;
+            border-radius: var(--radius-md);
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .extra-pc-card {
+            background: var(--warning-light);
+            border: 1px solid #fcd34d;
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+<%
+    const isCompleted = visit.status === 'Completed';
+    const isInProgress = visit.status === 'In Progress';
+    const isScheduled = visit.status === 'Scheduled';
+    const visitDate = new Date(visit.visitDate);
+    
+    // PCs already serviced in this visit
+    const servicedPcIds = new Set((visit.pcServiceLogs || []).map(l => l.pcId));
+    // PCs in office that haven't been serviced yet in this visit
+    const pendingPcs = office.pcs.filter(p => !servicedPcIds.has(p.pcId));
+    
+    const totalExtra = (visit.pcServiceLogs || []).reduce((s, l) => s + (l.extraWorkAmount || 0), 0);
+%>
+<div class="agent-shell">
+    <div class="top-bar">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <a href="/agent/amc" style="color: var(--text-3); text-decoration: none; font-size: 14px;">← Back</a>
+        </div>
+        <a href="/logout" class="btn btn-danger btn-sm">Logout</a>
+    </div>
+    
+    <!-- VISIT HEADER -->
+    <div class="visit-header">
+        <div style="display: flex; justify-content: space-between; align-items: start;">
+            <div>
+                <h1><%= office.officeName %></h1>
+                <div class="meta">
+                    📅 <%= visitDate.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }) %>
+                    · 🕒 <%= visit.visitTime %>
+                    · 🎯 <%= visit.purpose %>
+                </div>
+                <div class="meta" style="margin-top: 4px;">
+                    👤 <%= office.contactPerson %> · 📞 <%= office.contactMobile %>
+                </div>
+            </div>
+            <span class="badge <%= isCompleted ? 'success' : isInProgress ? 'info' : 'warning' %>" style="font-size: 12px; padding: 6px 12px;"><%= visit.status %></span>
+        </div>
+        
+        <div class="visit-stats">
+            <div class="visit-stat">
+                <div class="v"><%= office.pcs.length %></div>
+                <div class="l">Total PCs</div>
+            </div>
+            <div class="visit-stat">
+                <div class="v" style="color: #4ade80;"><%= visit.pcServiceLogs.length %></div>
+                <div class="l">Serviced</div>
+            </div>
+            <div class="visit-stat">
+                <div class="v" style="color: #fbbf24;"><%= pendingPcs.length %></div>
+                <div class="l">Pending</div>
+            </div>
+            <div class="visit-stat">
+                <div class="v" style="color: #f87171;">₹<%= totalExtra.toLocaleString('en-IN') %></div>
+                <div class="l">Extra Bill</div>
+            </div>
+        </div>
+    </div>
+    
+    <% if (isScheduled) { %>
+        <!-- START VISIT BUTTON -->
+        <div class="start-visit-card">
+            <h2>Ready to start this visit?</h2>
+            <p>Click below to begin servicing PCs. Status will change to "In Progress".</p>
+            <button class="btn btn-success" style="background: white; color: var(--primary); padding: 12px 28px; font-size: 14px;" onclick="startVisit()">▶ Start Visit Now</button>
+        </div>
+    <% } %>
+    
+    <% if (!isScheduled) { %>
+        <!-- PCs UNDER AMC -->
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">💻 PCs in This Office (<%= office.pcs.length %>)</div>
+                    <div class="card-subtitle">Click any PC to log service work</div>
+                </div>
+                <% if (!isCompleted) { %>
+                    <button class="btn btn-primary btn-sm" onclick="openExtraPcForm()">+ Service Extra PC (Out of AMC)</button>
+                <% } %>
+            </div>
+            <div class="card-body">
+                <% if (office.pcs.length === 0) { %>
+                    <div class="empty-state">
+                        <div class="empty-icon">💻</div>
+                        <div class="empty-title">No PCs registered for this office</div>
+                        <% if (!isCompleted) { %>
+                            <button class="btn btn-primary btn-sm" onclick="openAddPcForm()" style="margin-top: 12px;">+ Add First PC</button>
+                        <% } %>
+                    </div>
+                <% } %>
+                
+                <% office.pcs.forEach(pc => {
+                    const log = visit.pcServiceLogs.find(l => l.pcId === pc.pcId);
+                    const isServiced = !!log;
+                %>
+                    <div class="pc-row <%= isServiced ? 'serviced' : '' %>" data-pcid="<%= pc.pcId %>">
+                        <div class="pc-row-head" onclick="togglePc(this.parentElement)">
+                            <div>
+                                <div class="font-bold" style="font-size: 14px;">
+                                    <%= isServiced ? '✅' : '⏳' %> <%= pc.pcId %>
+                                    <span style="color: var(--text-3); font-weight: 500; font-size: 12px;">· <%= pc.pcType %> · <%= pc.pcModel || 'No model' %></span>
+                                </div>
+                                <% if (pc.user) { %>
+                                    <div class="text-muted" style="font-size: 11px;">👤 <%= pc.user %><% if (pc.department) { %> · <%= pc.department %><% } %></div>
+                                <% } %>
+                                <% if (isServiced && log.extraWorkAmount > 0) { %>
+                                    <div style="font-size: 11px; font-weight: 700; color: var(--warning); margin-top: 3px;">💰 Extra: ₹<%= log.extraWorkAmount %></div>
+                                <% } %>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span class="badge <%= pc.overallStatus === 'Healthy' ? 'success' : pc.overallStatus === 'Issues' ? 'warning' : 'danger' %>"><%= pc.overallStatus %></span>
+                                <svg class="pc-row-chevron" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                            </div>
+                        </div>
+                        
+                        <div class="pc-row-body">
+                            <% if (!isCompleted) { %>
+                                <form onsubmit="event.preventDefault(); savePcService('<%= pc.pcId %>', this, '<%= log ? log._id : '' %>')">
+                                    <input type="hidden" name="logId" value="<%= log ? log._id : '' %>">
+                                    <input type="hidden" name="isUnderAMC" value="true">
+                                    
+                                    <div class="form-section-title" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-2); margin-bottom: 8px;">Update Component Status</div>
+                                    <div class="hw-grid">
+                                        <div class="form-group"><label>Motherboard</label><select name="motherboard"><option <%= (log?.motherboard||pc.motherboard) === 'Good' ? 'selected' : '' %>>Good</option><option <%= (log?.motherboard||pc.motherboard) === 'Repair Required' ? 'selected' : '' %>>Repair Required</option></select></div>
+                                        <div class="form-group"><label>CPU</label><select name="cpu"><option <%= (log?.cpu||pc.cpu) === 'Good' ? 'selected' : '' %>>Good</option><option <%= (log?.cpu||pc.cpu) === 'Issue Detected' ? 'selected' : '' %>>Issue Detected</option></select></div>
+                                        <div class="form-group"><label>RAM</label><select name="ramStatus"><option <%= (log?.ramStatus||pc.ramStatus) === 'Good' ? 'selected' : '' %>>Good</option><option <%= (log?.ramStatus||pc.ramStatus) === 'Faulty/Upgrade Req' ? 'selected' : '' %>>Faulty/Upgrade Req</option></select></div>
+                                        <div class="form-group"><label>Storage</label><select name="hddHealth"><option <%= (log?.hddHealth||pc.hddHealth) === 'Good' ? 'selected' : '' %>>Good</option><option <%= (log?.hddHealth||pc.hddHealth) === 'Bad Sectors' ? 'selected' : '' %>>Bad Sectors</option></select></div>
+                                        <div class="form-group"><label>Fan</label><select name="fan"><option <%= (log?.fan||pc.fan) === 'Good' ? 'selected' : '' %>>Good</option><option <%= (log?.fan||pc.fan) === 'Noisy/Slow' ? 'selected' : '' %>>Noisy/Slow</option></select></div>
+                                        <div class="form-group"><label>Temperature</label><select name="temperature"><option <%= (log?.temperature||pc.temperature) === 'Normal' ? 'selected' : '' %>>Normal</option><option <%= (log?.temperature||pc.temperature) === 'Overheating' ? 'selected' : '' %>>Overheating</option></select></div>
+                                        <div class="form-group"><label>Battery</label><select name="battery"><option <%= (log?.battery||pc.battery) === 'Good' ? 'selected' : '' %>>Good</option><option <%= (log?.battery||pc.battery) === 'Dead/Replace' ? 'selected' : '' %>>Dead/Replace</option><option <%= (log?.battery||pc.battery) === 'N/A' ? 'selected' : '' %>>N/A</option></select></div>
+                                        <div class="form-group"><label>Monitor</label><select name="monitor"><option <%= (log?.monitor||pc.monitor) === 'Good' ? 'selected' : '' %>>Good</option><option <%= (log?.monitor||pc.monitor) === 'Lines/Broken' ? 'selected' : '' %>>Lines/Broken</option></select></div>
+                                    </div>
+                                    
+                                    <div class="form-group" style="margin-top: 12px;">
+                                        <label class="form-label">Work Done</label>
+                                        <textarea name="workDone" rows="2" placeholder="e.g. Cleaned dust, RAM upgrade, fan replaced..."><%= log?.workDone || '' %></textarea>
+                                    </div>
+                                    
+                                    <div class="photo-upload-row">
+                                        <div class="form-group">
+                                            <label class="form-label">Before Photo</label>
+                                            <input type="file" accept="image/*" onchange="compressTo(this, 'before_<%= pc.pcId %>')">
+                                            <input type="hidden" name="beforePhoto" id="before_<%= pc.pcId %>" value="<%= log?.beforePhoto || '' %>">
+                                            <% if (log?.beforePhoto) { %><img src="<%= log.beforePhoto %>" class="photo-preview show"><% } %>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">After Photo</label>
+                                            <input type="file" accept="image/*" onchange="compressTo(this, 'after_<%= pc.pcId %>')">
+                                            <input type="hidden" name="afterPhoto" id="after_<%= pc.pcId %>" value="<%= log?.afterPhoto || '' %>">
+                                            <% if (log?.afterPhoto) { %><img src="<%= log.afterPhoto %>" class="photo-preview show"><% } %>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="extra-work-box">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                            <div style="font-weight: 700; color: #92400e; font-size: 12px;">💰 EXTRA WORK / OUT-OF-CONTRACT</div>
+                                            <span style="font-size: 10px; color: #92400e;">(Optional — extra charge to client)</span>
+                                        </div>
+                                        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 8px;">
+                                            <input type="text" name="extraWorkDescription" placeholder="What extra work? (e.g. SSD installed, RAM upgrade)" value="<%= log?.extraWorkDescription || '' %>">
+                                            <input type="number" name="extraWorkAmount" placeholder="Amount ₹" value="<%= log?.extraWorkAmount || 0 %>">
+                                        </div>
+                                    </div>
+                                    
+                                    <div style="display: flex; gap: 8px; margin-top: 14px;">
+                                        <button type="submit" class="btn btn-primary" style="flex: 1;"><%= isServiced ? '💾 Update Service' : '✓ Mark as Serviced' %></button>
+                                        <% if (isServiced) { %>
+                                            <button type="button" class="btn btn-danger btn-sm" onclick="removePcService('<%= log._id %>')">×</button>
+                                        <% } %>
+                                    </div>
+                                </form>
+                            <% } else { 
+                                // Completed visit - show read-only
+                            %>
+                                <% if (log) { %>
+                                    <div style="font-size: 12px;">
+                                        <div style="margin-bottom: 8px;"><strong>Work Done:</strong> <%= log.workDone || '-' %></div>
+                                        <% if (log.extraWorkAmount > 0) { %>
+                                            <div style="background: var(--warning-light); padding: 8px; border-radius: 6px; margin-top: 6px;">
+                                                <strong>Extra Charge:</strong> <%= log.extraWorkDescription %> · <strong style="color: var(--warning);">₹<%= log.extraWorkAmount %></strong>
+                                            </div>
+                                        <% } %>
+                                        <% if (log.beforePhoto || log.afterPhoto) { %>
+                                            <div style="display: flex; gap: 8px; margin-top: 8px;">
+                                                <% if (log.beforePhoto) { %><div><div style="font-size: 9px; font-weight: 700;">BEFORE</div><img src="<%= log.beforePhoto %>" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px;"></div><% } %>
+                                                <% if (log.afterPhoto) { %><div><div style="font-size: 9px; font-weight: 700; color: var(--success);">AFTER</div><img src="<%= log.afterPhoto %>" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px;"></div><% } %>
+                                            </div>
+                                        <% } %>
+                                    </div>
+                                <% } else { %>
+                                    <div class="text-muted" style="font-size: 12px;">Not serviced in this visit.</div>
+                                <% } %>
+                            <% } %>
+                        </div>
+                    </div>
+                <% }) %>
+                
+                <!-- ADD NEW PC TO OFFICE -->
+                <% if (!isCompleted) { %>
+                    <div style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--border);">
+                        <button class="btn btn-secondary btn-sm" onclick="openAddPcForm()">+ Register New PC (Not in AMC list)</button>
+                    </div>
+                <% } %>
+            </div>
+        </div>
+        
+        <!-- EXTRA PCs SERVICED (not in AMC contract) -->
+        <% const extraLogs = visit.pcServiceLogs.filter(l => !l.isUnderAMC); %>
+        <% if (extraLogs.length > 0) { %>
+            <div class="card">
+                <div class="card-header" style="background: var(--warning-light); border-bottom: 1px solid #fcd34d;">
+                    <div>
+                        <div class="card-title" style="color: #92400e;">💰 Extra PCs Serviced (Out of Contract)</div>
+                        <div class="card-subtitle" style="color: #b45309;">These PCs are NOT in AMC — full bill applies</div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <% extraLogs.forEach(log => { %>
+                        <div style="padding: 10px; background: var(--surface-2); border-radius: 8px; margin-bottom: 8px;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <div>
+                                    <div class="font-bold"><%= log.pcId %></div>
+                                    <div class="text-muted" style="font-size: 12px;"><%= log.workDone %></div>
+                                </div>
+                                <div class="font-bold text-warning">₹<%= log.extraWorkAmount %></div>
+                            </div>
+                        </div>
+                    <% }) %>
+                </div>
+            </div>
+        <% } %>
+        
+        <!-- COMPLETE VISIT -->
+        <% if (isInProgress) { %>
+            <div class="complete-visit-card">
+                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                    <div>
+                        <h2 style="margin: 0 0 6px; font-size: 18px;">Ready to complete this visit?</h2>
+                        <p style="margin: 0; font-size: 13px; opacity: 0.9;">Add a summary and mark as completed. Bill will be auto-generated.</p>
+                    </div>
+                </div>
+                <textarea id="visitSummary" rows="2" placeholder="Visit summary / notes for client..." style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; margin-bottom: 12px;"></textarea>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn" style="background: white; color: var(--success); padding: 10px 20px; font-weight: 700; flex: 1;" onclick="completeVisit()">✓ Complete Visit</button>
+                </div>
+            </div>
+        <% } %>
+        
+        <!-- COMPLETED ACTIONS -->
+        <% if (isCompleted) { %>
+            <div class="card" style="background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 1px solid #86efac;">
+                <div class="card-body" style="text-align: center;">
+                    <div style="font-size: 28px; margin-bottom: 8px;">✅</div>
+                    <div style="font-weight: 800; font-size: 16px; color: #15803d; margin-bottom: 4px;">Visit Completed</div>
+                    <div style="font-size: 12px; color: #166534; margin-bottom: 12px;">
+                        Completed on <%= visit.completedAt ? new Date(visit.completedAt).toLocaleString('en-IN') : '-' %>
+                    </div>
+                    <% if (visit.visitSummary) { %>
+                        <div style="background: white; padding: 10px; border-radius: 8px; font-size: 12px; text-align: left; margin-bottom: 12px;">
+                            <strong>Summary:</strong> <%= visit.visitSummary %>
+                        </div>
+                    <% } %>
+                    <a href="/amc/visit/<%= office._id %>/<%= visit._id %>/report" target="_blank" class="btn btn-success">📄 Download Service Report PDF</a>
+                </div>
+            </div>
+        <% } %>
+    <% } %>
+</div>
+
+<!-- ADD NEW PC MODAL -->
+<div class="modal-overlay" id="addPcModal">
+    <div class="modal" style="max-width: 600px;">
+        <div class="modal-header">
+            <div class="modal-title">Register New PC to This Office</div>
+            <button class="modal-close" onclick="closeModal('addPcModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">PC ID *</label>
+                    <input type="text" id="np_pcid" placeholder="PC-01, LAP-05">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Type</label>
+                    <select id="np_type"><option>Desktop</option><option>Laptop</option><option>Server</option><option>AIO</option></select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Model</label>
+                    <input type="text" id="np_model">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">User</label>
+                    <input type="text" id="np_user">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Department</label>
+                    <input type="text" id="np_dept">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Rate/PC (₹)</label>
+                    <input type="number" id="np_rate" value="0">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('addPcModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="addNewPc()">Register PC</button>
+        </div>
+    </div>
+</div>
+
+<!-- EXTRA PC SERVICE MODAL -->
+<div class="modal-overlay" id="extraPcModal">
+    <div class="modal" style="max-width: 600px;">
+        <div class="modal-header">
+            <div class="modal-title">Service Extra PC (Out of AMC)</div>
+            <button class="modal-close" onclick="closeModal('extraPcModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div style="background: var(--warning-light); padding: 10px; border-radius: 8px; margin-bottom: 12px; font-size: 12px; color: #92400e;">
+                <strong>Note:</strong> This PC is NOT in the AMC contract. Full amount will be billed.
+            </div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">PC ID / Asset Tag *</label>
+                    <input type="text" id="ex_pcid" placeholder="e.g. Extra-PC-01">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Total Amount (₹) *</label>
+                    <input type="number" id="ex_amount">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Work Description *</label>
+                    <textarea id="ex_work" rows="2" placeholder="What service was provided?"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('extraPcModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveExtraPc()">Save Extra Service</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    const OFFICE_ID = '<%= office._id %>';
+    const VISIT_ID = '<%= visit._id %>';
+    
+    function togglePc(el) { el.classList.toggle('open'); }
+    
+    function compressTo(fileInput, hiddenId) {
+        const file = fileInput.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 800;
+                canvas.width = MAX_WIDTH;
+                canvas.height = img.height * (MAX_WIDTH / img.width);
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+                document.getElementById(hiddenId).value = dataUrl;
+                // Show preview
+                let preview = fileInput.parentElement.querySelector('.photo-preview');
+                if (!preview) {
+                    preview = document.createElement('img');
+                    preview.className = 'photo-preview';
+                    fileInput.parentElement.appendChild(preview);
+                }
+                preview.src = dataUrl;
+                preview.classList.add('show');
+            }
+        }
+    }
+    
+    async function startVisit() {
+        const res = await api(`/api/amc/offices/${OFFICE_ID}/visits/${VISIT_ID}/start`, { method: 'POST' });
+        if (res.success) { showToast('Visit started', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function savePcService(pcId, form, logId) {
+        const formData = new FormData(form);
+        const data = {
+            pcId,
+            logId: logId || formData.get('logId'),
+            isUnderAMC: true,
+            motherboard: formData.get('motherboard'),
+            cpu: formData.get('cpu'),
+            ramStatus: formData.get('ramStatus'),
+            hddHealth: formData.get('hddHealth'),
+            fan: formData.get('fan'),
+            temperature: formData.get('temperature'),
+            battery: formData.get('battery'),
+            monitor: formData.get('monitor'),
+            workDone: formData.get('workDone'),
+            beforePhoto: formData.get('beforePhoto'),
+            afterPhoto: formData.get('afterPhoto'),
+            extraWorkDescription: formData.get('extraWorkDescription'),
+            extraWorkAmount: Number(formData.get('extraWorkAmount') || 0)
+        };
+        const res = await api(`/api/amc/offices/${OFFICE_ID}/visits/${VISIT_ID}/service-pc`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Service saved ✓', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function removePcService(logId) {
+        if (!confirm('Remove this service log?')) return;
+        const res = await api(`/api/amc/offices/${OFFICE_ID}/visits/${VISIT_ID}/service-pc/${logId}`, { method: 'DELETE' });
+        if (res.success) { showToast('Removed', 'success'); setTimeout(() => location.reload(), 400); }
+    }
+    
+    function openAddPcForm() { openModal('addPcModal'); }
+    
+    async function addNewPc() {
+        const data = {
+            pcId: document.getElementById('np_pcid').value,
+            pcType: document.getElementById('np_type').value,
+            pcModel: document.getElementById('np_model').value,
+            user: document.getElementById('np_user').value,
+            department: document.getElementById('np_dept').value,
+            ratePerPC: Number(document.getElementById('np_rate').value)
+        };
+        if (!data.pcId) return showToast('PC ID required', 'error');
+        const res = await api(`/api/agent/amc/offices/${OFFICE_ID}/pcs`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('PC registered', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    function openExtraPcForm() { openModal('extraPcModal'); }
+    
+    async function saveExtraPc() {
+        const data = {
+            pcId: document.getElementById('ex_pcid').value,
+            isUnderAMC: false,
+            workDone: document.getElementById('ex_work').value,
+            extraWorkDescription: document.getElementById('ex_work').value,
+            extraWorkAmount: Number(document.getElementById('ex_amount').value)
+        };
+        if (!data.pcId || !data.extraWorkAmount || !data.workDone) {
+            return showToast('PC ID, work, and amount required', 'error');
+        }
+        const res = await api(`/api/amc/offices/${OFFICE_ID}/visits/${VISIT_ID}/service-pc`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Extra PC service saved', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function completeVisit() {
+        if (!confirm('Mark this visit as completed? You can still view it after.')) return;
+        const summary = document.getElementById('visitSummary')?.value || '';
+        const res = await api(`/api/amc/offices/${OFFICE_ID}/visits/${VISIT_ID}/complete`, { method: 'POST', body: JSON.stringify({ visitSummary: summary }) });
+        if (res.success) { showToast('Visit completed ✓', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+</script>
+</body>
+</html>

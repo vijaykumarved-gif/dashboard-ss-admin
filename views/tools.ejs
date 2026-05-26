@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tools & Equipment — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'tools' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">Tools & Equipment</h1>
+                <p class="page-subtitle">Engineer tools, purchases, issue/return logs</p>
+            </div>
+            <button class="btn btn-primary" onclick="openModal('newToolModal')">+ Add Tool</button>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Total Tools</div>
+                <div class="stat-value"><%= stats.totalTools %></div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Purchase Cost</div>
+                <div class="stat-value"><%= formatINR(stats.totalPurchase) %></div>
+                <div class="stat-meta">All tools</div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Maintenance</div>
+                <div class="stat-value" style="color: var(--warning)"><%= formatINR(stats.totalMaintenance) %></div>
+                <div class="stat-meta">Repair + service</div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Total Investment</div>
+                <div class="stat-value" style="color: var(--danger)"><%= formatINR(stats.totalInvestment) %></div>
+                <div class="stat-meta">Purchase + maintenance</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Currently Issued</div>
+                <div class="stat-value" style="color: var(--success)"><%= stats.totalIssued %></div>
+                <div class="stat-meta">With engineers</div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header"><div class="card-title">All Tools</div></div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Tool</th>
+                            <th>Category</th>
+                            <th>Total / Available</th>
+                            <th>Purchase Cost</th>
+                            <th>Maintenance</th>
+                            <th>Condition</th>
+                            <th>Warranty</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% if (tools.length === 0) { %>
+                            <tr><td colspan="7" class="text-center" style="padding: 60px; color: var(--text-3);">
+                                <div style="font-size: 32px; margin-bottom: 8px;">🔧</div>
+                                No tools yet. Click <strong>+ Add Tool</strong>.
+                            </td></tr>
+                        <% } else { tools.forEach(t => {
+                            const maint = (t.maintenanceLogs || []).reduce((s, m) => s + m.cost, 0);
+                            const cc = t.condition === 'Good' ? 'success' : t.condition === 'Needs Repair' ? 'warning' : 'danger';
+                            const warExp = t.warrantyExpiry && new Date(t.warrantyExpiry) > new Date();
+                        %>
+                            <tr style="cursor: pointer;" onclick="location.href='/tools/<%= t._id %>'">
+                                <td>
+                                    <div class="font-bold"><%= t.toolName %></div>
+                                    <% if (t.brand || t.model) { %><div class="text-muted" style="font-size: 11px;"><%= t.brand %> <%= t.model %></div><% } %>
+                                </td>
+                                <td><span class="badge info"><%= t.category %></span></td>
+                                <td><span class="font-mono font-bold"><%= t.availableQuantity %></span> / <%= t.quantity %></td>
+                                <td class="font-mono"><%= formatINR(t.purchaseCost) %></td>
+                                <td class="font-mono"><%= formatINR(maint) %></td>
+                                <td><span class="badge <%= cc %>"><%= t.condition %></span></td>
+                                <td>
+                                    <% if (t.warrantyExpiry) { %>
+                                        <span class="badge <%= warExp ? 'success' : 'neutral' %>"><%= formatDate(t.warrantyExpiry) %></span>
+                                    <% } else { %>
+                                        <span class="text-muted">-</span>
+                                    <% } %>
+                                </td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<div class="modal-overlay" id="newToolModal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">Add New Tool</div>
+            <button class="modal-close" onclick="closeModal('newToolModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Tool Name *</label>
+                    <input type="text" id="t_name" placeholder="e.g. Multimeter, Screwdriver Set">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Category</label>
+                    <select id="t_cat">
+                        <option>Hardware Tool</option><option>Diagnostic</option><option>Equipment</option>
+                        <option>Laptop</option><option>Software</option><option>General</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Quantity</label>
+                    <input type="number" id="t_qty" value="1">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Brand</label>
+                    <input type="text" id="t_brand">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Model</label>
+                    <input type="text" id="t_model">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Serial Number</label>
+                    <input type="text" id="t_sn">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Purchase Date</label>
+                    <input type="date" id="t_pdate" value="<%= new Date().toISOString().split('T')[0] %>">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Purchase Cost (₹)</label>
+                    <input type="number" id="t_cost" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Purchased From</label>
+                    <input type="text" id="t_from">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Warranty</label>
+                    <input type="text" id="t_war" placeholder="e.g. 1 year">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Warranty Expiry</label>
+                    <input type="date" id="t_warexp">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Location</label>
+                    <input type="text" id="t_loc" value="Office Store">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('newToolModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="createTool()">Save Tool</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    async function createTool() {
+        const data = {
+            toolName: document.getElementById('t_name').value,
+            category: document.getElementById('t_cat').value,
+            quantity: Number(document.getElementById('t_qty').value),
+            brand: document.getElementById('t_brand').value,
+            model: document.getElementById('t_model').value,
+            serialNumber: document.getElementById('t_sn').value,
+            purchaseDate: document.getElementById('t_pdate').value,
+            purchaseCost: Number(document.getElementById('t_cost').value),
+            purchasedFrom: document.getElementById('t_from').value,
+            warranty: document.getElementById('t_war').value,
+            warrantyExpiry: document.getElementById('t_warexp').value || null,
+            location: document.getElementById('t_loc').value
+        };
+        if (!data.toolName) return showToast('Tool name required', 'error');
+        const res = await api('/api/tools', { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Tool added', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= vendor.vendorName %> — Vendor</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .bill-row { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px; margin-bottom: 10px; }
+        .bill-row.open .bill-details { display: block; }
+        .bill-details { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+        .item-row-builder { display: grid; grid-template-columns: 2fr 0.7fr 0.7fr 1fr 1fr 0.7fr 36px; gap: 6px; padding: 6px; border-bottom: 1px solid var(--border); align-items: center; }
+        .item-row-builder input, .item-row-builder select { padding: 6px 8px; font-size: 12px; }
+        .remove-btn { width: 28px; height: 28px; border-radius: 6px; background: var(--danger-light); color: var(--danger); border: none; cursor: pointer; }
+        .bill-doc-preview { max-width: 100px; max-height: 100px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); }
+    </style>
+</head>
+<body>
+<%
+    const totalBills = (vendor.bills || []).reduce((s, b) => s + b.grandTotal, 0);
+    const totalPaid = (vendor.payments || []).reduce((s, p) => s + p.amount, 0);
+    const pending = Math.max(0, totalBills - totalPaid);
+%>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'vendors' }) %>
+    
+    <main class="main-content">
+        <div style="margin-bottom: 12px;">
+            <a href="/vendors" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back to Vendors</a>
+        </div>
+        
+        <div class="page-header">
+            <div>
+                <h1 class="page-title"><%= vendor.vendorName %></h1>
+                <p class="page-subtitle">
+                    <%= vendor.contactPerson %> · <%= vendor.mobile %>
+                    <% if (vendor.gstNumber) { %> · GST: <%= vendor.gstNumber %><% } %>
+                </p>
+            </div>
+            <div class="flex gap-2">
+                <a href="/api/vendors/<%= vendor._id %>/export" class="btn btn-success">⬇️ Export Excel</a>
+                <button class="btn btn-primary" onclick="openModal('billModal')">+ Add Bill</button>
+            </div>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Total Bills</div>
+                <div class="stat-value"><%= vendor.bills.length %></div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Total Purchased</div>
+                <div class="stat-value"><%= formatINR(totalBills) %></div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Total Paid</div>
+                <div class="stat-value" style="color: var(--success)"><%= formatINR(totalPaid) %></div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Pending</div>
+                <div class="stat-value" style="color: var(--danger)"><%= formatINR(pending) %></div>
+                <button class="btn btn-xs btn-primary" style="margin-top: 6px;" onclick="openModal('paymentModal')">+ Pay</button>
+            </div>
+        </div>
+        
+        <div class="tabs">
+            <button class="tab active" data-tab-group="v" data-tab="bills" onclick="switchTab('v','bills')">📄 Bills (<%= vendor.bills.length %>)</button>
+            <button class="tab" data-tab-group="v" data-tab="payments" onclick="switchTab('v','payments')">💰 Payments (<%= vendor.payments.length %>)</button>
+            <button class="tab" data-tab-group="v" data-tab="info" onclick="switchTab('v','info')">ℹ️ Info</button>
+        </div>
+        
+        <!-- BILLS -->
+        <div class="tab-content active" data-tab-content="v" data-content="bills">
+            <% if (vendor.bills.length === 0) { %>
+                <div class="empty-state" style="background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md);">
+                    <div class="empty-icon">📄</div>
+                    <div class="empty-title">No bills yet</div>
+                    <div>Add a bill — items will auto-add to Stock</div>
+                </div>
+            <% } %>
+            <% vendor.bills.slice().reverse().forEach(b => {
+                const psc = b.paymentStatus === 'Paid' ? 'success' : b.paymentStatus === 'Partial' ? 'warning' : 'danger';
+            %>
+                <div class="bill-row" id="bill_<%= b._id %>">
+                    <div style="display: flex; justify-content: space-between; align-items: start; cursor: pointer;" onclick="document.getElementById('bill_<%= b._id %>').classList.toggle('open')">
+                        <div>
+                            <div class="font-bold" style="font-size: 14px;">Bill #<%= b.billNumber %></div>
+                            <div class="text-muted" style="font-size: 11px;">📅 <%= formatDate(b.billDate) %> · <%= b.items.length %> items · Received by: <%= b.receivedBy || '-' %></div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div class="font-mono font-bold" style="font-size: 16px;"><%= formatINR(b.grandTotal) %></div>
+                            <span class="badge <%= psc %>"><%= b.paymentStatus %></span>
+                        </div>
+                    </div>
+                    <div class="bill-details">
+                        <table class="data-table" style="font-size: 12px;">
+                            <thead><tr><th>Product</th><th>Qty</th><th>Unit Cost</th><th>GST%</th><th>Total</th><th>Serials</th></tr></thead>
+                            <tbody>
+                                <% b.items.forEach(it => { %>
+                                    <tr>
+                                        <td>
+                                            <div class="font-bold"><%= it.productName %></div>
+                                            <div class="text-muted" style="font-size: 10px;"><%= it.category %><% if (it.warranty) { %> · <%= it.warranty %> warranty<% } %></div>
+                                        </td>
+                                        <td><%= it.quantity %> <%= it.unit %></td>
+                                        <td class="font-mono"><%= formatINR(it.unitCost) %></td>
+                                        <td><%= it.gstPercent %>%</td>
+                                        <td class="font-mono font-bold"><%= formatINR(it.totalCost) %></td>
+                                        <td class="text-muted" style="font-size: 10px;"><%= (it.serialNumbers||[]).join(', ') || '-' %></td>
+                                    </tr>
+                                <% }) %>
+                            </tbody>
+                        </table>
+                        <div style="display: flex; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px;">
+                            <div>
+                                <% if (b.billDocument) { %><img src="<%= b.billDocument %>" class="bill-doc-preview" onclick="window.open('<%= b.billDocument %>','_blank')"><% } %>
+                            </div>
+                            <div style="text-align: right;">
+                                <div>Subtotal: <strong><%= formatINR(b.subtotal) %></strong></div>
+                                <div>GST: <strong><%= formatINR(b.totalGst) %></strong></div>
+                                <div>Paid: <strong class="text-success"><%= formatINR(b.paid) %></strong></div>
+                                <div>Pending: <strong class="text-danger"><%= formatINR(b.pending) %></strong></div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 10px;">
+                            <button class="btn btn-xs btn-danger" onclick="deleteBill('<%= b._id %>')">Delete Bill</button>
+                        </div>
+                    </div>
+                </div>
+            <% }) %>
+        </div>
+        
+        <!-- PAYMENTS -->
+        <div class="tab-content" data-tab-content="v" data-content="payments">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">Payments Made</div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('paymentModal')">+ Add Payment</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Date</th><th>Amount</th><th>Mode</th><th>Reference</th><th>Bill</th><th></th></tr></thead>
+                        <tbody>
+                            <% if (vendor.payments.length === 0) { %>
+                                <tr><td colspan="6" class="text-center" style="padding: 30px; color: var(--text-3);">No payments yet</td></tr>
+                            <% } else { vendor.payments.slice().reverse().forEach(p => { %>
+                                <tr>
+                                    <td class="text-muted"><%= formatDate(p.paymentDate) %></td>
+                                    <td class="font-mono font-bold text-success"><%= formatINR(p.amount) %></td>
+                                    <td><span class="badge info"><%= p.paymentMode %></span></td>
+                                    <td class="font-mono"><%= p.transactionRef || '-' %></td>
+                                    <td><%= p.billRef || '-' %></td>
+                                    <td><button class="btn btn-xs btn-danger" onclick="deletePayment('<%= p._id %>')">Del</button></td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- INFO -->
+        <div class="tab-content" data-tab-content="v" data-content="info">
+            <div class="card">
+                <div class="card-body">
+                    <div class="form-grid">
+                        <div><strong>Contact:</strong> <%= vendor.contactPerson %></div>
+                        <div><strong>Mobile:</strong> <%= vendor.mobile %></div>
+                        <div><strong>Email:</strong> <%= vendor.email || '-' %></div>
+                        <div><strong>Category:</strong> <%= vendor.category %></div>
+                        <div style="grid-column: span 2;"><strong>Address:</strong> <%= vendor.address || '-' %></div>
+                        <div><strong>GST:</strong> <%= vendor.gstNumber || '-' %></div>
+                        <div><strong>PAN:</strong> <%= vendor.panNumber || '-' %></div>
+                        <div><strong>Bank:</strong> <%= vendor.bankName || '-' %></div>
+                        <div><strong>A/C:</strong> <%= vendor.accountNumber || '-' %></div>
+                        <div><strong>IFSC:</strong> <%= vendor.ifscCode || '-' %></div>
+                    </div>
+                    <div style="margin-top: 16px;">
+                        <button class="btn btn-danger" onclick="deleteVendor()">Delete Vendor</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- BILL MODAL -->
+<div class="modal-overlay" id="billModal">
+    <div class="modal" style="max-width: 900px;">
+        <div class="modal-header">
+            <div class="modal-title">Add New Bill</div>
+            <button class="modal-close" onclick="closeModal('billModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Bill Number *</label>
+                    <input type="text" id="b_num" placeholder="INV-2025-001">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Bill Date</label>
+                    <input type="date" id="b_date" value="<%= new Date().toISOString().split('T')[0] %>">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Received By</label>
+                    <input type="text" id="b_recv" value="<%= user.username %>">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Bill Photo/PDF</label>
+                    <input type="file" id="b_doc" accept="image/*,application/pdf">
+                    <input type="hidden" id="b_docdata">
+                </div>
+            </div>
+            
+            <div style="margin-top: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div class="form-label">Items</div>
+                    <button class="btn btn-secondary btn-sm" onclick="addItemRow()">+ Add Item</button>
+                </div>
+                <div class="item-row-builder" style="background: var(--surface-2); font-weight: 700; font-size: 11px; text-transform: uppercase; color: var(--text-2);">
+                    <div>Product</div><div>Qty</div><div>Unit</div><div>Unit Cost</div><div>Selling</div><div>GST%</div><div></div>
+                </div>
+                <div id="itemsList"></div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px;">
+                <div class="form-group">
+                    <label class="form-label">Amount Paid Now (₹)</label>
+                    <input type="number" id="b_paid" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Notes</label>
+                    <input type="text" id="b_notes">
+                </div>
+            </div>
+            
+            <div style="background: var(--surface-2); padding: 12px; border-radius: 8px; margin-top: 12px; display: flex; justify-content: space-between;">
+                <div>
+                    <div style="font-size: 11px; color: var(--text-2);">Subtotal</div>
+                    <div class="font-bold font-mono" id="t_sub">₹0</div>
+                </div>
+                <div>
+                    <div style="font-size: 11px; color: var(--text-2);">GST</div>
+                    <div class="font-bold font-mono" id="t_gst">₹0</div>
+                </div>
+                <div>
+                    <div style="font-size: 11px; color: var(--text-2);">GRAND TOTAL</div>
+                    <div class="font-bold font-mono" id="t_grand" style="font-size: 18px; color: var(--primary);">₹0</div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('billModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveBill()">Save Bill (Auto-adds to Stock)</button>
+        </div>
+    </div>
+</div>
+
+<!-- PAYMENT MODAL -->
+<div class="modal-overlay" id="paymentModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Payment to Vendor</div>
+            <button class="modal-close" onclick="closeModal('paymentModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Amount (₹) *</label>
+                    <input type="number" id="p_amount">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Date</label>
+                    <input type="date" id="p_date" value="<%= new Date().toISOString().split('T')[0] %>">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Mode</label>
+                    <select id="p_mode">
+                        <option>Bank Transfer</option><option>UPI</option><option>Cheque</option><option>Cash</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Transaction Ref</label>
+                    <input type="text" id="p_ref">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Bill Reference</label>
+                    <input type="text" id="p_billref" placeholder="Which bill is this for">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('paymentModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="savePayment()">Save Payment</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    const VENDOR_ID = '<%= vendor._id %>';
+    let items = [];
+    
+    document.getElementById('b_doc').addEventListener('change', function(e) {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            if (file.type.startsWith('image/')) {
+                const img = new Image(); img.src = ev.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const W = 1200;
+                    canvas.width = W; canvas.height = img.height * (W / img.width);
+                    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                    document.getElementById('b_docdata').value = canvas.toDataURL('image/jpeg', 0.7);
+                };
+            } else {
+                document.getElementById('b_docdata').value = ev.target.result;
+            }
+        };
+        reader.readAsDataURL(file);
+    });
+    
+    function addItemRow() {
+        items.push({ productName: '', quantity: 1, unit: 'Pcs', unitCost: 0, sellingPrice: 0, gstPercent: 18, warranty: '', serialNumbers: '', category: '' });
+        render();
+    }
+    
+    function render() {
+        const c = document.getElementById('itemsList');
+        c.innerHTML = items.map((it, i) => `
+            <div class="item-row-builder">
+                <div>
+                    <input type="text" placeholder="Product Name" value="${it.productName}" oninput="upd(${i},'productName',this.value)">
+                    <input type="text" placeholder="Category" value="${it.category}" oninput="upd(${i},'category',this.value)" style="margin-top: 4px; font-size: 11px;">
+                    <input type="text" placeholder="Serial nos (comma)" value="${it.serialNumbers}" oninput="upd(${i},'serialNumbers',this.value)" style="margin-top: 4px; font-size: 11px;">
+                </div>
+                <input type="number" value="${it.quantity}" oninput="upd(${i},'quantity',this.value)" min="1">
+                <input type="text" value="${it.unit}" oninput="upd(${i},'unit',this.value)">
+                <input type="number" value="${it.unitCost}" oninput="upd(${i},'unitCost',this.value)" placeholder="₹">
+                <input type="number" value="${it.sellingPrice}" oninput="upd(${i},'sellingPrice',this.value)" placeholder="₹">
+                <input type="number" value="${it.gstPercent}" oninput="upd(${i},'gstPercent',this.value)">
+                <button class="remove-btn" onclick="items.splice(${i},1); render()">×</button>
+            </div>
+        `).join('');
+        recalc();
+    }
+    
+    function upd(i, f, v) {
+        if (['quantity', 'unitCost', 'sellingPrice', 'gstPercent'].includes(f)) v = Number(v);
+        items[i][f] = v;
+        recalc();
+    }
+    
+    function recalc() {
+        let sub = 0, gst = 0;
+        items.forEach(it => {
+            const s = (it.quantity || 0) * (it.unitCost || 0);
+            sub += s; gst += s * (it.gstPercent || 0) / 100;
+        });
+        document.getElementById('t_sub').innerText = '₹' + sub.toLocaleString('en-IN');
+        document.getElementById('t_gst').innerText = '₹' + Math.round(gst).toLocaleString('en-IN');
+        document.getElementById('t_grand').innerText = '₹' + Math.round(sub + gst).toLocaleString('en-IN');
+    }
+    
+    async function saveBill() {
+        const itemsToSend = items.map(it => ({
+            ...it,
+            serialNumbers: it.serialNumbers ? it.serialNumbers.split(',').map(s => s.trim()).filter(Boolean) : []
+        }));
+        const data = {
+            billNumber: document.getElementById('b_num').value,
+            billDate: document.getElementById('b_date').value,
+            receivedBy: document.getElementById('b_recv').value,
+            billDocument: document.getElementById('b_docdata').value,
+            items: itemsToSend,
+            paid: Number(document.getElementById('b_paid').value || 0),
+            notes: document.getElementById('b_notes').value
+        };
+        if (!data.billNumber || items.length === 0) return showToast('Bill number & at least 1 item required', 'error');
+        const res = await api(`/api/vendors/${VENDOR_ID}/bills`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Bill saved & added to Stock', 'success'); setTimeout(() => location.reload(), 700); }
+    }
+    
+    async function deleteBill(id) {
+        if (!confirm('Delete this bill? (Stock will NOT auto-reduce)')) return;
+        const res = await api(`/api/vendors/${VENDOR_ID}/bills/${id}`, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.reload(), 400); }
+    }
+    
+    async function savePayment() {
+        const data = {
+            amount: Number(document.getElementById('p_amount').value),
+            paymentDate: document.getElementById('p_date').value || new Date(),
+            paymentMode: document.getElementById('p_mode').value,
+            transactionRef: document.getElementById('p_ref').value,
+            billRef: document.getElementById('p_billref').value
+        };
+        if (!data.amount) return showToast('Amount required', 'error');
+        const res = await api(`/api/vendors/${VENDOR_ID}/payments`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Payment recorded', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function deletePayment(id) {
+        if (!confirm('Delete this payment?')) return;
+        const res = await api(`/api/vendors/${VENDOR_ID}/payments/${id}`, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.reload(), 400); }
+    }
+    
+    async function deleteVendor() {
+        if (!confirm('Delete this vendor and all its bills/payments?')) return;
+        const res = await api(`/api/vendors/${VENDOR_ID}`, { method: 'DELETE' });
+        if (res.success) { showToast('Vendor deleted', 'success'); setTimeout(() => location.href = '/vendors', 500); }
+    }
+    
+    // start with 1 row
+    addItemRow();
+</script>
+</body>
+</html>

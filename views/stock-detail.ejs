@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= item.productName %> — Stock</title>
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+<%
+    const totalIn = (item.movements || []).filter(m => m.type === 'IN').reduce((s, m) => s + m.quantity, 0);
+    const totalOut = (item.movements || []).filter(m => m.type === 'OUT').reduce((s, m) => s + m.quantity, 0);
+    const totalValue = item.currentStock * (item.avgCostPrice || item.lastCostPrice);
+%>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'stock' }) %>
+    
+    <main class="main-content">
+        <div style="margin-bottom: 12px;">
+            <a href="/stock" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back to Stock</a>
+        </div>
+        
+        <div class="page-header">
+            <div>
+                <h1 class="page-title"><%= item.productName %></h1>
+                <p class="page-subtitle">
+                    <%= item.category %>
+                    <% if (item.brand) { %> · <%= item.brand %><% } %>
+                    <% if (item.model) { %> · <%= item.model %><% } %>
+                </p>
+            </div>
+            <div class="flex gap-2">
+                <button class="btn btn-primary" onclick="openMov('IN')">+ Add Stock</button>
+                <button class="btn" style="background: var(--warning); color: white;" onclick="openMov('OUT')">− Remove Stock</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteItem()">Delete</button>
+            </div>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Current Stock</div>
+                <div class="stat-value"><%= item.currentStock %></div>
+                <div class="stat-meta"><%= item.unit %></div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Total Value</div>
+                <div class="stat-value" style="color: var(--success)"><%= formatINR(Math.round(totalValue)) %></div>
+                <div class="stat-meta">Avg cost: <%= formatINR(Math.round(item.avgCostPrice)) %></div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Total IN</div>
+                <div class="stat-value" style="color: var(--purple)"><%= totalIn %></div>
+                <div class="stat-meta">All time received</div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Total OUT</div>
+                <div class="stat-value" style="color: var(--warning)"><%= totalOut %></div>
+                <div class="stat-meta">All time issued</div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header"><div class="card-title">📜 Movement History (<%= item.movements.length %>)</div></div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Date</th><th>Type</th><th>Qty</th><th>Unit Cost</th><th>Value</th><th>Source</th><th>Reference</th><th>By</th><th>Client/Notes</th></tr>
+                    </thead>
+                    <tbody>
+                        <% if (item.movements.length === 0) { %>
+                            <tr><td colspan="9" class="text-center" style="padding: 40px; color: var(--text-3);">No movements yet</td></tr>
+                        <% } else { item.movements.slice().reverse().forEach(m => { %>
+                            <tr>
+                                <td class="text-muted"><%= formatDate(m.movementDate) %></td>
+                                <td><span class="badge <%= m.type === 'IN' ? 'success' : m.type === 'OUT' ? 'warning' : 'info' %>"><%= m.type %></span></td>
+                                <td class="font-bold font-mono"><%= m.type === 'OUT' ? '-' : '+' %><%= m.quantity %></td>
+                                <td class="font-mono"><%= formatINR(m.unitCost) %></td>
+                                <td class="font-mono"><%= formatINR(m.totalValue) %></td>
+                                <td><span class="badge neutral"><%= m.source %></span></td>
+                                <td class="font-mono text-muted" style="font-size: 11px;"><%= m.sourceRef || '-' %></td>
+                                <td><%= m.handledBy %></td>
+                                <td>
+                                    <% if (m.clientName) { %><div style="font-size: 11px;"><strong>To:</strong> <%= m.clientName %></div><% } %>
+                                    <% if (m.notes) { %><div class="text-muted" style="font-size: 10px;"><%= m.notes %></div><% } %>
+                                    <% if (m.serialNumbers && m.serialNumbers.length > 0) { %>
+                                        <div class="text-muted" style="font-size: 10px;">SN: <%= m.serialNumbers.join(', ') %></div>
+                                    <% } %>
+                                </td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <% if (item.serialNumbers && item.serialNumbers.length > 0) { %>
+        <div class="card">
+            <div class="card-header"><div class="card-title">🔢 Serial Numbers in Stock</div></div>
+            <div class="card-body">
+                <% item.serialNumbers.forEach(sn => { %>
+                    <span class="badge neutral" style="margin: 2px;"><%= sn %></span>
+                <% }) %>
+            </div>
+        </div>
+        <% } %>
+    </main>
+</div>
+
+<div class="modal-overlay" id="movementModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title" id="movTitle">Stock Movement</div>
+            <button class="modal-close" onclick="closeModal('movementModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="m_type">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Quantity *</label>
+                    <input type="number" id="m_qty" value="1">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Unit Cost (₹)</label>
+                    <input type="number" id="m_cost" value="<%= Math.round(item.lastCostPrice) %>">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Source</label>
+                    <select id="m_source">
+                        <option value="Manual">Manual</option>
+                        <option value="Sale">Sale</option>
+                        <option value="Quotation">Quotation</option>
+                        <option value="Hardware Order">Hardware Order</option>
+                        <option value="AMC Visit">AMC Visit</option>
+                        <option value="Damage">Damage / Loss</option>
+                        <option value="Return">Return</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Reference</label>
+                    <input type="text" id="m_ref">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Client / To</label>
+                    <input type="text" id="m_client">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Notes</label>
+                    <input type="text" id="m_notes">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('movementModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveMovement()">Save</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    const ITEM_ID = '<%= item._id %>';
+    function openMov(type) {
+        document.getElementById('m_type').value = type;
+        document.getElementById('movTitle').textContent = type === 'IN' ? '+ Add to Stock' : '− Remove from Stock';
+        openModal('movementModal');
+    }
+    async function saveMovement() {
+        const data = {
+            type: document.getElementById('m_type').value,
+            quantity: Number(document.getElementById('m_qty').value),
+            unitCost: Number(document.getElementById('m_cost').value || 0),
+            source: document.getElementById('m_source').value,
+            sourceRef: document.getElementById('m_ref').value,
+            clientName: document.getElementById('m_client').value,
+            notes: document.getElementById('m_notes').value
+        };
+        if (!data.quantity) return showToast('Qty required', 'error');
+        const res = await api(`/api/stock/${ITEM_ID}/movement`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Done', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    async function deleteItem() {
+        if (!confirm('Delete this item permanently?')) return;
+        const res = await api(`/api/stock/${ITEM_ID}`, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.href = '/stock', 500); }
+    }
+</script>
+</body>
+</html>
