@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reports — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .period-btn {
+            padding: 8px 14px;
+            border: 1px solid var(--border);
+            background: var(--bg-elevated);
+            border-radius: var(--radius);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-2);
+            text-decoration: none;
+        }
+        .period-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+        .agent-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px;
+        }
+        .due-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 12px; background: var(--surface-2); border-radius: 6px; margin-bottom: 4px;
+        }
+    </style>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'reports' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">Reports & Analytics</h1>
+                <p class="page-subtitle">Period: <strong><%= fromDate.toLocaleDateString('en-IN') %></strong> to <strong><%= toDate.toLocaleDateString('en-IN') %></strong></p>
+            </div>
+        </div>
+        
+        <!-- Period selector -->
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
+            <a href="?period=today" class="period-btn <%= period === 'today' ? 'active' : '' %>">Today</a>
+            <a href="?period=yesterday" class="period-btn <%= period === 'yesterday' ? 'active' : '' %>">Yesterday</a>
+            <a href="?period=week" class="period-btn <%= period === 'week' ? 'active' : '' %>">Last 7 Days</a>
+            <a href="?period=thismonth" class="period-btn <%= period === 'thismonth' ? 'active' : '' %>">This Month</a>
+            <a href="?period=month" class="period-btn <%= period === 'month' ? 'active' : '' %>">Last 30 Days</a>
+        </div>
+        
+        <!-- Overall stats -->
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Total Service Entries</div>
+                <div class="stat-value"><%= stats.totalEntries + stats.totalCorpEntries %></div>
+                <div class="stat-meta"><%= stats.totalEntries %> single + <%= stats.totalCorpEntries %> corporate</div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Total Revenue</div>
+                <div class="stat-value" style="color: var(--purple)"><%= formatINR(stats.totalRevenue) %></div>
+                <div class="stat-meta">Received in period</div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Pending Due</div>
+                <div class="stat-value" style="color: var(--danger)"><%= formatINR(Math.round(stats.totalDue)) %></div>
+                <div class="stat-meta">To collect</div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Travel Expense</div>
+                <div class="stat-value" style="color: var(--warning)"><%= formatINR(stats.entryExp) %></div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Net Profit</div>
+                <div class="stat-value" style="color: var(--success)"><%= formatINR(Math.round(stats.netProfit)) %></div>
+                <div class="stat-meta">Revenue - Expense</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">New Leads</div>
+                <div class="stat-value"><%= stats.totalLeads %></div>
+                <div class="stat-meta"><%= stats.totalOrders %> orders also</div>
+            </div>
+        </div>
+        
+        <!-- Agent breakdown -->
+        <% if (Object.keys(agentBreakdown).length > 0) { %>
+            <div class="card">
+                <div class="card-header"><div class="card-title">👤 Agent-wise Performance</div></div>
+                <div class="card-body">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
+                        <% Object.entries(agentBreakdown).forEach(([agent, data]) => { %>
+                            <div class="agent-card">
+                                <div class="font-bold" style="text-transform: uppercase;"><%= agent %></div>
+                                <div style="font-size: 11px; color: var(--text-3); margin-top: 4px;">
+                                    Visits: <strong><%= data.count %></strong>
+                                </div>
+                                <div class="font-mono font-bold" style="font-size: 18px; color: var(--success); margin-top: 6px;"><%= formatINR(data.revenue) %></div>
+                                <div style="font-size: 11px; color: var(--text-3);">Revenue</div>
+                                <% if (data.due > 0) { %>
+                                    <div class="font-mono" style="font-size: 13px; color: var(--danger); margin-top: 4px;">Due: <%= formatINR(Math.round(data.due)) %></div>
+                                <% } %>
+                            </div>
+                        <% }) %>
+                    </div>
+                </div>
+            </div>
+        <% } %>
+        
+        <!-- Service breakdown -->
+        <% if (Object.keys(serviceBreakdown).length > 0) { %>
+            <div class="card">
+                <div class="card-header"><div class="card-title">🛠️ Service Type Breakdown</div></div>
+                <div class="card-body">
+                    <% Object.entries(serviceBreakdown).forEach(([service, count]) => { %>
+                        <div class="due-row">
+                            <span><%= service %></span>
+                            <strong class="font-mono"><%= count %> entries</strong>
+                        </div>
+                    <% }) %>
+                </div>
+            </div>
+        <% } %>
+        
+        <!-- Pending Dues -->
+        <% if (allDueEntries.length > 0 || allDueCorp.length > 0) { %>
+            <div class="card">
+                <div class="card-header" style="background: var(--danger-light); border-bottom: 1px solid #fca5a5;">
+                    <div class="card-title" style="color: #991b1b;">💰 Pending Payment Dues (All Time)</div>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Customer</th><th>Date</th><th>Total</th><th>Received</th><th>Due</th><th>Type</th><th>Action</th></tr></thead>
+                        <tbody>
+                            <% allDueCorp.forEach(c => { %>
+                                <tr>
+                                    <td>
+                                        <div class="font-bold"><%= c.companyName || c.customerName %></div>
+                                        <div class="text-muted" style="font-size: 11px;">📞 <%= c.mobileNumber %></div>
+                                    </td>
+                                    <td class="text-muted"><%= formatDate(c.visitDate) %></td>
+                                    <td class="font-mono"><%= formatINR(Math.round(c.grandTotal)) %></td>
+                                    <td class="font-mono text-success"><%= formatINR(c.amountReceived) %></td>
+                                    <td class="font-mono font-bold text-danger"><%= formatINR(Math.round(c.amountDue)) %></td>
+                                    <td><span class="badge purple">Corporate</span></td>
+                                    <td><a href="/corporate/<%= c._id %>" class="btn btn-xs btn-primary">Open</a></td>
+                                </tr>
+                            <% }) %>
+                            <% allDueEntries.forEach(e => { %>
+                                <tr>
+                                    <td>
+                                        <div class="font-bold"><%= e.customerName %></div>
+                                        <div class="text-muted" style="font-size: 11px;">📞 <%= e.mobileNumber %></div>
+                                    </td>
+                                    <td class="text-muted"><%= formatDate(e.createdAt) %></td>
+                                    <td class="font-mono"><%= formatINR(e.revenue) %></td>
+                                    <td class="font-mono text-success"><%= formatINR(e.amountReceived || 0) %></td>
+                                    <td class="font-mono font-bold text-danger"><%= formatINR(e.amountDue || 0) %></td>
+                                    <td><span class="badge info">Single</span></td>
+                                    <td><span class="text-muted" style="font-size: 11px;">ID: <%= e._id.toString().slice(-6) %></span></td>
+                                </tr>
+                            <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        <% } %>
+        
+        <!-- Pending Follow-ups -->
+        <% if (pendingFollowUps.length > 0) { %>
+            <div class="card">
+                <div class="card-header"><div class="card-title">📞 Pending Follow-ups</div></div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Customer</th><th>Mobile</th><th>Service</th><th>Follow-up Date</th><th>Status</th></tr></thead>
+                        <tbody>
+                            <% pendingFollowUps.forEach(f => { %>
+                                <tr>
+                                    <td class="font-bold"><%= f.customerName %></td>
+                                    <td class="font-mono"><%= f.mobileNumber %></td>
+                                    <td><%= f.serviceTaken %></td>
+                                    <td><%= formatDate(f.followUpDate) %></td>
+                                    <td><span class="badge warning"><%= f.callStatus %></span></td>
+                                </tr>
+                            <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        <% } %>
+    </main>
+</div>
+<script src="/js/common.js"></script>
+</body>
+</html>

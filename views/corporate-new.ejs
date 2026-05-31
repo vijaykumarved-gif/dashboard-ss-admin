@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Corporate Visit — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .pc-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 14px;
+            margin-bottom: 10px;
+        }
+        .pc-card .head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+        .pc-card .body { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+        .pc-card.open .body { display: block; }
+        .pc-card.open .chevron { transform: rotate(180deg); }
+        .chevron { transition: transform 0.2s; }
+        .hw-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .hw-grid label { font-size: 10px; font-weight: 700; color: var(--text-3); text-transform: uppercase; }
+        .photo-prev { width: 70px; height: 70px; object-fit: cover; border-radius: 6px; margin-top: 6px; border: 1px solid var(--border); display: none; }
+        .photo-prev.show { display: block; }
+        .verify-box {
+            background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+            border: 2px solid #86efac;
+            border-radius: var(--radius-md);
+            padding: 14px;
+            margin-bottom: 14px;
+        }
+        .verify-box.warn {
+            background: linear-gradient(135deg, #fef3c7, #fde68a);
+            border-color: #fcd34d;
+        }
+    </style>
+</head>
+<body>
+<div class="app-layout">
+    <% if (user.role === 'admin') { %>
+        <%- include('partials/sidebar', { user: user, activePage: 'corporate' }) %>
+    <% } %>
+    
+    <main class="main-content" <%= user.role === 'agent' ? 'style="margin-left:0;"' : '' %>>
+        <div style="margin-bottom: 12px;">
+            <a href="<%= user.role === 'agent' ? '/agent' : '/corporate' %>" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back</a>
+        </div>
+        
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">New Corporate Visit</h1>
+                <p class="page-subtitle">Multi-PC service entry · One bill</p>
+            </div>
+        </div>
+        
+        <!-- GPS verification box -->
+        <div class="verify-box" id="gpsBox">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <div style="font-weight: 800; color: #166534; font-size: 14px;">📍 GPS Location Required</div>
+                    <div style="font-size: 12px; color: #15803d; margin-top: 2px;" id="gpsStatus">Click to capture your current location (required for submission)</div>
+                </div>
+                <button class="btn btn-primary" onclick="captureGPS()" id="gpsBtn">📍 Capture Now</button>
+            </div>
+        </div>
+        
+        <!-- Customer details (ONCE) -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">🏢 Customer / Office Details</div>
+            </div>
+            <div class="card-body">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Customer / Contact Name *</label>
+                        <input type="text" id="customerName">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Company Name</label>
+                        <input type="text" id="companyName">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Mobile *</label>
+                        <input type="tel" id="mobileNumber">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" id="email">
+                    </div>
+                    <div class="form-group" style="grid-column: span 2;">
+                        <label class="form-label">Office Address *</label>
+                        <textarea id="location" rows="2"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">GST Number</label>
+                        <input type="text" id="gstNumber">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Service Type</label>
+                        <select id="serviceType">
+                            <option>Office Maintenance</option>
+                            <option>Annual Service</option>
+                            <option>Diagnostic Only</option>
+                            <option>Emergency Service</option>
+                            <option>Setup / Installation</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Visit Date</label>
+                        <input type="date" id="visitDate" value="<%= new Date().toISOString().split('T')[0] %>">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Visit Time</label>
+                        <input type="time" id="visitTime" value="10:00">
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- PCs section -->
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">💻 PCs / Systems</div>
+                    <div class="card-subtitle"><span id="pcCount">0</span> PC added · Click each to fill diagnostic</div>
+                </div>
+                <button class="btn btn-primary" onclick="addPC()">+ Add PC</button>
+            </div>
+            <div class="card-body">
+                <div id="pcsList"></div>
+                <div id="emptyPcs" class="empty-state" style="padding: 30px;">
+                    <div class="empty-icon">💻</div>
+                    <div class="empty-title">No PCs added yet</div>
+                    <div>Click <strong>+ Add PC</strong> to start entering systems</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Future requirements summary -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">📝 Future Requirements (Overall Office)</div>
+            </div>
+            <div class="card-body">
+                <textarea id="futureSummary" rows="3" placeholder="e.g. 5 PCs need RAM upgrade, 2 monitors replacement needed, networking upgrade recommended..."></textarea>
+            </div>
+        </div>
+        
+        <!-- Billing -->
+        <div class="card">
+            <div class="card-header"><div class="card-title">💰 Billing</div></div>
+            <div class="card-body">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Discount (₹)</label>
+                        <input type="number" id="discount" value="0" oninput="recalc()">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Discount Reason</label>
+                        <input type="text" id="discountReason" placeholder="e.g. Bulk discount">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">GST %</label>
+                        <input type="number" id="gstPercent" value="18" oninput="recalc()">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Travel Expense (₹)</label>
+                        <input type="number" id="travelExpense" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Amount Received Now (₹)</label>
+                        <input type="number" id="amountReceived" value="0" oninput="recalc()">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Payment Mode</label>
+                        <select id="paymentMode">
+                            <option value="">-- Select --</option>
+                            <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Pending</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 16px; padding: 14px; background: var(--surface-2); border-radius: 8px;">
+                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; font-size: 13px;">
+                        <div>
+                            <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Subtotal</div>
+                            <div class="font-bold font-mono" id="tSub">₹0</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Discount</div>
+                            <div class="font-bold font-mono text-danger" id="tDisc">₹0</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">GST</div>
+                            <div class="font-bold font-mono" id="tGst">₹0</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">GRAND TOTAL</div>
+                            <div class="font-bold font-mono" id="tGrand" style="color: var(--primary); font-size: 16px;">₹0</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">DUE</div>
+                            <div class="font-bold font-mono" id="tDue" style="color: var(--danger); font-size: 16px;">₹0</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Submit -->
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button class="btn btn-success" style="flex: 1; padding: 14px; font-size: 14px;" onclick="submitEntry()">✓ Submit Corporate Entry</button>
+        </div>
+    </main>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    const AGENT = '<%= agentName %>';
+    let gps = null;
+    let pcs = [];
+    
+    async function captureGPS() {
+        const btn = document.getElementById('gpsBtn');
+        const status = document.getElementById('gpsStatus');
+        const box = document.getElementById('gpsBox');
+        
+        btn.disabled = true;
+        btn.textContent = '⏳ Capturing...';
+        status.textContent = 'Getting your location...';
+        
+        if (!navigator.geolocation) {
+            box.classList.add('warn');
+            status.textContent = '❌ GPS not supported in this browser';
+            btn.disabled = false; btn.textContent = '📍 Try Again';
+            return;
+        }
+        
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                gps = {
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy
+                };
+                box.style.background = 'linear-gradient(135deg, #f0fdf4, #dcfce7)';
+                box.classList.remove('warn');
+                status.innerHTML = `✓ <strong>Captured!</strong> ${gps.latitude.toFixed(5)}, ${gps.longitude.toFixed(5)} (accuracy: ±${Math.round(gps.accuracy)}m) · <a href="https://www.google.com/maps/search/?api=1&query=${gps.latitude},${gps.longitude}" target="_blank">View on Map</a>`;
+                btn.textContent = '✓ GPS Captured';
+                btn.classList.add('btn-success');
+                btn.disabled = false;
+            },
+            (err) => {
+                box.classList.add('warn');
+                status.textContent = '❌ ' + err.message + '. Please allow location access.';
+                btn.disabled = false; btn.textContent = '📍 Retry';
+            },
+            { enableHighAccuracy: true, timeout: 15000 }
+        );
+    }
+    
+    function addPC() {
+        const id = 'pc_' + Date.now() + '_' + pcs.length;
+        pcs.push({
+            id,
+            pcSrNo: '', pcType: 'Desktop', pcName: '', pcModel: '', serialNumber: '',
+            user: '', department: '',
+            motherboard: 'Good', cpu: 'Good', ramStatus: 'Good', ramSlots: 'Good',
+            hddHealth: 'Good', drive: 'Good', fan: 'Good', temperature: 'Normal',
+            connectors: 'Good', battery: 'Good', charger: 'Good', powerCable: 'Good',
+            monitor: 'Good', webcam: 'Good',
+            workDone: '', serviceRate: 79, remarks: '',
+            beforePhoto: '', afterPhoto: '',
+            futureRequirements: []
+        });
+        renderPCs();
+    }
+    
+    function renderPCs() {
+        const list = document.getElementById('pcsList');
+        const empty = document.getElementById('emptyPcs');
+        document.getElementById('pcCount').textContent = pcs.length;
+        
+        if (pcs.length === 0) {
+            empty.style.display = 'block';
+            list.innerHTML = '';
+            recalc();
+            return;
+        }
+        empty.style.display = 'none';
+        
+        list.innerHTML = pcs.map((p, idx) => `
+            <div class="pc-card" id="${p.id}">
+                <div class="head" onclick="document.getElementById('${p.id}').classList.toggle('open')">
+                    <div>
+                        <div class="font-bold" style="font-size: 14px;">${idx + 1}. <input type="text" placeholder="PC-${String(idx+1).padStart(2,'0')}" value="${p.pcSrNo}" onclick="event.stopPropagation()" oninput="update(${idx},'pcSrNo',this.value)" style="border: none; background: transparent; font-weight: 800; font-size: 14px; padding: 0; width: 100px;"></div>
+                        <div class="text-muted" style="font-size: 11px;">${p.pcType} · ${p.pcModel || 'Click to fill details'}</div>
+                    </div>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                        <span class="badge info">₹${p.serviceRate}</span>
+                        <button class="btn btn-xs btn-danger" onclick="event.stopPropagation(); removePC(${idx})">×</button>
+                        <svg class="chevron" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </div>
+                </div>
+                
+                <div class="body">
+                    <div class="form-grid" style="margin-bottom: 10px;">
+                        <div class="form-group">
+                            <label class="form-label">Type</label>
+                            <select onchange="update(${idx},'pcType',this.value)">
+                                <option ${p.pcType==='Desktop'?'selected':''}>Desktop</option>
+                                <option ${p.pcType==='Laptop'?'selected':''}>Laptop</option>
+                                <option ${p.pcType==='AIO'?'selected':''}>AIO</option>
+                                <option ${p.pcType==='Server'?'selected':''}>Server</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Model</label>
+                            <input type="text" value="${p.pcModel}" oninput="update(${idx},'pcModel',this.value)" placeholder="Dell OptiPlex 7090">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Serial Number</label>
+                            <input type="text" value="${p.serialNumber}" oninput="update(${idx},'serialNumber',this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Service Rate (₹)</label>
+                            <input type="number" value="${p.serviceRate}" oninput="update(${idx},'serviceRate',this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">User</label>
+                            <input type="text" value="${p.user}" oninput="update(${idx},'user',this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Department</label>
+                            <input type="text" value="${p.department}" oninput="update(${idx},'department',this.value)">
+                        </div>
+                    </div>
+                    
+                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-2); margin-bottom: 8px;">Hardware Component Health</div>
+                    <div class="hw-grid">
+                        ${['motherboard','cpu','ramStatus','ramSlots','hddHealth','drive','fan','temperature','battery','monitor','webcam','connectors'].map(f => {
+                            const opts = f === 'temperature' ? ['Normal','Overheating'] : f === 'battery' ? ['Good','Dead/Replace','N/A'] : ['Good','Issue/Repair'];
+                            const labels = { motherboard:'Motherboard', cpu:'CPU', ramStatus:'RAM', ramSlots:'RAM Slots', hddHealth:'Storage', drive:'Optical Drive', fan:'Fan', temperature:'Temperature', battery:'Battery', monitor:'Monitor', webcam:'Webcam', connectors:'Connectors' };
+                            return `<div class="form-group" style="margin-bottom: 0;">
+                                <label>${labels[f]}</label>
+                                <select onchange="update(${idx},'${f}',this.value)">
+                                    ${opts.map(o => `<option ${p[f]===o?'selected':''}>${o}</option>`).join('')}
+                                </select>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                    
+                    <div class="form-group" style="margin-top: 10px;">
+                        <label class="form-label">Work Done</label>
+                        <textarea rows="2" oninput="update(${idx},'workDone',this.value)" placeholder="e.g. Cleaned dust, RAM upgrade, fan replaced">${p.workDone}</textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Remarks / Engineer Notes</label>
+                        <textarea rows="2" oninput="update(${idx},'remarks',this.value)" placeholder="Any issues observed">${p.remarks}</textarea>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                        <div class="form-group">
+                            <label class="form-label">📸 Before Photo</label>
+                            <input type="file" accept="image/*" onchange="compressPhoto(this, ${idx}, 'beforePhoto')">
+                            <img class="photo-prev ${p.beforePhoto?'show':''}" id="${p.id}_before" src="${p.beforePhoto}">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">📸 After Photo</label>
+                            <input type="file" accept="image/*" onchange="compressPhoto(this, ${idx}, 'afterPhoto')">
+                            <img class="photo-prev ${p.afterPhoto?'show':''}" id="${p.id}_after" src="${p.afterPhoto}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+        
+        recalc();
+    }
+    
+    function update(idx, f, v) {
+        if (f === 'serviceRate') v = Number(v) || 0;
+        pcs[idx][f] = v;
+        if (f === 'serviceRate' || f === 'pcModel' || f === 'pcType') {
+            // Refresh header text only - too expensive to re-render fully
+            const card = document.getElementById(pcs[idx].id);
+            if (card) {
+                const sub = card.querySelector('.text-muted');
+                if (sub) sub.textContent = pcs[idx].pcType + ' · ' + (pcs[idx].pcModel || 'Click to fill details');
+                const badge = card.querySelector('.badge');
+                if (badge) badge.textContent = '₹' + pcs[idx].serviceRate;
+            }
+            recalc();
+        }
+    }
+    
+    function removePC(idx) {
+        if (!confirm('Remove this PC?')) return;
+        pcs.splice(idx, 1);
+        renderPCs();
+    }
+    
+    function compressPhoto(input, idx, field) {
+        const file = input.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const img = new Image(); img.src = ev.target.result;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX = 800;
+                canvas.width = MAX;
+                canvas.height = img.height * (MAX / img.width);
+                canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+                pcs[idx][field] = dataUrl;
+                const previewId = pcs[idx].id + '_' + (field === 'beforePhoto' ? 'before' : 'after');
+                const preview = document.getElementById(previewId);
+                if (preview) { preview.src = dataUrl; preview.classList.add('show'); }
+            };
+        };
+        reader.readAsDataURL(file);
+    }
+    
+    function recalc() {
+        const sub = pcs.reduce((s, p) => s + (Number(p.serviceRate) || 0), 0);
+        const disc = Number(document.getElementById('discount').value) || 0;
+        const gstP = Number(document.getElementById('gstPercent').value) || 0;
+        const afterDisc = sub - disc;
+        const gst = afterDisc * gstP / 100;
+        const grand = afterDisc + gst;
+        const recv = Number(document.getElementById('amountReceived').value) || 0;
+        const due = Math.max(0, grand - recv);
+        
+        document.getElementById('tSub').textContent = '₹' + sub.toLocaleString('en-IN');
+        document.getElementById('tDisc').textContent = '₹' + disc.toLocaleString('en-IN');
+        document.getElementById('tGst').textContent = '₹' + Math.round(gst).toLocaleString('en-IN');
+        document.getElementById('tGrand').textContent = '₹' + Math.round(grand).toLocaleString('en-IN');
+        document.getElementById('tDue').textContent = '₹' + Math.round(due).toLocaleString('en-IN');
+    }
+    
+    async function submitEntry() {
+        if (!gps) {
+            if (!confirm('GPS not captured yet. Submit without GPS verification?')) {
+                captureGPS();
+                return;
+            }
+        }
+        
+        const data = {
+            agentName: AGENT,
+            customerName: document.getElementById('customerName').value,
+            companyName: document.getElementById('companyName').value,
+            mobileNumber: document.getElementById('mobileNumber').value,
+            email: document.getElementById('email').value,
+            location: document.getElementById('location').value,
+            gstNumber: document.getElementById('gstNumber').value,
+            serviceType: document.getElementById('serviceType').value,
+            visitDate: document.getElementById('visitDate').value,
+            visitTime: document.getElementById('visitTime').value,
+            pcs: pcs.map(p => { const { id, ...rest } = p; return rest; }),
+            discount: Number(document.getElementById('discount').value || 0),
+            discountReason: document.getElementById('discountReason').value,
+            gstPercent: Number(document.getElementById('gstPercent').value || 18),
+            amountReceived: Number(document.getElementById('amountReceived').value || 0),
+            paymentMode: document.getElementById('paymentMode').value,
+            travelExpense: Number(document.getElementById('travelExpense').value || 0),
+            futureRequirementsSummary: document.getElementById('futureSummary').value,
+            jobStatus: 'Completed'
+        };
+        
+        if (gps) {
+            data.gpsLatitude = gps.latitude;
+            data.gpsLongitude = gps.longitude;
+            data.gpsAccuracy = gps.accuracy;
+            data.gpsCapturedAt = new Date();
+        }
+        
+        if (!data.customerName || !data.mobileNumber || !data.location) {
+            return showToast('Customer name, mobile, and address required', 'error');
+        }
+        if (pcs.length === 0) return showToast('Add at least one PC', 'error');
+        
+        const res = await api('/api/corporate', { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) {
+            showToast('✓ Corporate entry saved!', 'success');
+            setTimeout(() => location.href = '/corporate/' + res.entry._id, 700);
+        }
+    }
+    
+    // Initial state
+    recalc();
+</script>
+</body>
+</html>

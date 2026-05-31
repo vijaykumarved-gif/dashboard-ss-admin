@@ -18,6 +18,8 @@ const Vendor = require('./models/Vendor');
 const StockItem = require('./models/StockItem');
 const Tool = require('./models/Tool');
 const Lead = require('./models/Lead');
+const CorporateEntry = require('./models/CorporateEntry');
+const Booking = require('./models/Booking');
 
 const app = express();
 
@@ -2282,6 +2284,663 @@ app.post('/api/leads/:id/convert', requireAuth, async (req, res) => {
         
         res.json({ success: true, refId, convertTo });
     } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+// ======================== CORPORATE ENTRY MODULE ========================
+
+// Helper: compute totals from PCs
+function computeCorporateTotals(entry) {
+    let subtotal = 0;
+    (entry.pcs || []).forEach(p => { subtotal += (Number(p.serviceRate) || 0); });
+    entry.subtotal = subtotal;
+    
+    const afterDiscount = subtotal - (Number(entry.discount) || 0);
+    entry.gstAmount = afterDiscount * (Number(entry.gstPercent) || 0) / 100;
+    entry.grandTotal = afterDiscount + entry.gstAmount;
+    entry.amountDue = Math.max(0, entry.grandTotal - (Number(entry.amountReceived) || 0));
+    entry.paymentStatus = entry.amountDue <= 0 ? 'Paid' : entry.amountReceived > 0 ? 'Partial' : 'Pending';
+    return entry;
+}
+
+// Helper: compute PC overall status
+function computePcStatus(pc) {
+    const fields = ['motherboard', 'cpu', 'ramStatus', 'ramSlots', 'hddHealth', 'drive', 'fan', 'connectors', 'battery', 'charger', 'powerCable', 'monitor', 'webcam'];
+    let issues = 0;
+    fields.forEach(f => { if (pc[f] && pc[f] !== 'Good' && pc[f] !== 'N/A') issues++; });
+    if (pc.temperature && pc.temperature !== 'Normal') issues++;
+    if (issues === 0) return 'Good';
+    if (issues <= 2) return 'Needs Attention';
+    return 'Critical';
+}
+
+// LIST: Corporate Entries (admin view)
+app.get('/corporate', requireAuth, requireAdmin, async (req, res) => {
+    const entries = await CorporateEntry.find().sort({ createdAt: -1 });
+    
+    let totalRevenue = 0, totalReceived = 0, totalDue = 0, totalPCs = 0;
+    entries.forEach(e => {
+        totalRevenue += e.grandTotal || 0;
+        totalReceived += e.amountReceived || 0;
+        totalDue += e.amountDue || 0;
+        totalPCs += (e.pcs || []).length;
+    });
+    
+    res.render('corporate-list', {
+        user: req.session.user,
+        entries,
+        stats: { totalEntries: entries.length, totalPCs, totalRevenue, totalReceived, totalDue }
+    });
+});
+
+// NEW Corporate Entry form
+app.get('/corporate/new', requireAuth, (req, res) => {
+    res.render('corporate-new', { user: req.session.user, agentName: req.session.user.username });
+});
+
+// Agent view
+app.get('/agent/corporate/new', requireAuth, (req, res) => {
+    if (req.session.user.role !== 'agent') return res.redirect('/admin');
+    res.render('corporate-new', { user: req.session.user, agentName: req.session.user.username });
+});
+
+// Corporate Detail
+app.get('/corporate/:id', requireAuth, async (req, res) => {
+    try {
+        const entry = await CorporateEntry.findById(req.params.id);
+        if (!entry) return res.status(404).send('Not found');
+        res.render('corporate-detail', { user: req.session.user, entry });
+    } catch (e) { res.status(500).send(e.message); }
+});
+
+// Create
+app.post('/api/corporate', requireAuth, async (req, res) => {
+    try {
+        const count = await CorporateEntry.countDocuments();
+        const data = req.body;
+        data.entryNumber = `SEA-CORP-${String(count + 1).padStart(4, '0')}`;
+        data.createdBy = req.session.user.username;
+        data.agentName = data.agentName || req.session.user.username;
+        
+        // Compute PC status
+        (data.pcs || []).forEach(p => { p.overallStatus = computePcStatus(p); });
+        
+        // Compute totals
+        computeCorporateTotals(data);
+        
+        if (data.jobStatus === 'Completed' && !data.completedAt) data.completedAt = new Date();
+        
+        const entry = new CorporateEntry(data);
+        await entry.save();
+        res.json({ success: true, entry });
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+// Update with edit log
+app.put('/api/corporate/:id', requireAuth, async (req, res) => {
+    try {
+        const entry = await CorporateEntry.findById(req.params.id);
+        if (!entry) return res.status(404).json({ error: 'Not found' });
+        
+        const editor = req.session.user.username;
+        const updates = req.body;
+        const editLogs = [];
+        
+        // Track changes for simple top-level fields
+        const trackedFields = ['customerName', 'companyName', 'mobileNumber', 'location', 'visitDate', 'visitTime', 'serviceType', 'overallRemarks', 'amountReceived', 'discount', 'discountReason', 'paymentMode', 'gstPercent'];
+        trackedFields.forEach(f => {
+            if (updates[f] !== undefined && String(entry[f] || '') !== String(updates[f] || '')) {
+                editLogs.push({
+                    editedBy: editor, field: f,
+                    oldValue: entry[f], newValue: updates[f]
+                });
+                entry[f] = updates[f];
+            }
+        });
+        
+        // PCs section (replace if provided)
+        if (updates.pcs) {
+            editLogs.push({
+                editedBy: editor, field: 'pcs',
+                oldValue: `${entry.pcs.length} PCs`,
+                newValue: `${updates.pcs.length} PCs (modified)`
+            });
+            updates.pcs.forEach(p => { p.overallStatus = computePcStatus(p); });
+            entry.pcs = updates.pcs;
+        }
+        
+        editLogs.forEach(log => entry.editLogs.push(log));
+        entry.lastModifiedBy = editor;
+        
+        computeCorporateTotals(entry);
+        
+        await entry.save();
+        res.json({ success: true, entry });
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+// Mark payment
+app.post('/api/corporate/:id/payment', requireAuth, async (req, res) => {
+    try {
+        const entry = await CorporateEntry.findById(req.params.id);
+        const { amount, paymentMode, paymentRef } = req.body;
+        const editor = req.session.user.username;
+        
+        const oldReceived = entry.amountReceived;
+        entry.amountReceived += Number(amount) || 0;
+        entry.paymentMode = paymentMode || entry.paymentMode;
+        entry.paymentRef = paymentRef || entry.paymentRef;
+        entry.paymentDate = new Date();
+        computeCorporateTotals(entry);
+        
+        entry.editLogs.push({
+            editedBy: editor, field: 'payment',
+            oldValue: `Received: ${oldReceived}`,
+            newValue: `Added: ${amount} via ${paymentMode}. Total: ${entry.amountReceived}`,
+            note: 'Payment added'
+        });
+        
+        await entry.save();
+        res.json({ success: true, entry });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Capture GPS
+app.post('/api/corporate/:id/gps', requireAuth, async (req, res) => {
+    try {
+        const entry = await CorporateEntry.findById(req.params.id);
+        const { latitude, longitude, accuracy, address } = req.body;
+        entry.gpsLatitude = latitude;
+        entry.gpsLongitude = longitude;
+        entry.gpsAccuracy = accuracy;
+        entry.gpsAddress = address || '';
+        entry.gpsCapturedAt = new Date();
+        await entry.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Token verification - admin generates token, customer gets WA, agent enters
+app.post('/api/corporate/:id/generate-token', requireAuth, async (req, res) => {
+    try {
+        const entry = await CorporateEntry.findById(req.params.id);
+        const token = Math.floor(1000 + Math.random() * 9000).toString();
+        entry.customerToken = token;
+        entry.customerTokenVerified = false;
+        await entry.save();
+        res.json({ success: true, token, mobile: entry.mobileNumber, customerName: entry.customerName });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Verify token (agent enters what customer told)
+app.post('/api/corporate/:id/verify-token', requireAuth, async (req, res) => {
+    try {
+        const entry = await CorporateEntry.findById(req.params.id);
+        const { token } = req.body;
+        if (entry.customerToken && entry.customerToken === String(token).trim()) {
+            entry.customerTokenVerified = true;
+            entry.customerTokenVerifiedAt = new Date();
+            await entry.save();
+            res.json({ success: true, verified: true });
+        } else {
+            res.json({ success: true, verified: false, error: 'Invalid token' });
+        }
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Delete (admin only)
+app.delete('/api/corporate/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await CorporateEntry.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Corporate PDF (Service Report + Invoice combined - single page)
+app.get('/corporate/:id/pdf', requireAuth, async (req, res) => {
+    try {
+        const entry = await CorporateEntry.findById(req.params.id);
+        if (!entry) return res.status(404).send('Not found');
+        
+        const docType = req.query.type || 'invoice'; // invoice or diagnostic
+        
+        const doc = new PDFDocument({ margin: 40, size: 'A4', bufferPages: true });
+        res.setHeader('Content-disposition', `attachment; filename=${docType === 'diagnostic' ? 'Diagnostic' : 'Invoice'}_${entry.entryNumber}.pdf`);
+        res.setHeader('Content-type', 'application/pdf');
+        doc.pipe(res);
+        
+        if (docType === 'diagnostic') {
+            generateCorporateDiagnosticPDF(doc, entry);
+        } else {
+            generateCorporateInvoicePDF(doc, entry);
+        }
+        
+        doc.end();
+    } catch (err) { console.error(err); res.status(500).send('PDF generation failed'); }
+});
+
+// Generate Corporate Invoice PDF
+function generateCorporateInvoicePDF(doc, entry) {
+    drawPdfHeader(doc, 'TAX INVOICE', entry.entryNumber);
+    
+    let y = 155;
+    
+    // Client + Invoice info (2 cards)
+    doc.roundedRect(40, y, 250, 110, 8).fillAndStroke('#f8fafc', '#e2e8f0');
+    doc.fillColor('#64748b').fontSize(8).font('Helvetica-Bold').text('BILL TO', 52, y + 12, { lineBreak: false });
+    doc.fillColor('#0f172a').fontSize(13).font('Helvetica-Bold').text(entry.companyName || entry.customerName, 52, y + 28, { width: 226, lineBreak: false });
+    doc.fillColor('#475569').fontSize(9).font('Helvetica');
+    if (entry.companyName) doc.text('Contact: ' + entry.customerName, 52, y + 48, { width: 226, lineBreak: false });
+    doc.text('Mobile: ' + entry.mobileNumber, 52, y + 62, { width: 226, lineBreak: false });
+    if (entry.gstNumber) doc.text('GST: ' + entry.gstNumber, 52, y + 76, { width: 226, lineBreak: false });
+    doc.text(entry.location || '', 52, y + 90, { width: 226, lineBreak: false, height: 14 });
+    
+    doc.roundedRect(305, y, 250, 110, 8).fillAndStroke('#eff6ff', '#bfdbfe');
+    doc.fillColor('#1e40af').fontSize(8).font('Helvetica-Bold').text('INVOICE DETAILS', 317, y + 12, { lineBreak: false });
+    doc.fillColor('#475569').fontSize(9).font('Helvetica');
+    doc.text('Date: ', 317, y + 30, { continued: true, lineBreak: false }).fillColor('#0f172a').font('Helvetica-Bold').text(new Date(entry.visitDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }), { lineBreak: false });
+    doc.fillColor('#475569').font('Helvetica').text('Engineer: ', 317, y + 46, { continued: true, lineBreak: false }).fillColor('#0f172a').font('Helvetica-Bold').text(entry.agentName.toUpperCase(), { lineBreak: false });
+    doc.fillColor('#475569').font('Helvetica').text('Service Type: ', 317, y + 62, { continued: true, lineBreak: false }).fillColor('#0f172a').font('Helvetica-Bold').text(entry.serviceType, { lineBreak: false });
+    doc.fillColor('#475569').font('Helvetica').text('Total PCs: ', 317, y + 78, { continued: true, lineBreak: false }).fillColor('#16a34a').font('Helvetica-Bold').text(String(entry.pcs.length), { lineBreak: false });
+    doc.fillColor('#475569').font('Helvetica').text('Status: ', 317, y + 94, { continued: true, lineBreak: false }).fillColor(entry.paymentStatus === 'Paid' ? '#15803d' : entry.paymentStatus === 'Partial' ? '#b45309' : '#b91c1c').font('Helvetica-Bold').text(entry.paymentStatus.toUpperCase(), { lineBreak: false });
+    
+    y += 130;
+    
+    // Items table
+    doc.rect(40, y, 515, 24).fill('#0f172a');
+    doc.fillColor('#ffffff').fontSize(10).font('Helvetica-Bold');
+    doc.text('#', 50, y + 8, { width: 25, lineBreak: false });
+    doc.text('PC ID / Description', 78, y + 8, { width: 210, lineBreak: false });
+    doc.text('Model / SN', 290, y + 8, { width: 130, lineBreak: false });
+    doc.text('Service', 422, y + 8, { width: 60, lineBreak: false });
+    doc.text('Amount', 482, y + 8, { width: 65, align: 'right', lineBreak: false });
+    y += 24;
+    
+    let serial = 1;
+    entry.pcs.forEach((pc, idx) => {
+        const rowH = 28;
+        if (idx % 2 === 0) doc.rect(40, y, 515, rowH).fill('#f8fafc');
+        
+        doc.fillColor('#475569').fontSize(9).font('Helvetica').text(String(serial++), 50, y + 9, { width: 25, lineBreak: false });
+        doc.fillColor('#0f172a').font('Helvetica-Bold').text(pc.pcSrNo || `PC-${idx+1}`, 78, y + 5, { width: 210, lineBreak: false });
+        doc.fillColor('#64748b').font('Helvetica').fontSize(8).text(pc.pcType + (pc.user ? ' · ' + pc.user : ''), 78, y + 17, { width: 210, lineBreak: false });
+        doc.fillColor('#475569').fontSize(9).font('Helvetica').text(pc.pcModel || '-', 290, y + 5, { width: 130, lineBreak: false });
+        doc.fillColor('#64748b').fontSize(8).text(pc.serialNumber ? 'SN: ' + pc.serialNumber : '', 290, y + 17, { width: 130, lineBreak: false });
+        doc.fillColor('#0f172a').fontSize(9).font('Helvetica').text(entry.serviceType, 422, y + 9, { width: 60, lineBreak: false });
+        doc.fillColor('#0f172a').fontSize(10).font('Helvetica-Bold').text('Rs.' + (pc.serviceRate || 0), 482, y + 9, { width: 65, align: 'right', lineBreak: false });
+        
+        y += rowH;
+    });
+    
+    y += 10;
+    
+    // Totals box
+    const totalsX = 320, totalsW = 235;
+    doc.roundedRect(totalsX, y, totalsW, 130, 8).fillAndStroke('#f8fafc', '#e2e8f0');
+    
+    let ty = y + 12;
+    doc.fillColor('#64748b').fontSize(9).font('Helvetica').text('Subtotal:', totalsX + 14, ty, { lineBreak: false });
+    doc.fillColor('#0f172a').font('Helvetica-Bold').text('Rs. ' + entry.subtotal.toLocaleString('en-IN'), totalsX + 14, ty, { width: totalsW - 28, align: 'right', lineBreak: false });
+    ty += 18;
+    
+    if (entry.discount > 0) {
+        doc.fillColor('#64748b').font('Helvetica').text('Discount' + (entry.discountReason ? ' (' + entry.discountReason + ')' : '') + ':', totalsX + 14, ty, { width: totalsW - 100, lineBreak: false });
+        doc.fillColor('#dc2626').font('Helvetica-Bold').text('- Rs. ' + entry.discount.toLocaleString('en-IN'), totalsX + 14, ty, { width: totalsW - 28, align: 'right', lineBreak: false });
+        ty += 18;
+    }
+    
+    doc.fillColor('#64748b').font('Helvetica').text(`GST (${entry.gstPercent}%):`, totalsX + 14, ty, { lineBreak: false });
+    doc.fillColor('#0f172a').font('Helvetica-Bold').text('Rs. ' + Math.round(entry.gstAmount).toLocaleString('en-IN'), totalsX + 14, ty, { width: totalsW - 28, align: 'right', lineBreak: false });
+    ty += 18;
+    
+    doc.moveTo(totalsX + 14, ty).lineTo(totalsX + totalsW - 14, ty).strokeColor('#cbd5e1').stroke();
+    ty += 6;
+    
+    doc.fillColor('#0f172a').fontSize(12).font('Helvetica-Bold').text('GRAND TOTAL:', totalsX + 14, ty, { lineBreak: false });
+    doc.fillColor('#1e40af').fontSize(13).font('Helvetica-Bold').text('Rs. ' + Math.round(entry.grandTotal).toLocaleString('en-IN'), totalsX + 14, ty, { width: totalsW - 28, align: 'right', lineBreak: false });
+    ty += 22;
+    
+    doc.fillColor('#15803d').fontSize(9).font('Helvetica').text('Paid:', totalsX + 14, ty, { lineBreak: false });
+    doc.fillColor('#15803d').font('Helvetica-Bold').text('Rs. ' + entry.amountReceived.toLocaleString('en-IN'), totalsX + 14, ty, { width: totalsW - 28, align: 'right', lineBreak: false });
+    ty += 16;
+    
+    if (entry.amountDue > 0) {
+        doc.fillColor('#dc2626').fontSize(10).font('Helvetica-Bold').text('DUE:', totalsX + 14, ty, { lineBreak: false });
+        doc.fillColor('#dc2626').font('Helvetica-Bold').text('Rs. ' + Math.round(entry.amountDue).toLocaleString('en-IN'), totalsX + 14, ty, { width: totalsW - 28, align: 'right', lineBreak: false });
+    }
+    
+    // Engineer signature box
+    doc.roundedRect(40, y, 270, 130, 8).fillAndStroke('#fffbeb', '#fcd34d');
+    doc.fillColor('#92400e').fontSize(8).font('Helvetica-Bold').text('ENGINEER SIGNATURE', 52, y + 12, { lineBreak: false });
+    doc.fillColor('#451a03').fontSize(18).font('Helvetica-Bold').text(entry.agentName.toUpperCase(), 52, y + 28, { width: 246, lineBreak: false });
+    doc.fillColor('#92400e').fontSize(8).font('Helvetica').text('Authorized Signatory', 52, y + 54, { lineBreak: false });
+    
+    if (entry.gpsLatitude) {
+        doc.fillColor('#92400e').fontSize(7).font('Helvetica').text(`GPS Verified · ${entry.gpsLatitude.toFixed(4)}, ${entry.gpsLongitude.toFixed(4)}`, 52, y + 74, { lineBreak: false });
+    }
+    if (entry.customerTokenVerified) {
+        doc.fillColor('#15803d').fontSize(8).font('Helvetica-Bold').text('✓ Customer Token Verified', 52, y + 88, { lineBreak: false });
+    }
+    if (entry.paymentMode) {
+        doc.fillColor('#451a03').fontSize(8).font('Helvetica').text('Payment Mode: ' + entry.paymentMode, 52, y + 104, { lineBreak: false });
+    }
+    
+    drawPdfFooter(doc);
+}
+
+// Generate Corporate Diagnostic Report PDF (multi-page allowed for big offices)
+function generateCorporateDiagnosticPDF(doc, entry) {
+    drawPdfHeader(doc, 'DIAGNOSTIC REPORT', entry.entryNumber);
+    
+    let y = 155;
+    
+    // Client info
+    doc.roundedRect(40, y, 515, 70, 8).fillAndStroke('#f8fafc', '#e2e8f0');
+    doc.fillColor('#0f172a').fontSize(14).font('Helvetica-Bold').text(entry.companyName || entry.customerName, 52, y + 10, { lineBreak: false });
+    doc.fillColor('#475569').fontSize(10).font('Helvetica');
+    doc.text('Contact: ' + entry.customerName + ' · ' + entry.mobileNumber, 52, y + 30, { lineBreak: false });
+    doc.text('Address: ' + (entry.location || '-'), 52, y + 44, { width: 491, lineBreak: false, height: 14 });
+    
+    doc.fillColor('#475569').fontSize(9).font('Helvetica').text(
+        'Visit Date: ' + new Date(entry.visitDate).toLocaleDateString('en-IN') + ' · Engineer: ' + entry.agentName.toUpperCase() + ' · Total PCs: ' + entry.pcs.length,
+        52, y + 58, { lineBreak: false }
+    );
+    
+    y += 80;
+    
+    // Per-PC mini cards (4 columns)
+    const colW = 250, rowH = 220;
+    
+    entry.pcs.forEach((pc, idx) => {
+        const col = idx % 2;
+        const xPos = 40 + col * (colW + 15);
+        
+        if (idx > 0 && col === 0) {
+            y += rowH + 10;
+        }
+        
+        if (y + rowH > doc.page.height - 150) {
+            doc.addPage();
+            drawPdfHeader(doc, 'DIAGNOSTIC REPORT', entry.entryNumber + ' (cont.)');
+            y = 155;
+        }
+        
+        const sc = pc.overallStatus === 'Good' ? '#15803d' : pc.overallStatus === 'Needs Attention' ? '#b45309' : '#b91c1c';
+        const scBg = pc.overallStatus === 'Good' ? '#dcfce7' : pc.overallStatus === 'Needs Attention' ? '#fef3c7' : '#fee2e2';
+        
+        doc.roundedRect(xPos, y, colW, rowH, 8).fillAndStroke('#ffffff', '#e2e8f0');
+        doc.rect(xPos, y, colW, 30).fill('#0f172a');
+        
+        doc.fillColor('#ffffff').fontSize(11).font('Helvetica-Bold').text(pc.pcSrNo || `PC-${idx+1}`, xPos + 10, y + 9, { width: 100, lineBreak: false });
+        doc.fillColor(scBg).rect(xPos + colW - 90, y + 6, 80, 18).fill();
+        doc.fillColor(sc).fontSize(8).font('Helvetica-Bold').text(pc.overallStatus.toUpperCase(), xPos + colW - 90, y + 11, { width: 80, align: 'center', lineBreak: false });
+        
+        let py = y + 38;
+        doc.fillColor('#0f172a').fontSize(10).font('Helvetica-Bold').text(pc.pcType + ' · ' + (pc.pcModel || 'N/A'), xPos + 10, py, { width: colW - 20, lineBreak: false });
+        py += 14;
+        if (pc.serialNumber) {
+            doc.fillColor('#64748b').fontSize(8).font('Helvetica').text('SN: ' + pc.serialNumber, xPos + 10, py, { width: colW - 20, lineBreak: false });
+            py += 12;
+        }
+        if (pc.user) {
+            doc.fillColor('#64748b').fontSize(8).font('Helvetica').text('User: ' + pc.user + (pc.department ? ' · ' + pc.department : ''), xPos + 10, py, { width: colW - 20, lineBreak: false });
+            py += 12;
+        }
+        py += 4;
+        
+        // Component grid 2 col
+        const checks = [
+            ['Motherboard', pc.motherboard], ['CPU', pc.cpu],
+            ['RAM', pc.ramStatus], ['Storage', pc.hddHealth],
+            ['Fan', pc.fan], ['Temp', pc.temperature],
+            ['Monitor', pc.monitor], ['Battery', pc.battery]
+        ];
+        checks.forEach((c, i) => {
+            const cx = xPos + 10 + (i % 2) * ((colW - 20) / 2);
+            const cy = py + Math.floor(i / 2) * 12;
+            const good = c[1] === 'Good' || c[1] === 'Normal' || c[1] === 'N/A';
+            doc.fillColor('#64748b').fontSize(7).font('Helvetica').text(c[0] + ':', cx, cy, { lineBreak: false });
+            doc.fillColor(good ? '#15803d' : '#b91c1c').fontSize(7).font('Helvetica-Bold').text(c[1] || '-', cx + 50, cy, { lineBreak: false });
+        });
+        py += 12 * 4 + 6;
+        
+        if (pc.remarks) {
+            doc.fillColor('#475569').fontSize(7).font('Helvetica-Oblique').text('Remarks: ' + pc.remarks, xPos + 10, py, { width: colW - 20, height: 24, lineBreak: true });
+        }
+    });
+    
+    drawPdfFooter(doc);
+}
+
+// ======================== BOOKING SYSTEM ========================
+
+app.get('/bookings', requireAuth, async (req, res) => {
+    const allBookings = await Booking.find().sort({ scheduledDate: 1 });
+    
+    // Filter for agent
+    let bookings = allBookings;
+    if (req.session.user.role === 'agent') {
+        bookings = allBookings.filter(b => b.assignedAgent === req.session.user.username);
+    }
+    
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    const todayBookings = bookings.filter(b => {
+        const d = new Date(b.scheduledDate); d.setHours(0,0,0,0);
+        return d.getTime() === today.getTime() && b.status !== 'Completed' && b.status !== 'Cancelled';
+    });
+    const upcoming = bookings.filter(b => {
+        const d = new Date(b.scheduledDate); d.setHours(0,0,0,0);
+        return d.getTime() > today.getTime() && b.status !== 'Completed' && b.status !== 'Cancelled';
+    });
+    const completed = bookings.filter(b => b.status === 'Completed').slice(-15);
+    const allOther = bookings.filter(b => b.status !== 'Completed').slice(0, 50);
+    
+    const stats = {
+        total: bookings.length,
+        today: todayBookings.length,
+        upcoming: upcoming.length,
+        completed: bookings.filter(b => b.status === 'Completed').length
+    };
+    
+    res.render('bookings', { 
+        user: req.session.user, 
+        todayBookings, upcoming, completed, allOther, stats 
+    });
+});
+
+app.post('/api/bookings', requireAuth, async (req, res) => {
+    try {
+        const count = await Booking.countDocuments();
+        const data = req.body;
+        data.bookingNumber = `SEA-BK-${String(count + 1).padStart(4, '0')}`;
+        data.bookedBy = req.session.user.username;
+        const booking = new Booking(data);
+        await booking.save();
+        res.json({ success: true, booking });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put('/api/bookings/:id', requireAuth, async (req, res) => {
+    try {
+        const booking = await Booking.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        res.json({ success: true, booking });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.delete('/api/bookings/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await Booking.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ======================== EXTEND SINGLE ENTRY APIs (GPS, Token, Due) ========================
+
+// Capture GPS for single entry
+app.post('/api/entries/:id/gps', requireAuth, async (req, res) => {
+    try {
+        const entry = await Entry.findById(req.params.id);
+        const { latitude, longitude, accuracy, address } = req.body;
+        entry.gpsLatitude = latitude;
+        entry.gpsLongitude = longitude;
+        entry.gpsAccuracy = accuracy;
+        entry.gpsAddress = address || '';
+        entry.gpsCapturedAt = new Date();
+        await entry.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Generate token for entry
+app.post('/api/entries/:id/generate-token', requireAuth, async (req, res) => {
+    try {
+        const entry = await Entry.findById(req.params.id);
+        const token = Math.floor(1000 + Math.random() * 9000).toString();
+        entry.customerToken = token;
+        entry.customerTokenVerified = false;
+        await entry.save();
+        res.json({ success: true, token, mobile: entry.mobileNumber, customerName: entry.customerName });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Verify token for entry
+app.post('/api/entries/:id/verify-token', requireAuth, async (req, res) => {
+    try {
+        const entry = await Entry.findById(req.params.id);
+        const { token } = req.body;
+        if (entry.customerToken && entry.customerToken === String(token).trim()) {
+            entry.customerTokenVerified = true;
+            entry.customerTokenVerifiedAt = new Date();
+            await entry.save();
+            res.json({ success: true, verified: true });
+        } else {
+            res.json({ success: true, verified: false });
+        }
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Edit existing entry (with audit log)
+app.put('/api/entries/:id', requireAuth, async (req, res) => {
+    try {
+        const entry = await Entry.findById(req.params.id);
+        if (!entry) return res.status(404).json({ error: 'Not found' });
+        
+        const editor = req.session.user.username;
+        const updates = req.body;
+        
+        const trackedFields = ['customerName', 'mobileNumber', 'location', 'remarks', 'serviceTaken', 'revenue', 'amountReceived', 'discount', 'discountReason', 'paymentMode', 'pcModel', 'serialNumber', 'pcType', 'followUpDate', 'callStatus', 'conversionStatus', 'isCompleted'];
+        const componentFields = ['cpu', 'motherboard', 'ramStatus', 'ramSlot', 'hddHealth', 'drive', 'fan', 'temperature', 'connectors', 'battery', 'charger', 'powerCable', 'monitor', 'webcam'];
+        
+        [...trackedFields, ...componentFields].forEach(f => {
+            if (updates[f] !== undefined && String(entry[f] || '') !== String(updates[f] || '')) {
+                entry.editLogs.push({
+                    editedBy: editor, field: f,
+                    oldValue: entry[f], newValue: updates[f]
+                });
+                entry[f] = updates[f];
+            }
+        });
+        
+        if (updates.beforePhoto !== undefined) entry.beforePhoto = updates.beforePhoto;
+        if (updates.afterPhoto !== undefined) entry.afterPhoto = updates.afterPhoto;
+        if (updates.proofPhoto !== undefined) entry.proofPhoto = updates.proofPhoto;
+        if (updates.futureRequirements !== undefined) entry.futureRequirements = updates.futureRequirements;
+        
+        // Compute due if revenue/amountReceived/discount changed
+        const finalAmount = (entry.revenue || 0) - (entry.discount || 0);
+        entry.amountDue = Math.max(0, finalAmount - (entry.amountReceived || 0));
+        entry.paymentStatus = entry.amountDue <= 0 ? 'Paid' : entry.amountReceived > 0 ? 'Partial' : 'Pending';
+        
+        entry.lastModifiedBy = editor;
+        await entry.save();
+        res.json({ success: true, entry });
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+// ======================== REPORTS MODULE (Day/Week/Month/Sales/Follow-up) ========================
+
+app.get('/reports', requireAuth, requireAdmin, async (req, res) => {
+    const period = req.query.period || 'today';
+    const now = new Date();
+    let fromDate, toDate = new Date(now);
+    
+    if (period === 'today') {
+        fromDate = new Date(now); fromDate.setHours(0, 0, 0, 0);
+    } else if (period === 'yesterday') {
+        fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 1); fromDate.setHours(0, 0, 0, 0);
+        toDate = new Date(fromDate); toDate.setHours(23, 59, 59, 999);
+    } else if (period === 'week') {
+        fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 7);
+    } else if (period === 'month') {
+        fromDate = new Date(now); fromDate.setMonth(fromDate.getMonth() - 1);
+    } else if (period === 'thismonth') {
+        fromDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else {
+        fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 7);
+    }
+    
+    // Data from different sources
+    const [entries, corpEntries, orders, leads] = await Promise.all([
+        Entry.find({ createdAt: { $gte: fromDate, $lte: toDate } }),
+        CorporateEntry.find({ createdAt: { $gte: fromDate, $lte: toDate } }),
+        Order.find({ createdAt: { $gte: fromDate, $lte: toDate } }),
+        Lead.find({ createdAt: { $gte: fromDate, $lte: toDate } })
+    ]);
+    
+    // Aggregations
+    const entryRev = entries.reduce((s, e) => s + (e.amountReceived || e.revenue || 0), 0);
+    const corpRev = corpEntries.reduce((s, e) => s + (e.amountReceived || 0), 0);
+    const entryDue = entries.reduce((s, e) => s + (e.amountDue || 0), 0);
+    const corpDue = corpEntries.reduce((s, e) => s + (e.amountDue || 0), 0);
+    const entryExp = entries.reduce((s, e) => s + (e.travelExpense || 0), 0);
+    
+    // Service breakdown
+    const serviceBreakdown = {};
+    entries.forEach(e => {
+        serviceBreakdown[e.serviceTaken] = (serviceBreakdown[e.serviceTaken] || 0) + 1;
+    });
+    
+    // Agent breakdown
+    const agentBreakdown = {};
+    [...entries, ...corpEntries].forEach(e => {
+        const a = e.agentName;
+        if (!agentBreakdown[a]) agentBreakdown[a] = { count: 0, revenue: 0, due: 0 };
+        agentBreakdown[a].count++;
+        agentBreakdown[a].revenue += (e.amountReceived || e.revenue || 0);
+        agentBreakdown[a].due += (e.amountDue || 0);
+    });
+    
+    // Follow-ups pending
+    const pendingFollowUps = await Entry.find({ 
+        followUpDate: { $exists: true, $ne: null }, 
+        conversionStatus: 'Pending' 
+    }).sort({ followUpDate: 1 }).limit(20);
+    
+    // Pending due entries (all-time)
+    const allDueEntries = await Entry.find({ amountDue: { $gt: 0 } }).sort({ createdAt: -1 }).limit(50);
+    const allDueCorp = await CorporateEntry.find({ amountDue: { $gt: 0 } }).sort({ createdAt: -1 }).limit(50);
+    
+    res.render('reports', {
+        user: req.session.user,
+        period, fromDate, toDate,
+        stats: {
+            totalEntries: entries.length,
+            totalCorpEntries: corpEntries.length,
+            totalLeads: leads.length,
+            totalOrders: orders.length,
+            entryRev, corpRev,
+            totalRevenue: entryRev + corpRev,
+            entryDue, corpDue,
+            totalDue: entryDue + corpDue,
+            entryExp,
+            netProfit: (entryRev + corpRev) - entryExp
+        },
+        serviceBreakdown, agentBreakdown,
+        pendingFollowUps,
+        allDueEntries, allDueCorp,
+        entries, corpEntries
+    });
 });
 
 // ============ START ============

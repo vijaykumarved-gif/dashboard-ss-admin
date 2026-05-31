@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= entry.entryNumber %> — Corporate Entry</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .pc-row {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 14px;
+            margin-bottom: 8px;
+        }
+        .health-pill {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 700;
+            margin: 1px;
+        }
+        .health-good { background: var(--success-light); color: #166534; }
+        .health-bad { background: var(--danger-light); color: #991b1b; }
+        .photo-thumb { width: 80px; height: 80px; object-fit: cover; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); }
+        .audit-row {
+            padding: 10px 12px;
+            background: var(--surface-2);
+            border-radius: 6px;
+            margin-bottom: 6px;
+            border-left: 3px solid var(--info);
+            font-size: 12px;
+        }
+        .wa-btn { background: #25D366; color: white; padding: 6px 12px; border-radius: 6px; border: none; font-weight: 700; font-size: 12px; cursor: pointer; text-decoration: none; }
+    </style>
+</head>
+<body>
+<div class="app-layout">
+    <% if (user.role === 'admin') { %>
+        <%- include('partials/sidebar', { user: user, activePage: 'corporate' }) %>
+    <% } %>
+    
+    <main class="main-content" <%= user.role === 'agent' ? 'style="margin-left:0;"' : '' %>>
+        <div style="margin-bottom: 12px;">
+            <a href="<%= user.role === 'agent' ? '/agent' : '/corporate' %>" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back</a>
+        </div>
+        
+        <div class="page-header">
+            <div>
+                <h1 class="page-title"><%= entry.companyName || entry.customerName %></h1>
+                <p class="page-subtitle">
+                    <%= entry.entryNumber %> · <%= formatDate(entry.visitDate) %> · Engineer: <%= entry.agentName.toUpperCase() %>
+                </p>
+            </div>
+            <div class="flex gap-2">
+                <a href="/corporate/<%= entry._id %>/pdf?type=invoice" target="_blank" class="btn btn-primary">📄 Invoice PDF</a>
+                <a href="/corporate/<%= entry._id %>/pdf?type=diagnostic" target="_blank" class="btn btn-secondary">🔬 Diagnostic PDF</a>
+                <button class="wa-btn" onclick="sendWA()">📲 WhatsApp Client</button>
+            </div>
+        </div>
+        
+        <!-- Verification status -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+            <div class="card" style="margin: 0;">
+                <div class="card-body" style="padding: 14px;">
+                    <div style="font-size: 11px; text-transform: uppercase; color: var(--text-3); font-weight: 700;">📍 GPS LOCATION</div>
+                    <% if (entry.gpsLatitude) { %>
+                        <div class="font-bold text-success" style="margin-top: 4px;">✓ Verified</div>
+                        <div class="text-muted" style="font-size: 11px;">
+                            <%= entry.gpsLatitude.toFixed(5) %>, <%= entry.gpsLongitude.toFixed(5) %> · ±<%= Math.round(entry.gpsAccuracy || 0) %>m
+                            <br><a href="https://www.google.com/maps/search/?api=1&query=<%= entry.gpsLatitude %>,<%= entry.gpsLongitude %>" target="_blank">View on Map</a>
+                        </div>
+                    <% } else { %>
+                        <div class="text-danger" style="margin-top: 4px;">✗ Not captured</div>
+                    <% } %>
+                </div>
+            </div>
+            <div class="card" style="margin: 0;">
+                <div class="card-body" style="padding: 14px;">
+                    <div style="font-size: 11px; text-transform: uppercase; color: var(--text-3); font-weight: 700;">🔐 CUSTOMER TOKEN</div>
+                    <% if (entry.customerTokenVerified) { %>
+                        <div class="font-bold text-success" style="margin-top: 4px;">✓ Verified at <%= new Date(entry.customerTokenVerifiedAt).toLocaleString('en-IN') %></div>
+                    <% } else if (entry.customerToken) { %>
+                        <div class="text-warning" style="margin-top: 4px;">⏳ Token generated: <strong><%= entry.customerToken %></strong></div>
+                        <div style="margin-top: 6px; display: flex; gap: 6px;">
+                            <input type="text" id="tokenInput" placeholder="Enter customer's code" style="width: 100px; padding: 4px;">
+                            <button class="btn btn-xs btn-primary" onclick="verifyToken()">Verify</button>
+                        </div>
+                    <% } else { %>
+                        <div class="text-muted" style="margin-top: 4px;">Not generated</div>
+                        <button class="btn btn-xs btn-primary" style="margin-top: 6px;" onclick="generateToken()">Generate & Send to Customer</button>
+                    <% } %>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Customer info -->
+        <div class="card">
+            <div class="card-header"><div class="card-title">🏢 Customer Info</div></div>
+            <div class="card-body">
+                <div class="form-grid">
+                    <div><strong>Contact:</strong> <%= entry.customerName %></div>
+                    <div><strong>Company:</strong> <%= entry.companyName || '-' %></div>
+                    <div><strong>Mobile:</strong> <%= entry.mobileNumber %></div>
+                    <div><strong>Email:</strong> <%= entry.email || '-' %></div>
+                    <div style="grid-column: span 2;"><strong>Address:</strong> <%= entry.location %></div>
+                    <% if (entry.gstNumber) { %><div><strong>GST:</strong> <%= entry.gstNumber %></div><% } %>
+                    <div><strong>Service Type:</strong> <%= entry.serviceType %></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- PCs serviced -->
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">💻 PCs Serviced (<%= entry.pcs.length %>)</div>
+                    <div class="card-subtitle">All systems entered in this visit</div>
+                </div>
+            </div>
+            <div class="card-body">
+                <% entry.pcs.forEach((pc, idx) => { 
+                    const sc = pc.overallStatus === 'Good' ? 'success' : pc.overallStatus === 'Needs Attention' ? 'warning' : 'danger';
+                %>
+                    <div class="pc-row">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                            <div>
+                                <div class="font-bold" style="font-size: 15px;"><%= (idx+1) %>. <%= pc.pcSrNo || ('PC-'+(idx+1)) %></div>
+                                <div class="text-muted" style="font-size: 12px;">
+                                    <%= pc.pcType %>
+                                    <% if (pc.pcModel) { %> · <%= pc.pcModel %><% } %>
+                                    <% if (pc.serialNumber) { %> · SN: <%= pc.serialNumber %><% } %>
+                                    <% if (pc.user) { %> · 👤 <%= pc.user %><% if (pc.department) { %> · <%= pc.department %><% } %><% } %>
+                                </div>
+                            </div>
+                            <div style="text-align: right;">
+                                <span class="badge <%= sc %>"><%= pc.overallStatus %></span>
+                                <div class="font-mono font-bold" style="margin-top: 4px;">₹<%= pc.serviceRate %></div>
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; flex-wrap: wrap; gap: 3px; margin: 8px 0;">
+                            <% [['Motherboard',pc.motherboard],['CPU',pc.cpu],['RAM',pc.ramStatus],['Storage',pc.hddHealth],['Fan',pc.fan],['Temp',pc.temperature],['Battery',pc.battery],['Monitor',pc.monitor]].forEach(c => {
+                                const good = c[1] === 'Good' || c[1] === 'Normal' || c[1] === 'N/A';
+                            %>
+                                <span class="health-pill <%= good ? 'health-good' : 'health-bad' %>"><%= c[0] %>: <%= c[1] %></span>
+                            <% }) %>
+                        </div>
+                        
+                        <% if (pc.workDone) { %>
+                            <div style="font-size: 12px; margin-top: 8px;"><strong>Work Done:</strong> <%= pc.workDone %></div>
+                        <% } %>
+                        <% if (pc.remarks) { %>
+                            <div class="text-muted" style="font-size: 12px;">📝 <%= pc.remarks %></div>
+                        <% } %>
+                        
+                        <% if (pc.beforePhoto || pc.afterPhoto) { %>
+                            <div style="display: flex; gap: 8px; margin-top: 10px;">
+                                <% if (pc.beforePhoto) { %>
+                                    <div>
+                                        <div style="font-size: 9px; font-weight: 700;">BEFORE</div>
+                                        <img src="<%= pc.beforePhoto %>" class="photo-thumb" onclick="window.open('<%= pc.beforePhoto %>','_blank')">
+                                    </div>
+                                <% } %>
+                                <% if (pc.afterPhoto) { %>
+                                    <div>
+                                        <div style="font-size: 9px; font-weight: 700; color: var(--success);">AFTER</div>
+                                        <img src="<%= pc.afterPhoto %>" class="photo-thumb" onclick="window.open('<%= pc.afterPhoto %>','_blank')">
+                                    </div>
+                                <% } %>
+                            </div>
+                        <% } %>
+                    </div>
+                <% }) %>
+            </div>
+        </div>
+        
+        <!-- Future requirements -->
+        <% if (entry.futureRequirementsSummary) { %>
+        <div class="card" style="background: linear-gradient(135deg, #fef3c7, #fde68a); border: 1px solid #fcd34d;">
+            <div class="card-body">
+                <div style="font-weight: 800; color: #92400e; font-size: 13px; margin-bottom: 6px;">💡 FUTURE REQUIREMENTS</div>
+                <div style="color: #451a03; white-space: pre-wrap;"><%= entry.futureRequirementsSummary %></div>
+            </div>
+        </div>
+        <% } %>
+        
+        <!-- Billing -->
+        <div class="card">
+            <div class="card-header"><div class="card-title">💰 Billing Summary</div></div>
+            <div class="card-body">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div>
+                        <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border);">
+                            <span>Subtotal:</span><span class="font-mono font-bold"><%= formatINR(entry.subtotal) %></span>
+                        </div>
+                        <% if (entry.discount > 0) { %>
+                            <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border);">
+                                <span>Discount <% if (entry.discountReason) { %><small>(<%= entry.discountReason %>)</small><% } %>:</span>
+                                <span class="font-mono font-bold text-danger">- <%= formatINR(entry.discount) %></span>
+                            </div>
+                        <% } %>
+                        <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border);">
+                            <span>GST (<%= entry.gstPercent %>%):</span><span class="font-mono font-bold"><%= formatINR(Math.round(entry.gstAmount)) %></span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; padding: 10px 0; font-size: 16px;">
+                            <strong>Grand Total:</strong><span class="font-mono font-bold" style="color: var(--primary)"><%= formatINR(Math.round(entry.grandTotal)) %></span>
+                        </div>
+                    </div>
+                    <div>
+                        <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border);">
+                            <span>Amount Received:</span><span class="font-mono font-bold text-success"><%= formatINR(entry.amountReceived) %></span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border);">
+                            <span>Due Amount:</span><span class="font-mono font-bold text-danger"><%= formatINR(Math.round(entry.amountDue)) %></span>
+                        </div>
+                        <% if (entry.paymentMode) { %>
+                            <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border);">
+                                <span>Payment Mode:</span><span class="font-bold"><%= entry.paymentMode %></span>
+                            </div>
+                        <% } %>
+                        <div style="display: flex; justify-content: space-between; padding: 10px 0; font-size: 14px;">
+                            <strong>Status:</strong>
+                            <% const sc = entry.paymentStatus === 'Paid' ? 'success' : entry.paymentStatus === 'Partial' ? 'warning' : 'danger'; %>
+                            <span class="badge <%= sc %>"><%= entry.paymentStatus %></span>
+                        </div>
+                        <% if (entry.amountDue > 0) { %>
+                            <button class="btn btn-success" style="width: 100%; margin-top: 8px;" onclick="addPayment()">+ Add Payment</button>
+                        <% } %>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- AUDIT LOG (admin only) -->
+        <% if (user.role === 'admin' && entry.editLogs && entry.editLogs.length > 0) { %>
+        <div class="card">
+            <div class="card-header"><div class="card-title">📋 Audit Log / Edit History (<%= entry.editLogs.length %>)</div></div>
+            <div class="card-body">
+                <% entry.editLogs.slice().reverse().forEach(log => { %>
+                    <div class="audit-row">
+                        <div style="display: flex; justify-content: space-between;">
+                            <div>
+                                <strong><%= log.editedBy.toUpperCase() %></strong> changed <strong><%= log.field %></strong>
+                                <% if (log.note) { %><div class="text-muted" style="font-size: 11px;"><%= log.note %></div><% } %>
+                            </div>
+                            <div class="text-muted" style="font-size: 11px;"><%= new Date(log.editedAt).toLocaleString('en-IN') %></div>
+                        </div>
+                        <div style="margin-top: 4px; font-size: 11px;">
+                            <span class="text-muted">From:</span> <span style="color: var(--danger);"><%= JSON.stringify(log.oldValue) %></span>
+                            <span class="text-muted"> → To:</span> <span style="color: var(--success);"><%= JSON.stringify(log.newValue) %></span>
+                        </div>
+                    </div>
+                <% }) %>
+            </div>
+        </div>
+        <% } %>
+        
+        <% if (user.role === 'admin') { %>
+            <div style="margin-top: 20px;">
+                <button class="btn btn-danger" onclick="deleteEntry()">Delete Entry</button>
+            </div>
+        <% } %>
+    </main>
+</div>
+
+<div class="modal-overlay" id="payModal">
+    <div class="modal" style="max-width: 450px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Payment</div>
+            <button class="modal-close" onclick="closeModal('payModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">Amount (₹) *</label>
+                <input type="number" id="pay_amt" placeholder="Max: <%= Math.round(entry.amountDue) %>">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Payment Mode</label>
+                <select id="pay_mode">
+                    <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Reference</label>
+                <input type="text" id="pay_ref" placeholder="Transaction ref / Cheque no">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('payModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="savePayment()">Save</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    const ID = '<%= entry._id %>';
+    const MOBILE = '<%= entry.mobileNumber %>';
+    const NAME = '<%= entry.customerName %>';
+    const COMPANY = '<%= entry.companyName || entry.customerName %>';
+    
+    async function generateToken() {
+        const res = await api(`/api/corporate/${ID}/generate-token`, { method: 'POST' });
+        if (res.success) {
+            // Open WhatsApp with token
+            const msg = `Hello ${NAME},\n\nYour service verification code: *${res.token}*\n\nPlease share this 4-digit code with our engineer when they arrive at your office.\n\n- Searvator IT Solutions`;
+            let phone = MOBILE.replace(/\D/g, '');
+            if (phone.length === 10) phone = '91' + phone;
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            const url = isMobile ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`;
+            window.open(url, '_blank');
+            showToast('Token: ' + res.token + ' (sent via WA)', 'success');
+            setTimeout(() => location.reload(), 1500);
+        }
+    }
+    
+    async function verifyToken() {
+        const token = document.getElementById('tokenInput').value;
+        if (!token) return;
+        const res = await api(`/api/corporate/${ID}/verify-token`, { method: 'POST', body: JSON.stringify({ token }) });
+        if (res.verified) { showToast('✓ Token verified!', 'success'); setTimeout(() => location.reload(), 500); }
+        else { showToast('✗ Invalid token', 'error'); }
+    }
+    
+    function addPayment() { openModal('payModal'); }
+    
+    async function savePayment() {
+        const data = {
+            amount: Number(document.getElementById('pay_amt').value),
+            paymentMode: document.getElementById('pay_mode').value,
+            paymentRef: document.getElementById('pay_ref').value
+        };
+        if (!data.amount) return showToast('Amount required', 'error');
+        const res = await api(`/api/corporate/${ID}/payment`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Payment added', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    function sendWA() {
+        const msg = `Hello ${NAME},\n\nThank you for choosing *Searvator IT Solutions*.\n\n*Service Summary:*\nDate: <%= formatDate(entry.visitDate) %>\nPCs Serviced: <%= entry.pcs.length %>\nTotal: ₹<%= Math.round(entry.grandTotal).toLocaleString('en-IN') %>\nPaid: ₹<%= entry.amountReceived.toLocaleString('en-IN') %>\n${<%= entry.amountDue %> > 0 ? 'Due: ₹<%= Math.round(entry.amountDue).toLocaleString('en-IN') %>' : 'Status: PAID ✓'}\n\nWe appreciate your business!\n\nRegards,\nSearvator Team\n+91 9106959092`;
+        let phone = MOBILE.replace(/\D/g, '');
+        if (phone.length === 10) phone = '91' + phone;
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        const url = isMobile ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`;
+        window.open(url, '_blank');
+    }
+    
+    async function deleteEntry() {
+        if (!confirm('Delete this corporate entry permanently?')) return;
+        const res = await api(`/api/corporate/${ID}`, { method: 'DELETE' });
+        if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.href = '/corporate', 500); }
+    }
+</script>
+</body>
+</html>

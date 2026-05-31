@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Office Corporate — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'corporate' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">Office Corporate Service</h1>
+                <p class="page-subtitle">Multi-PC office visits · One bill for all systems</p>
+            </div>
+            <a href="/corporate/new" class="btn btn-primary">+ New Corporate Visit</a>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Total Visits</div>
+                <div class="stat-value"><%= stats.totalEntries %></div>
+                <div class="stat-meta"><%= stats.totalPCs %> PCs serviced</div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Total Revenue</div>
+                <div class="stat-value"><%= formatINR(stats.totalRevenue) %></div>
+                <div class="stat-meta">All invoices</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Received</div>
+                <div class="stat-value" style="color: var(--success)"><%= formatINR(stats.totalReceived) %></div>
+                <div class="stat-meta">Paid amount</div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Due</div>
+                <div class="stat-value" style="color: var(--danger)"><%= formatINR(stats.totalDue) %></div>
+                <div class="stat-meta">To collect</div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">All Corporate Entries</div>
+                <input type="text" id="searchBox" placeholder="🔍 Search..." style="width: 240px;" oninput="filterRows()">
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Entry #</th>
+                            <th>Office / Company</th>
+                            <th>Contact</th>
+                            <th>Date</th>
+                            <th>Engineer</th>
+                            <th>PCs</th>
+                            <th>Total</th>
+                            <th>Received</th>
+                            <th>Due</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="corpBody">
+                        <% if (entries.length === 0) { %>
+                            <tr><td colspan="11" class="text-center" style="padding: 60px; color: var(--text-3);">
+                                <div style="font-size: 32px; margin-bottom: 8px;">🏢</div>
+                                No corporate visits yet. Click <strong>+ New Corporate Visit</strong>.
+                            </td></tr>
+                        <% } else { entries.forEach(e => {
+                            const sc = e.paymentStatus === 'Paid' ? 'success' : e.paymentStatus === 'Partial' ? 'warning' : 'danger';
+                        %>
+                            <tr class="corp-row" data-search="<%= (e.entryNumber + ' ' + e.customerName + ' ' + (e.companyName||'') + ' ' + e.mobileNumber + ' ' + e.agentName).toLowerCase() %>">
+                                <td class="font-mono font-bold"><%= e.entryNumber %></td>
+                                <td>
+                                    <div class="font-bold"><%= e.companyName || e.customerName %></div>
+                                    <% if (e.companyName) { %><div class="text-muted" style="font-size: 11px;"><%= e.customerName %></div><% } %>
+                                </td>
+                                <td class="font-mono"><%= e.mobileNumber %></td>
+                                <td class="text-muted"><%= formatDate(e.visitDate) %></td>
+                                <td><span class="badge info"><%= e.agentName.toUpperCase() %></span></td>
+                                <td class="font-bold"><%= e.pcs.length %></td>
+                                <td class="font-mono font-bold"><%= formatINR(Math.round(e.grandTotal)) %></td>
+                                <td class="font-mono text-success"><%= formatINR(e.amountReceived) %></td>
+                                <td class="font-mono text-danger"><%= formatINR(Math.round(e.amountDue)) %></td>
+                                <td><span class="badge <%= sc %>"><%= e.paymentStatus %></span></td>
+                                <td>
+                                    <a href="/corporate/<%= e._id %>" class="btn btn-xs btn-secondary">View</a>
+                                    <a href="/corporate/<%= e._id %>/pdf?type=invoice" target="_blank" class="btn btn-xs" style="background: var(--purple-light); color: #6d28d9;">📄 Invoice</a>
+                                    <a href="/corporate/<%= e._id %>/pdf?type=diagnostic" target="_blank" class="btn btn-xs" style="background: var(--info-light); color: #1e40af;">🔬 Diagnostic</a>
+                                </td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    function filterRows() {
+        const q = document.getElementById('searchBox').value.toLowerCase();
+        document.querySelectorAll('.corp-row').forEach(r => {
+            r.style.display = r.dataset.search.includes(q) ? '' : 'none';
+        });
+    }
+</script>
+</body>
+</html>

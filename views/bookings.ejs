@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bookings — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .booking-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 14px;
+            margin-bottom: 8px;
+        }
+        .booking-card.today { border-left: 4px solid var(--danger); background: #fef2f2; }
+        .booking-card.upcoming { border-left: 4px solid var(--info); }
+        .booking-date {
+            background: var(--accent);
+            color: white;
+            padding: 8px 12px;
+            border-radius: var(--radius);
+            text-align: center;
+            min-width: 60px;
+        }
+        .booking-date .day { font-size: 22px; font-weight: 800; line-height: 1; }
+        .booking-date .month { font-size: 10px; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+<div class="app-layout">
+    <% if (user.role === 'admin') { %>
+        <%- include('partials/sidebar', { user: user, activePage: 'bookings' }) %>
+    <% } %>
+    
+    <main class="main-content" <%= user.role === 'agent' ? 'style="margin-left:0;"' : '' %>>
+        <% if (user.role === 'agent') { %>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md); margin-bottom: 16px;">
+                <a href="/agent" style="color: var(--text-3); text-decoration: none;">← Dashboard</a>
+                <a href="/logout" class="btn btn-danger btn-sm">Logout</a>
+            </div>
+        <% } %>
+        
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">Bookings & Advance Scheduling</h1>
+                <p class="page-subtitle">Schedule service visits in advance</p>
+            </div>
+            <button class="btn btn-primary" onclick="openModal('newBookingModal')">+ New Booking</button>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Total Bookings</div>
+                <div class="stat-value"><%= stats.total %></div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Today</div>
+                <div class="stat-value" style="color: var(--danger)"><%= stats.today %></div>
+                <div class="stat-meta">Urgent visits</div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Upcoming</div>
+                <div class="stat-value" style="color: var(--warning)"><%= stats.upcoming %></div>
+                <div class="stat-meta">Scheduled ahead</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Completed</div>
+                <div class="stat-value" style="color: var(--success)"><%= stats.completed %></div>
+                <div class="stat-meta">All time</div>
+            </div>
+        </div>
+        
+        <!-- Today's bookings -->
+        <% if (todayBookings.length > 0) { %>
+            <div class="card">
+                <div class="card-header" style="background: var(--danger-light); border-bottom: 1px solid #fca5a5;">
+                    <div class="card-title" style="color: #991b1b;">🚨 Today's Bookings (<%= todayBookings.length %>)</div>
+                </div>
+                <div class="card-body">
+                    <% todayBookings.forEach(b => { const d = new Date(b.scheduledDate); %>
+                        <div class="booking-card today">
+                            <div style="display: flex; gap: 14px; align-items: start;">
+                                <div class="booking-date" style="background: var(--danger);">
+                                    <div class="day"><%= d.getDate() %></div>
+                                    <div class="month"><%= d.toLocaleDateString('en-US', { month: 'short' }) %></div>
+                                </div>
+                                <div style="flex: 1;">
+                                    <div style="display: flex; justify-content: space-between; align-items: start;">
+                                        <div>
+                                            <div class="font-bold"><%= b.customerName %> <% if (b.companyName) { %>· <%= b.companyName %><% } %></div>
+                                            <div class="text-muted" style="font-size: 12px;">🕒 <%= b.scheduledTime %> · <%= b.bookingType %> · <%= b.serviceType %></div>
+                                            <div class="text-muted" style="font-size: 11px;">📞 <%= b.mobileNumber %> · 📍 <%= b.location %></div>
+                                            <% if (b.description) { %><div style="font-size: 12px; margin-top: 4px;"><%= b.description %></div><% } %>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <span class="badge danger">TODAY</span>
+                                            <% if (b.assignedAgent) { %><div style="font-size: 11px; margin-top: 4px;">👤 <%= b.assignedAgent.toUpperCase() %></div><% } %>
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; gap: 6px; margin-top: 10px;">
+                                        <a href="tel:<%= b.mobileNumber %>" class="btn btn-xs btn-secondary">📞 Call</a>
+                                        <select onchange="updateStatus('<%= b._id %>', this.value)" style="padding: 4px 8px; font-size: 11px;">
+                                            <% ['Pending','Confirmed','In Progress','Completed','Cancelled','Missed'].forEach(s => { %>
+                                                <option <%= b.status === s ? 'selected' : '' %>><%= s %></option>
+                                            <% }) %>
+                                        </select>
+                                        <% if (user.role === 'admin') { %>
+                                            <button class="btn btn-xs btn-danger" onclick="deleteB('<%= b._id %>')">Del</button>
+                                        <% } %>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    <% }) %>
+                </div>
+            </div>
+        <% } %>
+        
+        <!-- Upcoming -->
+        <div class="card">
+            <div class="card-header"><div class="card-title">📅 Upcoming Bookings</div></div>
+            <div class="card-body">
+                <% if (upcoming.length === 0) { %>
+                    <div class="empty-state"><div class="empty-icon">📅</div><div class="empty-title">No upcoming bookings</div></div>
+                <% } else { upcoming.slice(0, 20).forEach(b => { const d = new Date(b.scheduledDate); %>
+                    <div class="booking-card upcoming">
+                        <div style="display: flex; gap: 14px; align-items: start;">
+                            <div class="booking-date">
+                                <div class="day"><%= d.getDate() %></div>
+                                <div class="month"><%= d.toLocaleDateString('en-US', { month: 'short' }) %></div>
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="display: flex; justify-content: space-between;">
+                                    <div>
+                                        <div class="font-bold"><%= b.customerName %> <% if (b.companyName) { %>· <%= b.companyName %><% } %></div>
+                                        <div class="text-muted" style="font-size: 12px;">🕒 <%= b.scheduledTime %> · <%= b.bookingType %> · <%= b.serviceType %></div>
+                                        <div class="text-muted" style="font-size: 11px;">📞 <%= b.mobileNumber %> · <%= b.location %></div>
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <span class="badge info"><%= b.status %></span>
+                                        <% if (b.assignedAgent) { %><div style="font-size: 11px; margin-top: 4px;">👤 <%= b.assignedAgent.toUpperCase() %></div><% } %>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 8px; display: flex; gap: 6px;">
+                                    <select onchange="updateStatus('<%= b._id %>', this.value)" style="padding: 4px 8px; font-size: 11px; width: auto;">
+                                        <% ['Pending','Confirmed','In Progress','Completed','Cancelled','Missed'].forEach(s => { %>
+                                            <option <%= b.status === s ? 'selected' : '' %>><%= s %></option>
+                                        <% }) %>
+                                    </select>
+                                    <% if (user.role === 'admin') { %>
+                                        <button class="btn btn-xs btn-danger" onclick="deleteB('<%= b._id %>')">Del</button>
+                                    <% } %>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                <% }) } %>
+            </div>
+        </div>
+    </main>
+</div>
+
+<div class="modal-overlay" id="newBookingModal">
+    <div class="modal" style="max-width: 600px;">
+        <div class="modal-header">
+            <div class="modal-title">+ New Booking</div>
+            <button class="modal-close" onclick="closeModal('newBookingModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Customer Name *</label>
+                    <input type="text" id="b_name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Company</label>
+                    <input type="text" id="b_company">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Mobile *</label>
+                    <input type="tel" id="b_mobile">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <input type="email" id="b_email">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Location *</label>
+                    <textarea id="b_loc" rows="2"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Booking Type</label>
+                    <select id="b_type">
+                        <option>Single PC</option>
+                        <option>Corporate Office</option>
+                        <option>AMC Visit</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Service Type</label>
+                    <select id="b_service">
+                        <option>79 System Service</option>
+                        <option>Diagnostic</option>
+                        <option>Repair</option>
+                        <option>Installation</option>
+                        <option>Office Maintenance</option>
+                        <option>Emergency</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Date *</label>
+                    <input type="date" id="b_date">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Time</label>
+                    <input type="time" id="b_time" value="10:00">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Assigned Agent</label>
+                    <select id="b_agent">
+                        <option value="">Unassigned</option>
+                        <option value="vijay">Vijay</option>
+                        <option value="rahul">Rahul</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">No. of PCs (if office)</label>
+                    <input type="number" id="b_pcs" value="1">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Description / Notes</label>
+                    <textarea id="b_desc" rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('newBookingModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveBooking()">Save Booking</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    async function saveBooking() {
+        const data = {
+            customerName: document.getElementById('b_name').value,
+            companyName: document.getElementById('b_company').value,
+            mobileNumber: document.getElementById('b_mobile').value,
+            email: document.getElementById('b_email').value,
+            location: document.getElementById('b_loc').value,
+            bookingType: document.getElementById('b_type').value,
+            serviceType: document.getElementById('b_service').value,
+            scheduledDate: document.getElementById('b_date').value,
+            scheduledTime: document.getElementById('b_time').value,
+            assignedAgent: document.getElementById('b_agent').value,
+            numberOfPCs: Number(document.getElementById('b_pcs').value),
+            description: document.getElementById('b_desc').value
+        };
+        if (!data.customerName || !data.mobileNumber || !data.location || !data.scheduledDate) {
+            return showToast('Name, mobile, location, and date required', 'error');
+        }
+        const res = await api('/api/bookings', { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Booked!', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function updateStatus(id, status) {
+        const res = await api(`/api/bookings/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
+        if (res.success) showToast('Updated', 'success');
+    }
+    
+    async function deleteB(id) {
+        if (!confirm('Delete booking?')) return;
+        const res = await api(`/api/bookings/${id}`, { method: 'DELETE' });
+        if (res.success) { setTimeout(() => location.reload(), 400); }
+    }
+</script>
+</body>
+</html>
