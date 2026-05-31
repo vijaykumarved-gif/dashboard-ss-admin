@@ -1,0 +1,46 @@
+<!-- Mobile + PWA setup -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Searvator">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<link rel="stylesheet" href="/css/mobile.css">
+<script>
+// Register service worker
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+}
+
+// PWA install prompt
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstall = e;
+    // Show install banner after 3 seconds
+    setTimeout(() => {
+        const banner = document.getElementById('pwaInstall');
+        if (banner && !sessionStorage.getItem('pwa_dismissed')) banner.classList.add('show');
+    }, 3000);
+});
+
+function pwaInstall() {
+    if (deferredInstall) {
+        deferredInstall.prompt();
+        deferredInstall.userChoice.then(() => {
+            document.getElementById('pwaInstall').classList.remove('show');
+            deferredInstall = null;
+        });
+    }
+}
+
+function pwaDismiss() {
+    sessionStorage.setItem('pwa_dismissed', '1');
+    document.getElementById('pwaInstall').classList.remove('show');
+}
+</script>

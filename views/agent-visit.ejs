@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Visit: <%= office.officeName %></title>
     <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
     <style>
         .agent-shell { max-width: 900px; margin: 0 auto; padding: 20px 16px; animation: fadeInUp 0.5s var(--ease-out); }
         .top-bar { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; box-shadow: var(--shadow-sm); }
@@ -248,13 +248,13 @@
                                     <div class="photo-upload-row">
                                         <div class="form-group">
                                             <label class="form-label">Before Photo</label>
-                                            <input type="file" accept="image/*" onchange="compressTo(this, 'before_<%= pc.pcId %>')">
+                                            <input type="file" accept="image/*" capture="environment" onchange="compressTo(this, 'before_<%= pc.pcId %>')">
                                             <input type="hidden" name="beforePhoto" id="before_<%= pc.pcId %>" value="<%= log?.beforePhoto || '' %>">
                                             <% if (log?.beforePhoto) { %><img src="<%= log.beforePhoto %>" class="photo-preview show"><% } %>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">After Photo</label>
-                                            <input type="file" accept="image/*" onchange="compressTo(this, 'after_<%= pc.pcId %>')">
+                                            <input type="file" accept="image/*" capture="environment" onchange="compressTo(this, 'after_<%= pc.pcId %>')">
                                             <input type="hidden" name="afterPhoto" id="after_<%= pc.pcId %>" value="<%= log?.afterPhoto || '' %>">
                                             <% if (log?.afterPhoto) { %><img src="<%= log.afterPhoto %>" class="photo-preview show"><% } %>
                                         </div>
@@ -562,5 +562,7 @@
         if (res.success) { showToast('Visit completed ✓', 'success'); setTimeout(() => location.reload(), 500); }
     }
 </script>
+<%- include('partials/mobile-bottom-nav', { activeNav: 'amc' }) %>
+<%- include('partials/pwa-banner') %>
 </body>
 </html>

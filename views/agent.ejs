@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agent Panel — Searvator CRM</title>
     <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
     <style>
         .agent-shell {
             max-width: 720px;
@@ -542,5 +542,7 @@
         }
     });
 </script>
+<%- include('partials/mobile-bottom-nav', { activeNav: 'home' }) %>
+<%- include('partials/pwa-banner') %>
 </body>
 </html>

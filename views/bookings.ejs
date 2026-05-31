@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bookings — Searvator CRM</title>
     <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
     <style>
         .booking-card {
             background: var(--bg-elevated);
@@ -276,5 +276,9 @@
         if (res.success) { setTimeout(() => location.reload(), 400); }
     }
 </script>
+<% if (user.role === 'agent') { %>
+<%- include('partials/mobile-bottom-nav', { activeNav: 'bookings' }) %>
+<%- include('partials/pwa-banner') %>
+<% } %>
 </body>
 </html>

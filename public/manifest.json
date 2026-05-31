@@ -1,0 +1,44 @@
+{
+    "name": "Searvator CRM",
+    "short_name": "Searvator",
+    "description": "Searvator IT Solutions — Field Engineer & Admin CRM",
+    "start_url": "/",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#0f172a",
+    "theme_color": "#0f172a",
+    "scope": "/",
+    "icons": [
+        {
+            "src": "/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ],
+    "categories": ["business", "productivity"],
+    "shortcuts": [
+        {
+            "name": "New Visit",
+            "short_name": "New",
+            "url": "/agent",
+            "description": "Quick add new service entry"
+        },
+        {
+            "name": "Corporate Visit",
+            "short_name": "Corporate",
+            "url": "/agent/corporate/new"
+        },
+        {
+            "name": "AMC Visits",
+            "short_name": "AMC",
+            "url": "/agent/amc"
+        }
+    ]
+}

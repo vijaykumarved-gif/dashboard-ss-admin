@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>New Corporate Visit — Searvator CRM</title>
     <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
     <style>
         .pc-card {
             background: var(--bg-elevated);
@@ -373,12 +373,12 @@
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
                         <div class="form-group">
                             <label class="form-label">📸 Before Photo</label>
-                            <input type="file" accept="image/*" onchange="compressPhoto(this, ${idx}, 'beforePhoto')">
+                            <input type="file" accept="image/*" capture="environment" onchange="compressPhoto(this, ${idx}, 'beforePhoto')">
                             <img class="photo-prev ${p.beforePhoto?'show':''}" id="${p.id}_before" src="${p.beforePhoto}">
                         </div>
                         <div class="form-group">
                             <label class="form-label">📸 After Photo</label>
-                            <input type="file" accept="image/*" onchange="compressPhoto(this, ${idx}, 'afterPhoto')">
+                            <input type="file" accept="image/*" capture="environment" onchange="compressPhoto(this, ${idx}, 'afterPhoto')">
                             <img class="photo-prev ${p.afterPhoto?'show':''}" id="${p.id}_after" src="${p.afterPhoto}">
                         </div>
                     </div>
@@ -501,5 +501,9 @@
     // Initial state
     recalc();
 </script>
+<% if (user.role === 'agent') { %>
+<%- include('partials/mobile-bottom-nav', { activeNav: 'corporate' }) %>
+<%- include('partials/pwa-banner') %>
+<% } %>
 </body>
 </html>

@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My AMC Visits — <%= agentName.toUpperCase() %></title>
     <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
     <style>
         .agent-shell { max-width: 900px; margin: 0 auto; padding: 24px 16px; animation: fadeInUp 0.5s var(--ease-out); }
         .top-bar { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; box-shadow: var(--shadow-sm); }
@@ -180,5 +180,7 @@
         <% }) %>
     <% } %>
 </div>
+<%- include('partials/mobile-bottom-nav', { activeNav: 'amc' }) %>
+<%- include('partials/pwa-banner') %>
 </body>
 </html>

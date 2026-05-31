@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><%= entry.entryNumber %> — Corporate Entry</title>
     <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
     <style>
         .pc-row {
             background: var(--bg-elevated);
@@ -352,5 +352,9 @@
         if (res.success) { showToast('Deleted', 'success'); setTimeout(() => location.href = '/corporate', 500); }
     }
 </script>
+<% if (user.role === 'agent') { %>
+<%- include('partials/mobile-bottom-nav', { activeNav: 'corporate' }) %>
+<%- include('partials/pwa-banner') %>
+<% } %>
 </body>
 </html>

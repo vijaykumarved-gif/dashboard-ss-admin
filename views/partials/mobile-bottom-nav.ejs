@@ -1,0 +1,23 @@
+<!-- Mobile bottom navigation -->
+<nav class="mobile-bottom-nav">
+    <a href="/agent" class="<%= typeof activeNav !== 'undefined' && activeNav === 'home' ? 'active' : '' %>">
+        <span class="nav-icon-bottom">🏠</span>
+        <span>Home</span>
+    </a>
+    <a href="/agent/amc" class="<%= typeof activeNav !== 'undefined' && activeNav === 'amc' ? 'active' : '' %>">
+        <span class="nav-icon-bottom">📅</span>
+        <span>AMC</span>
+    </a>
+    <a href="/agent/corporate/new" class="<%= typeof activeNav !== 'undefined' && activeNav === 'corporate' ? 'active' : '' %>">
+        <span class="nav-icon-bottom">🏢</span>
+        <span>Office</span>
+    </a>
+    <a href="/bookings" class="<%= typeof activeNav !== 'undefined' && activeNav === 'bookings' ? 'active' : '' %>">
+        <span class="nav-icon-bottom">📋</span>
+        <span>Bookings</span>
+    </a>
+    <a href="/logout" style="color: var(--danger);">
+        <span class="nav-icon-bottom">🚪</span>
+        <span>Logout</span>
+    </a>
+</nav>
