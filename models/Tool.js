@@ -68,4 +68,9 @@ toolSchema.virtual('totalInvestment').get(function() {
 toolSchema.set('toJSON', { virtuals: true });
 toolSchema.set('toObject', { virtuals: true });
 
+
+// Performance indexes
+toolSchema.index({ category: 1 });
+toolSchema.index({ status: 1 });
+
 module.exports = mongoose.model('Tool', toolSchema);

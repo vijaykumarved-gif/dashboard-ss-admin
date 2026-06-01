@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Mobile Access Required — Searvator</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+    <style>
+        .warn-shell {
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 40px 16px;
+            text-align: center;
+        }
+        .warn-card {
+            background: white;
+            padding: 36px;
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+        }
+        .step {
+            display: flex;
+            align-items: start;
+            gap: 14px;
+            padding: 14px;
+            background: var(--surface-2);
+            border-radius: 12px;
+            margin-bottom: 10px;
+            text-align: left;
+        }
+        .step-num {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--primary);
+            color: white;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+    </style>
+</head>
+<body>
+<div class="warn-shell">
+    <div class="warn-card">
+        <img src="/logo-icon.png" alt="Searvator" style="width: 100px; height: 100px; border-radius: 20px; padding: 8px; background: white; margin: 0 auto 16px; display: block; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
+        
+        <h1 style="font-size: 26px; font-weight: 800; margin-bottom: 8px;">📱 Mobile Access Required</h1>
+        <p style="color: var(--text-2); font-size: 14px; margin-bottom: 24px;">
+            Engineer panel is designed for mobile use only.<br>
+            Please log in from your phone using the Searvator app or browser.
+        </p>
+        
+        <div style="text-align: left; max-width: 480px; margin: 0 auto 24px;">
+            <div style="font-weight: 700; margin-bottom: 12px; font-size: 14px;">How to install on your phone:</div>
+            
+            <div class="step">
+                <div class="step-num">1</div>
+                <div>
+                    <div style="font-weight: 700; font-size: 14px;">Open Chrome / Safari on your phone</div>
+                    <div style="font-size: 12px; color: var(--text-3); margin-top: 2px;">Visit this same URL on your mobile device</div>
+                </div>
+            </div>
+            
+            <div class="step">
+                <div class="step-num">2</div>
+                <div>
+                    <div style="font-weight: 700; font-size: 14px;">Login with your credentials</div>
+                    <div style="font-size: 12px; color: var(--text-3); margin-top: 2px;">Same username & password you use here</div>
+                </div>
+            </div>
+            
+            <div class="step">
+                <div class="step-num">3</div>
+                <div>
+                    <div style="font-weight: 700; font-size: 14px;">Tap "Install App" banner</div>
+                    <div style="font-size: 12px; color: var(--text-3); margin-top: 2px;">Or use browser menu → "Add to Home Screen"</div>
+                </div>
+            </div>
+            
+            <div class="step">
+                <div class="step-num">4</div>
+                <div>
+                    <div style="font-weight: 700; font-size: 14px;">Launch Searvator from home screen</div>
+                    <div style="font-size: 12px; color: var(--text-3); margin-top: 2px;">Works like a native app with full-screen experience</div>
+                </div>
+            </div>
+        </div>
+        
+        <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+            <a href="/agent?desktop=1" class="btn btn-secondary">⚠️ Continue on Desktop (Not Recommended)</a>
+            <a href="/logout" class="btn btn-primary">Sign Out</a>
+        </div>
+        
+        <p style="margin-top: 20px; font-size: 12px; color: var(--text-3);">
+            Desktop access is limited and may cause issues with GPS, photo capture, and visit verification.<br>
+            For full features, always use mobile.
+        </p>
+    </div>
+</div>
+</body>
+</html>

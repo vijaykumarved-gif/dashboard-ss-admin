@@ -86,4 +86,11 @@ const entrySchema = new mongoose.Schema({
     lastModifiedBy: { type: String, default: '' }
 }, { timestamps: true });
 
+// Indexes for fast queries
+entrySchema.index({ agentName: 1, createdAt: -1 });
+entrySchema.index({ jobStatus: 1, createdAt: -1 });
+entrySchema.index({ mobileNumber: 1 });
+entrySchema.index({ createdAt: -1 });
+entrySchema.index({ followUpDate: 1, conversionStatus: 1 });
+
 module.exports = mongoose.model('Entry', entrySchema);

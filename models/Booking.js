@@ -45,4 +45,10 @@ const bookingSchema = new mongoose.Schema({
     notes: { type: String, default: '' }
 }, { timestamps: true });
 
+
+// Performance indexes
+bookingSchema.index({ scheduledDate: 1, status: 1 });
+bookingSchema.index({ assignedAgent: 1 });
+bookingSchema.index({ mobileNumber: 1 });
+
 module.exports = mongoose.model('Booking', bookingSchema);

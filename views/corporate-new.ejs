@@ -91,7 +91,10 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label">Mobile *</label>
-                        <input type="tel" id="mobileNumber">
+                        <div style="position: relative;">
+                            <input type="tel" id="mobileNumber" autocomplete="off" oninput="lookupCustomer(this.value)">
+                            <div id="custDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid var(--border);border-radius:8px;margin-top:2px;max-height:240px;overflow-y:auto;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Email</label>
@@ -229,6 +232,52 @@
     const AGENT = '<%= agentName %>';
     let gps = null;
     let pcs = [];
+    let lookupTimer = null;
+    
+    // === CUSTOMER AUTO-FILL ===
+    async function lookupCustomer(query) {
+        clearTimeout(lookupTimer);
+        const dropdown = document.getElementById('custDropdown');
+        const q = query.trim();
+        if (q.length < 3) { dropdown.style.display = 'none'; return; }
+        
+        lookupTimer = setTimeout(async () => {
+            try {
+                const res = await fetch('/api/customers/lookup?q=' + encodeURIComponent(q));
+                const data = await res.json();
+                
+                if (!data.suggestions || data.suggestions.length === 0) {
+                    dropdown.style.display = 'none'; return;
+                }
+                
+                dropdown.innerHTML = data.suggestions.map(c => `
+                    <div onclick='fillCustomer(${JSON.stringify(c).replace(/'/g, "&#39;")})' style="padding:10px 12px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:13px;">
+                        <div style="font-weight:700;">${c.name}${c.companyName ? ' · ' + c.companyName : ''}</div>
+                        <div style="font-size:11px;color:#64748b;">📞 ${c.mobile} · ${c.location || c.primaryAddress || 'No address'} · ${c.totalServices || 0} services</div>
+                    </div>
+                `).join('');
+                dropdown.style.display = 'block';
+            } catch (e) { console.error(e); }
+        }, 250);
+    }
+    
+    function fillCustomer(c) {
+        document.getElementById('customerName').value = c.name || '';
+        document.getElementById('mobileNumber').value = c.mobile || '';
+        if (c.companyName) document.getElementById('companyName').value = c.companyName;
+        if (c.email) document.getElementById('email').value = c.email;
+        if (c.primaryAddress || c.location) document.getElementById('location').value = c.primaryAddress || c.location;
+        if (c.gstNumber) document.getElementById('gstNumber').value = c.gstNumber;
+        document.getElementById('custDropdown').style.display = 'none';
+        showToast('Customer details auto-filled', 'success');
+    }
+    
+    // Hide dropdown on outside click
+    document.addEventListener('click', (e) => {
+        const dd = document.getElementById('custDropdown');
+        const inp = document.getElementById('mobileNumber');
+        if (dd && !dd.contains(e.target) && e.target !== inp) dd.style.display = 'none';
+    });
     
     async function captureGPS() {
         const btn = document.getElementById('gpsBtn');

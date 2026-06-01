@@ -141,4 +141,9 @@ const amcOfficeSchema = new mongoose.Schema({
     notes: { type: String, default: '' }
 }, { timestamps: true });
 
+
+// Performance indexes
+amcOfficeSchema.index({ contactMobile: 1 });
+amcOfficeSchema.index({ status: 1, createdAt: -1 });
+
 module.exports = mongoose.model('AMCOffice', amcOfficeSchema);

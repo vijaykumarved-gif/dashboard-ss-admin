@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title><%= emp.name %> — Employee</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+    <style>
+        .att-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 12px; }
+        .att-cell {
+            aspect-ratio: 1;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            cursor: pointer;
+            position: relative;
+            background: var(--bg-elevated);
+        }
+        .att-cell .day-num { font-weight: 700; font-size: 12px; }
+        .att-cell .status-icon { font-size: 10px; margin-top: 2px; }
+        .att-present { background: #dcfce7; border-color: #86efac; }
+        .att-absent { background: #fee2e2; border-color: #fca5a5; }
+        .att-halfday { background: #fef3c7; border-color: #fcd34d; }
+        .att-leave { background: #e0e7ff; border-color: #a5b4fc; }
+        .att-holiday { background: var(--surface-2); }
+        .att-future { opacity: 0.4; cursor: not-allowed; }
+        .att-day-header { text-align: center; font-size: 10px; font-weight: 700; color: var(--text-3); padding: 6px 0; }
+        .week-label { text-align: center; font-size: 10px; padding: 4px; color: var(--text-3); }
+        
+        .salary-card {
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            color: white;
+            padding: 16px;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+<body>
+<%
+    const monthKey = new Date().toISOString().slice(0, 7);
+    const currentSalary = (emp.salaryPayments || []).find(s => s.month === monthKey);
+    const activeAdvances = (emp.advances || []).filter(a => a.status === 'Paid' && a.pendingAmount > 0);
+    const totalAdvancePending = activeAdvances.reduce((s, a) => s + (a.pendingAmount || 0), 0);
+    
+    // Calendar setup
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth();
+    const monthStart = new Date(year, month, 1);
+    const monthEnd = new Date(year, month + 1, 0);
+    const firstDay = monthStart.getDay();
+    const daysInMonth = monthEnd.getDate();
+    
+    function attStatus(day) {
+        const d = new Date(year, month, day);
+        d.setHours(0, 0, 0, 0);
+        const a = (emp.attendance || []).find(x => {
+            const ad = new Date(x.date); ad.setHours(0, 0, 0, 0);
+            return ad.getTime() === d.getTime();
+        });
+        return a ? a.status : '';
+    }
+%>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'hr' }) %>
+    
+    <main class="main-content">
+        <div style="margin-bottom: 12px;">
+            <a href="/hr" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back to HR</a>
+        </div>
+        
+        <div class="page-header">
+            <div>
+                <h1 class="page-title"><%= emp.name %></h1>
+                <p class="page-subtitle">
+                    <%= emp.employeeCode %> · <%= emp.role %> · 📞 <%= emp.mobile %>
+                </p>
+            </div>
+            <span class="badge <%= emp.status === 'Active' ? 'success' : 'neutral' %>"><%= emp.status %></span>
+        </div>
+        
+        <!-- KPI Cards -->
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Base Salary</div>
+                <div class="stat-value"><%= formatINR(emp.baseSalary) %></div>
+                <div class="stat-meta"><%= emp.incentivePercent %>% incentive</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Revenue Generated</div>
+                <div class="stat-value" style="color: var(--success)"><%= formatINR(performance.monthRevenue) %></div>
+                <div class="stat-meta">This month</div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Visits Done</div>
+                <div class="stat-value" style="color: var(--purple)"><%= performance.monthVisits %></div>
+                <div class="stat-meta">Service entries</div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Pending Advances</div>
+                <div class="stat-value" style="color: var(--danger)"><%= formatINR(totalAdvancePending) %></div>
+                <div class="stat-meta"><%= activeAdvances.length %> active</div>
+            </div>
+        </div>
+        
+        <!-- Profit calculation card -->
+        <div class="card" style="background: linear-gradient(135deg, #fef3c7, #fde68a); border: 1px solid #fcd34d;">
+            <div class="card-body">
+                <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #92400e; margin-bottom: 8px;">📊 NET BUSINESS IMPACT</div>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; text-align: center;">
+                    <div>
+                        <div class="text-muted" style="font-size: 11px;">Revenue</div>
+                        <div class="font-mono font-bold" style="color: var(--success);"><%= formatINR(performance.monthRevenue) %></div>
+                    </div>
+                    <div>
+                        <div class="text-muted" style="font-size: 11px;">Salary (est.)</div>
+                        <div class="font-mono font-bold" style="color: var(--danger);">- <%= formatINR(emp.baseSalary) %></div>
+                    </div>
+                    <div>
+                        <div class="text-muted" style="font-size: 11px;">Expenses</div>
+                        <div class="font-mono font-bold" style="color: var(--danger);">- <%= formatINR(performance.monthExpense) %></div>
+                    </div>
+                    <div>
+                        <% const netProfit = performance.monthRevenue - emp.baseSalary - performance.monthExpense; %>
+                        <div class="text-muted" style="font-size: 11px;">Net to Company</div>
+                        <div class="font-mono font-bold" style="font-size: 16px; color: <%= netProfit >= 0 ? 'var(--success)' : 'var(--danger)' %>"><%= formatINR(netProfit) %></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="tabs">
+            <button class="tab active" data-tab-group="hr" data-tab="att" onclick="switchTab('hr','att')">📅 Attendance</button>
+            <button class="tab" data-tab-group="hr" data-tab="salary" onclick="switchTab('hr','salary')">💰 Salary (<%= emp.salaryPayments.length %>)</button>
+            <button class="tab" data-tab-group="hr" data-tab="adv" onclick="switchTab('hr','adv')">💸 Advances (<%= emp.advances.length %>)</button>
+            <button class="tab" data-tab-group="hr" data-tab="leaves" onclick="switchTab('hr','leaves')">🏖️ Leaves (<%= emp.leaves.length %>)</button>
+        </div>
+        
+        <!-- ATTENDANCE TAB -->
+        <div class="tab-content active" data-tab-content="hr" data-content="att">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">📅 <%= today.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) %></div>
+                    <div style="display: flex; gap: 8px; font-size: 11px;">
+                        <span><span style="display:inline-block;width:12px;height:12px;background:#dcfce7;border-radius:3px;"></span> Present</span>
+                        <span><span style="display:inline-block;width:12px;height:12px;background:#fee2e2;border-radius:3px;"></span> Absent</span>
+                        <span><span style="display:inline-block;width:12px;height:12px;background:#fef3c7;border-radius:3px;"></span> Half</span>
+                        <span><span style="display:inline-block;width:12px;height:12px;background:#e0e7ff;border-radius:3px;"></span> Leave</span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="att-grid">
+                        <div class="att-day-header">Sun</div><div class="att-day-header">Mon</div><div class="att-day-header">Tue</div><div class="att-day-header">Wed</div><div class="att-day-header">Thu</div><div class="att-day-header">Fri</div><div class="att-day-header">Sat</div>
+                        
+                        <% for (let i = 0; i < firstDay; i++) { %>
+                            <div class="att-cell" style="visibility: hidden;"></div>
+                        <% } %>
+                        
+                        <% for (let d = 1; d <= daysInMonth; d++) {
+                            const status = attStatus(d);
+                            const cellClass = status === 'Present' ? 'att-present' : status === 'Absent' ? 'att-absent' : status === 'Half Day' ? 'att-halfday' : status === 'Leave' ? 'att-leave' : status === 'Holiday' ? 'att-holiday' : '';
+                            const icon = status === 'Present' ? '✓' : status === 'Absent' ? '✗' : status === 'Half Day' ? '½' : status === 'Leave' ? 'L' : status === 'Holiday' ? 'H' : '';
+                            const dCheck = new Date(year, month, d);
+                            const isFuture = dCheck > today;
+                        %>
+                            <div class="att-cell <%= cellClass %> <%= isFuture ? 'att-future' : '' %>" onclick="<%= isFuture ? '' : `markAtt(${d})` %>">
+                                <div class="day-num"><%= d %></div>
+                                <div class="status-icon"><%= icon %></div>
+                            </div>
+                        <% } %>
+                    </div>
+                    
+                    <div style="margin-top: 16px; padding: 12px; background: var(--surface-2); border-radius: 8px; font-size: 13px;">
+                        💡 <strong>Tip:</strong> Click any past date to mark attendance.
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- SALARY TAB -->
+        <div class="tab-content" data-tab-content="hr" data-content="salary">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">💰 Salary Payments</div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('salaryModal')">+ Generate Salary</button>
+                </div>
+                <div class="card-body">
+                    <% if (emp.salaryPayments.length === 0) { %>
+                        <div class="empty-state">
+                            <div class="empty-icon">💰</div>
+                            <div class="empty-title">No salary generated yet</div>
+                            <div>Click + Generate Salary for current month</div>
+                        </div>
+                    <% } else { emp.salaryPayments.slice().reverse().forEach(s => {
+                        const sc = s.status === 'Paid' ? 'success' : 'warning';
+                    %>
+                        <div style="background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between; align-items: start;">
+                                <div>
+                                    <div class="font-bold" style="font-size: 15px;"><%= s.monthName %></div>
+                                    <div class="text-muted" style="font-size: 11px; margin-top: 2px;">
+                                        Days: <%= s.daysWorked %> · Visits: <%= s.visitsCompleted %> · Revenue: <%= formatINR(s.revenueGenerated) %>
+                                    </div>
+                                </div>
+                                <span class="badge <%= sc %>"><%= s.status %></span>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; font-size: 12px;">
+                                <div>
+                                    <div class="text-muted" style="font-size: 10px;">Base</div>
+                                    <div class="font-mono"><%= formatINR(s.baseSalary) %></div>
+                                </div>
+                                <div>
+                                    <div class="text-muted" style="font-size: 10px;">Incentive</div>
+                                    <div class="font-mono"><%= formatINR(s.incentive) %></div>
+                                </div>
+                                <div>
+                                    <div class="text-muted" style="font-size: 10px;">Adv Deducted</div>
+                                    <div class="font-mono text-danger">- <%= formatINR(s.advanceDeducted) %></div>
+                                </div>
+                                <div>
+                                    <div class="text-muted" style="font-size: 10px;">Net Pay</div>
+                                    <div class="font-mono font-bold" style="color: var(--success);"><%= formatINR(s.netPay) %></div>
+                                </div>
+                            </div>
+                            <div style="margin-top: 10px;">
+                                <div class="text-muted" style="font-size: 11px;">Profit to company: <strong style="color: <%= s.profitToCompany >= 0 ? 'var(--success)' : 'var(--danger)' %>"><%= formatINR(s.profitToCompany) %></strong></div>
+                                <% if (s.status === 'Pending') { %>
+                                    <button class="btn btn-xs btn-success" style="margin-top: 6px;" onclick='paySalary("<%= s._id %>")'>Mark as Paid</button>
+                                <% } else { %>
+                                    <div class="text-muted" style="font-size: 11px; margin-top: 4px;">Paid: <%= formatDate(s.paymentDate) %> via <%= s.paymentMode %></div>
+                                <% } %>
+                            </div>
+                        </div>
+                    <% }) } %>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ADVANCES TAB -->
+        <div class="tab-content" data-tab-content="hr" data-content="adv">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">💸 Advance / Loan</div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('advModal')">+ Add Advance</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Date</th><th>Amount</th><th>Pending</th><th>Adjusted</th><th>Status</th><th>Purpose</th></tr></thead>
+                        <tbody>
+                            <% if (emp.advances.length === 0) { %>
+                                <tr><td colspan="6" class="text-center" style="padding: 30px; color: var(--text-3);">No advances</td></tr>
+                            <% } else { emp.advances.slice().reverse().forEach(a => {
+                                const sc = a.status === 'Paid' ? 'warning' : a.status === 'Adjusted' ? 'success' : 'neutral';
+                            %>
+                                <tr>
+                                    <td class="text-muted"><%= formatDate(a.requestDate) %></td>
+                                    <td class="font-mono font-bold"><%= formatINR(a.amount) %></td>
+                                    <td class="font-mono text-danger"><%= formatINR(a.pendingAmount || a.amount) %></td>
+                                    <td class="font-mono text-success"><%= formatINR(a.adjustedAmount || 0) %></td>
+                                    <td><span class="badge <%= sc %>"><%= a.status %></span></td>
+                                    <td class="text-muted"><%= a.purpose || '-' %></td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- LEAVES TAB -->
+        <div class="tab-content" data-tab-content="hr" data-content="leaves">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">🏖️ Leave Records</div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('leaveModal')">+ Apply Leave</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th><th></th></tr></thead>
+                        <tbody>
+                            <% if (emp.leaves.length === 0) { %>
+                                <tr><td colspan="7" class="text-center" style="padding: 30px; color: var(--text-3);">No leaves</td></tr>
+                            <% } else { emp.leaves.slice().reverse().forEach(l => {
+                                const sc = l.status === 'Approved' ? 'success' : l.status === 'Rejected' ? 'danger' : 'warning';
+                            %>
+                                <tr>
+                                    <td><span class="badge info"><%= l.leaveType %></span></td>
+                                    <td class="text-muted"><%= formatDate(l.fromDate) %></td>
+                                    <td class="text-muted"><%= formatDate(l.toDate) %></td>
+                                    <td class="font-bold"><%= l.days %></td>
+                                    <td class="text-muted" style="font-size: 11px;"><%= l.reason %></td>
+                                    <td><span class="badge <%= sc %>"><%= l.status %></span></td>
+                                    <td>
+                                        <% if (l.status === 'Pending') { %>
+                                            <button class="btn btn-xs btn-success" onclick='leaveAction("<%= l._id %>", "Approved")'>✓</button>
+                                            <button class="btn btn-xs btn-danger" onclick='leaveAction("<%= l._id %>", "Rejected")'>✗</button>
+                                        <% } %>
+                                    </td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- ATTENDANCE MODAL -->
+<div class="modal-overlay" id="attModal">
+    <div class="modal" style="max-width: 450px;">
+        <div class="modal-header">
+            <div class="modal-title">Mark Attendance</div>
+            <button class="modal-close" onclick="closeModal('attModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="att_date">
+            <div class="form-group">
+                <label class="form-label">Date</label>
+                <input type="text" id="att_date_display" readonly>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Status *</label>
+                <select id="att_status">
+                    <option>Present</option><option>Absent</option><option>Half Day</option>
+                    <option>Leave</option><option>Holiday</option>
+                </select>
+            </div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Check In</label>
+                    <input type="time" id="att_in">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Check Out</label>
+                    <input type="time" id="att_out">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Notes</label>
+                <input type="text" id="att_notes">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('attModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveAtt()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- SALARY MODAL -->
+<div class="modal-overlay" id="salaryModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Generate Monthly Salary</div>
+            <button class="modal-close" onclick="closeModal('salaryModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">Month *</label>
+                <input type="month" id="sal_month" value="<%= monthKey %>">
+            </div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Bonus (₹)</label>
+                    <input type="number" id="sal_bonus" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Overtime (₹)</label>
+                    <input type="number" id="sal_ot" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Other Deduction (₹)</label>
+                    <input type="number" id="sal_ded" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Deduction Reason</label>
+                    <input type="text" id="sal_dedreason">
+                </div>
+            </div>
+            <div style="background: var(--info-light); padding: 10px; border-radius: 8px; font-size: 12px; margin-top: 10px;">
+                💡 System auto-calculates base salary based on attendance, incentive on revenue, and deducts pending advances (max 30% of pay).
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('salaryModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="generateSalary()">Generate</button>
+        </div>
+    </div>
+</div>
+
+<!-- ADVANCE MODAL -->
+<div class="modal-overlay" id="advModal">
+    <div class="modal" style="max-width: 450px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Advance</div>
+            <button class="modal-close" onclick="closeModal('advModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">Amount (₹) *</label>
+                <input type="number" id="a_amt">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Purpose</label>
+                <input type="text" id="a_purpose">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Status</label>
+                <select id="a_status">
+                    <option>Paid</option><option>Pending</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Payment Mode</label>
+                <select id="a_mode">
+                    <option>Cash</option><option>UPI</option><option>Bank Transfer</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('advModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveAdv()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- LEAVE MODAL -->
+<div class="modal-overlay" id="leaveModal">
+    <div class="modal" style="max-width: 450px;">
+        <div class="modal-header">
+            <div class="modal-title">Apply Leave</div>
+            <button class="modal-close" onclick="closeModal('leaveModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">From Date *</label>
+                    <input type="date" id="l_from">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">To Date *</label>
+                    <input type="date" id="l_to">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Type</label>
+                <select id="l_type">
+                    <option>Casual</option><option>Sick</option><option>Paid</option><option>Unpaid</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Reason</label>
+                <textarea id="l_reason" rows="2"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('leaveModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveLeave()">Apply</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+const EMP_ID = '<%= emp._id %>';
+const YEAR = <%= year %>;
+const MONTH = <%= month %>;
+
+function markAtt(day) {
+    const d = new Date(YEAR, MONTH, day);
+    document.getElementById('att_date').value = d.toISOString().split('T')[0];
+    document.getElementById('att_date_display').value = d.toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+    openModal('attModal');
+}
+
+async function saveAtt() {
+    const data = {
+        date: document.getElementById('att_date').value,
+        status: document.getElementById('att_status').value,
+        checkIn: document.getElementById('att_in').value,
+        checkOut: document.getElementById('att_out').value,
+        notes: document.getElementById('att_notes').value
+    };
+    const res = await api(`/api/hr/employees/${EMP_ID}/attendance`, { method: 'POST', body: JSON.stringify(data) });
+    if (res.success) { showToast('Saved', 'success'); setTimeout(() => location.reload(), 500); }
+}
+
+async function generateSalary() {
+    const data = {
+        month: document.getElementById('sal_month').value,
+        bonus: Number(document.getElementById('sal_bonus').value),
+        overtimePay: Number(document.getElementById('sal_ot').value),
+        otherDeductions: Number(document.getElementById('sal_ded').value),
+        deductionReason: document.getElementById('sal_dedreason').value
+    };
+    const res = await api(`/api/hr/employees/${EMP_ID}/salary`, { method: 'POST', body: JSON.stringify(data) });
+    if (res.success) { showToast('Salary generated', 'success'); setTimeout(() => location.reload(), 500); }
+}
+
+async function paySalary(sId) {
+    const mode = prompt('Payment mode (Bank Transfer / UPI / Cash):', 'Bank Transfer');
+    if (!mode) return;
+    const ref = prompt('Reference (optional):', '');
+    const res = await api(`/api/hr/employees/${EMP_ID}/pay-salary/${sId}`, { method: 'POST', body: JSON.stringify({ paymentMode: mode, paymentRef: ref }) });
+    if (res.success) { showToast('Paid ✓', 'success'); setTimeout(() => location.reload(), 500); }
+}
+
+async function saveAdv() {
+    const data = {
+        amount: Number(document.getElementById('a_amt').value),
+        purpose: document.getElementById('a_purpose').value,
+        status: document.getElementById('a_status').value,
+        paymentMode: document.getElementById('a_mode').value,
+        paidDate: new Date()
+    };
+    if (!data.amount) return showToast('Amount required', 'error');
+    const res = await api(`/api/hr/employees/${EMP_ID}/advances`, { method: 'POST', body: JSON.stringify(data) });
+    if (res.success) { showToast('Saved', 'success'); setTimeout(() => location.reload(), 500); }
+}
+
+async function saveLeave() {
+    const data = {
+        fromDate: document.getElementById('l_from').value,
+        toDate: document.getElementById('l_to').value,
+        leaveType: document.getElementById('l_type').value,
+        reason: document.getElementById('l_reason').value
+    };
+    if (!data.fromDate || !data.toDate) return showToast('Dates required', 'error');
+    const res = await api(`/api/hr/employees/${EMP_ID}/leaves`, { method: 'POST', body: JSON.stringify(data) });
+    if (res.success) { showToast('Applied', 'success'); setTimeout(() => location.reload(), 500); }
+}
+
+async function leaveAction(lId, status) {
+    const res = await api(`/api/hr/employees/${EMP_ID}/leaves/${lId}`, { method: 'PUT', body: JSON.stringify({ status }) });
+    if (res.success) { showToast(status, 'success'); setTimeout(() => location.reload(), 500); }
+}
+</script>
+</body>
+</html>

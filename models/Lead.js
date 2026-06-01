@@ -73,4 +73,10 @@ const leadSchema = new mongoose.Schema({
     notes: { type: String, default: '' }
 }, { timestamps: true });
 
+
+// Performance indexes
+leadSchema.index({ status: 1, createdAt: -1 });
+leadSchema.index({ mobile: 1 });
+leadSchema.index({ assignedTo: 1 });
+
 module.exports = mongoose.model('Lead', leadSchema);

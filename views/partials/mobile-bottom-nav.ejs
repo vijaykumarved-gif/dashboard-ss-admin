@@ -12,12 +12,28 @@
         <span class="nav-icon-bottom">🏢</span>
         <span>Office</span>
     </a>
-    <a href="/bookings" class="<%= typeof activeNav !== 'undefined' && activeNav === 'bookings' ? 'active' : '' %>">
-        <span class="nav-icon-bottom">📋</span>
-        <span>Bookings</span>
+    <a href="/chat" class="<%= typeof activeNav !== 'undefined' && activeNav === 'chat' ? 'active' : '' %>" style="position: relative;">
+        <span class="nav-icon-bottom">💬</span>
+        <span>Chat</span>
+        <span id="chatBottomBadge" style="display:none; position: absolute; top: 2px; right: 18%; background: var(--danger); color: white; font-size: 9px; padding: 1px 5px; border-radius: 10px; font-weight: 700;"></span>
     </a>
     <a href="/logout" style="color: var(--danger);">
         <span class="nav-icon-bottom">🚪</span>
         <span>Logout</span>
     </a>
 </nav>
+<script>
+async function refreshBottomBadge() {
+    try {
+        const res = await fetch('/api/chat/unread-count');
+        const data = await res.json();
+        const b = document.getElementById('chatBottomBadge');
+        if (b) {
+            if (data.count > 0) { b.textContent = data.count; b.style.display = 'inline-block'; }
+            else b.style.display = 'none';
+        }
+    } catch (e) {}
+}
+refreshBottomBadge();
+setInterval(refreshBottomBadge, 10000);
+</script>

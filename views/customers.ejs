@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Customer Master — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'customers' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">Customer Master</h1>
+                <p class="page-subtitle">Auto-fills when typing mobile in entry forms</p>
+            </div>
+            <button class="btn btn-secondary" onclick="syncAll()">🔄 Re-sync from all modules</button>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title"><%= customers.length %> Customers</div>
+                <input type="text" id="searchBox" placeholder="🔍 Search name, mobile, company..." style="width: 280px;" oninput="filterRows()">
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Name</th><th>Mobile</th><th>Company</th><th>Type</th><th>Services</th><th>Revenue</th><th>Source</th></tr>
+                    </thead>
+                    <tbody id="custBody">
+                        <% if (customers.length === 0) { %>
+                            <tr><td colspan="7" class="text-center" style="padding: 60px; color: var(--text-3);">
+                                <div style="font-size: 32px;">👥</div>
+                                <p>No customers yet. Click <strong>Re-sync</strong> to import from existing data.</p>
+                            </td></tr>
+                        <% } else { customers.forEach(c => { %>
+                            <tr class="cust-row" data-search="<%= (c.name + ' ' + c.mobile + ' ' + (c.companyName||'')).toLowerCase() %>">
+                                <td class="font-bold"><%= c.name %></td>
+                                <td class="font-mono"><%= c.mobile %></td>
+                                <td class="text-muted"><%= c.companyName || '-' %></td>
+                                <td><span class="badge <%= c.type === 'Corporate' ? 'purple' : 'info' %>"><%= c.type %></span></td>
+                                <td class="font-mono"><%= c.totalServices || 0 %></td>
+                                <td class="font-mono"><%= formatINR(c.totalRevenue || 0) %></td>
+                                <td><span class="badge neutral"><%= c.sourceModule || '-' %></span></td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+async function syncAll() {
+    if (!confirm('Re-sync customers from all entries, leads, AMC offices?')) return;
+    showToast('Syncing...', 'info');
+    const res = await api('/api/customers/sync-all', { method: 'POST' });
+    if (res.success) { showToast(`Synced ${res.synced} records`, 'success'); setTimeout(() => location.reload(), 800); }
+}
+
+function filterRows() {
+    const q = document.getElementById('searchBox').value.toLowerCase();
+    document.querySelectorAll('.cust-row').forEach(r => {
+        r.style.display = r.dataset.search.includes(q) ? '' : 'none';
+    });
+}
+</script>
+</body>
+</html>

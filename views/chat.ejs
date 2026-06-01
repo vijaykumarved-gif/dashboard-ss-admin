@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Chat — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+    <style>
+        .chat-layout {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            height: calc(100vh - 100px);
+            background: white;
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            box-shadow: var(--shadow-md);
+        }
+        
+        @media (max-width: 768px) {
+            .chat-layout {
+                grid-template-columns: 1fr;
+                height: calc(100vh - 80px);
+            }
+            .chat-sidebar.hidden-mobile { display: none; }
+            .chat-main.hidden-mobile { display: none; }
+        }
+        
+        /* === SIDEBAR (partners list) === */
+        .chat-sidebar {
+            background: var(--bg-elevated);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .chat-sidebar-header {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+            background: white;
+            font-weight: 800;
+            font-size: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .partner-item {
+            display: flex;
+            gap: 10px;
+            padding: 12px 14px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border);
+            text-decoration: none;
+            color: var(--text);
+            transition: all 0.15s;
+        }
+        
+        .partner-item:hover { background: var(--surface-2); }
+        .partner-item.active { background: var(--info-light); border-left: 3px solid var(--primary); }
+        
+        .partner-avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3b82f6, #1e40af);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+        
+        .partner-avatar.admin {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+        }
+        
+        .partner-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .partner-name {
+            font-weight: 700;
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .partner-last {
+            font-size: 12px;
+            color: var(--text-3);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 2px;
+        }
+        
+        .unread-badge {
+            background: var(--success);
+            color: white;
+            min-width: 20px;
+            height: 20px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 6px;
+            margin-left: 8px;
+        }
+        
+        /* === CHAT MAIN === */
+        .chat-main {
+            display: flex;
+            flex-direction: column;
+            background: #efeae2;
+            background-image: 
+                radial-gradient(circle at 20% 30%, rgba(255,255,255,0.4) 0%, transparent 30%),
+                radial-gradient(circle at 80% 70%, rgba(255,255,255,0.3) 0%, transparent 30%);
+        }
+        
+        .chat-header {
+            padding: 12px 16px;
+            background: white;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+        
+        .chat-back-btn {
+            display: none;
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px;
+        }
+        
+        @media (max-width: 768px) {
+            .chat-back-btn { display: inline-block; }
+        }
+        
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .message {
+            max-width: 75%;
+            padding: 8px 12px;
+            border-radius: 12px;
+            font-size: 14px;
+            box-shadow: 0 1px 1px rgba(0,0,0,0.06);
+            position: relative;
+            word-wrap: break-word;
+        }
+        
+        .message.sent {
+            align-self: flex-end;
+            background: #d9fdd3;
+            border-bottom-right-radius: 4px;
+        }
+        
+        .message.received {
+            align-self: flex-start;
+            background: white;
+            border-bottom-left-radius: 4px;
+        }
+        
+        .message-time {
+            font-size: 10px;
+            color: var(--text-3);
+            margin-top: 4px;
+            text-align: right;
+            display: flex;
+            justify-content: flex-end;
+            gap: 4px;
+            align-items: center;
+        }
+        
+        .message-check { font-size: 12px; color: #53bdeb; }
+        
+        .message-attachment {
+            margin-bottom: 6px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .message-attachment img {
+            max-width: 250px;
+            max-height: 250px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: block;
+        }
+        
+        .file-attachment {
+            display: flex;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(0,0,0,0.04);
+            border-radius: 8px;
+            align-items: center;
+            cursor: pointer;
+        }
+        
+        .file-attachment .file-icon {
+            font-size: 32px;
+        }
+        
+        .file-attachment .file-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .file-name {
+            font-weight: 600;
+            font-size: 12px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .file-size {
+            font-size: 10px;
+            color: var(--text-3);
+            margin-top: 2px;
+        }
+        
+        .date-divider {
+            align-self: center;
+            background: rgba(255,255,255,0.9);
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            color: var(--text-3);
+            margin: 12px 0;
+            font-weight: 600;
+        }
+        
+        .system-message {
+            align-self: center;
+            background: #fef3c7;
+            color: #92400e;
+            padding: 6px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin: 8px 0;
+        }
+        
+        /* === INPUT === */
+        .chat-input-area {
+            padding: 10px 14px;
+            background: white;
+            border-top: 1px solid var(--border);
+        }
+        
+        .attachment-preview {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .preview-item {
+            position: relative;
+            width: 60px;
+            height: 60px;
+            border-radius: 6px;
+            overflow: hidden;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+        }
+        
+        .preview-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .preview-item .file-tag {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            padding: 4px;
+            text-align: center;
+        }
+        
+        .preview-item .remove {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: var(--danger);
+            color: white;
+            border: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            font-size: 11px;
+            cursor: pointer;
+            line-height: 1;
+        }
+        
+        .chat-input-row {
+            display: flex;
+            gap: 8px;
+            align-items: end;
+        }
+        
+        .attach-btn {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+        
+        .attach-btn:hover { background: var(--info-light); }
+        
+        #chatInput {
+            flex: 1;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 10px 14px;
+            font-size: 14px;
+            resize: none;
+            max-height: 100px;
+            min-height: 40px;
+        }
+        
+        .send-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+        
+        .send-btn:hover { background: var(--primary-dark, #1e40af); }
+        .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .empty-chat {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-3);
+        }
+        
+        /* Image full-screen modal */
+        .image-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .image-modal.show { display: flex; }
+        .image-modal img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+        .image-modal .close-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            font-size: 20px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+<div class="app-layout">
+    <% if (myRole === 'admin') { %>
+        <%- include('partials/sidebar', { user: user, activePage: 'chat' }) %>
+    <% } %>
+    
+    <main class="main-content" <%= myRole === 'agent' ? 'style="margin-left:0;padding:0;"' : '' %>>
+        <% if (myRole === 'admin') { %>
+            <div class="page-header" style="margin-bottom: 12px;">
+                <div>
+                    <h1 class="page-title">💬 Chat</h1>
+                    <p class="page-subtitle">Communicate with field engineers · Share photos, PDFs & files</p>
+                </div>
+            </div>
+        <% } %>
+        
+        <div class="chat-layout">
+            <!-- PARTNERS SIDEBAR -->
+            <div class="chat-sidebar <%= activePartner && myRole === 'agent' ? 'hidden-mobile' : '' %>">
+                <div class="chat-sidebar-header">
+                    💬 Conversations
+                    <% if (myRole === 'agent') { %>
+                        <a href="/agent" style="font-size: 12px; color: var(--text-3); text-decoration: none;">← Back</a>
+                    <% } %>
+                </div>
+                
+                <% if (partners.length === 0) { %>
+                    <div style="padding: 30px; text-align: center; color: var(--text-3);">
+                        <div style="font-size: 32px;">💬</div>
+                        <p style="font-size: 13px; margin-top: 8px;">No conversations yet</p>
+                    </div>
+                <% } else { partners.forEach(p => { %>
+                    <a href="/chat?with=<%= p.username %>" class="partner-item <%= activePartner === p.username ? 'active' : '' %>">
+                        <div class="partner-avatar <%= p.role === 'admin' ? 'admin' : '' %>">
+                            <%= p.username[0].toUpperCase() %>
+                        </div>
+                        <div class="partner-info">
+                            <div class="partner-name">
+                                <span><%= p.username.toUpperCase() %></span>
+                                <% if (p.lastTime) { %>
+                                    <span style="font-size: 10px; color: var(--text-3); font-weight: 400;">
+                                        <%= new Date(p.lastTime).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit' }) %>
+                                    </span>
+                                <% } %>
+                            </div>
+                            <div class="partner-last">
+                                <%= p.lastMessage || 'Start chatting...' %>
+                                <% if (p.unread > 0) { %><span class="unread-badge"><%= p.unread %></span><% } %>
+                            </div>
+                        </div>
+                    </a>
+                <% }) } %>
+            </div>
+            
+            <!-- CHAT MAIN -->
+            <div class="chat-main <%= !activePartner && myRole === 'agent' ? 'hidden-mobile' : '' %>" id="chatMain">
+                <% if (activePartner) { %>
+                    <div class="chat-header">
+                        <button class="chat-back-btn" onclick="location.href='/chat'">←</button>
+                        <div class="partner-avatar <%= activePartner === 'admin' ? 'admin' : '' %>" style="width: 36px; height: 36px; font-size: 14px;">
+                            <%= activePartner[0].toUpperCase() %>
+                        </div>
+                        <div style="flex: 1;">
+                            <div style="font-weight: 700;"><%= activePartner.toUpperCase() %></div>
+                            <div style="font-size: 11px; color: var(--success);">● online</div>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-messages" id="chatMessages">
+                        <% 
+                        let lastDate = '';
+                        messages.forEach(m => {
+                            const msgDate = new Date(m.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                            const showDateDivider = msgDate !== lastDate;
+                            lastDate = msgDate;
+                            const isSent = m.sender === user.username;
+                            const isToday = msgDate === new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                        %>
+                            <% if (showDateDivider) { %>
+                                <div class="date-divider"><%= isToday ? 'Today' : msgDate %></div>
+                            <% } %>
+                            
+                            <% if (m.isSystem) { %>
+                                <div class="system-message"><%= m.text %></div>
+                            <% } else { %>
+                                <div class="message <%= isSent ? 'sent' : 'received' %>" data-id="<%= m._id %>">
+                                    <% (m.attachments || []).forEach(a => { %>
+                                        <div class="message-attachment">
+                                            <% if (a.type === 'image') { %>
+                                                <img src="<%= a.data %>" onclick="openImageModal('<%= a.data %>')">
+                                            <% } else { %>
+                                                <a href="<%= a.data %>" download="<%= a.fileName %>" class="file-attachment">
+                                                    <div class="file-icon"><%= a.type === 'pdf' ? '📄' : '📎' %></div>
+                                                    <div class="file-info">
+                                                        <div class="file-name"><%= a.fileName %></div>
+                                                        <div class="file-size"><%= (a.fileSize / 1024).toFixed(1) %> KB</div>
+                                                    </div>
+                                                </a>
+                                            <% } %>
+                                        </div>
+                                    <% }) %>
+                                    
+                                    <% if (m.text) { %>
+                                        <div style="white-space: pre-wrap;"><%= m.text %></div>
+                                    <% } %>
+                                    
+                                    <div class="message-time">
+                                        <span><%= new Date(m.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) %></span>
+                                        <% if (isSent) { %>
+                                            <span class="message-check"><%= m.read ? '✓✓' : '✓' %></span>
+                                        <% } %>
+                                    </div>
+                                </div>
+                            <% } %>
+                        <% }) %>
+                    </div>
+                    
+                    <div class="chat-input-area">
+                        <div class="attachment-preview" id="attPreview"></div>
+                        <div class="chat-input-row">
+                            <button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="Attach file">📎</button>
+                            <input type="file" id="fileInput" multiple accept="image/*,application/pdf" style="display: none;" onchange="handleFiles(this.files)">
+                            <textarea id="chatInput" placeholder="Type a message..." rows="1" oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
+                            <button class="send-btn" id="sendBtn" onclick="sendMessage()">➤</button>
+                        </div>
+                    </div>
+                <% } else { %>
+                    <div class="empty-chat">
+                        <div style="font-size: 48px; margin-bottom: 12px;">💬</div>
+                        <div style="font-weight: 700; font-size: 16px;">Select a conversation to start chatting</div>
+                        <div style="font-size: 12px; margin-top: 8px;">Share photos, PDFs, and files instantly</div>
+                    </div>
+                <% } %>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- IMAGE MODAL -->
+<div class="image-modal" id="imageModal" onclick="closeImageModal()">
+    <button class="close-btn" onclick="closeImageModal()">×</button>
+    <img id="modalImg">
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+const ME = '<%= user.username %>';
+const PARTNER = '<%= activePartner %>';
+let attachments = [];
+let lastMessageTime = null;
+let pollTimer = null;
+
+// Scroll messages to bottom
+function scrollToBottom() {
+    const msgs = document.getElementById('chatMessages');
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
+}
+window.addEventListener('DOMContentLoaded', () => {
+    scrollToBottom();
+    // Get last message time for polling
+    const lastMsg = document.querySelectorAll('.message');
+    if (lastMsg.length > 0) {
+        lastMessageTime = new Date().toISOString();
+    } else {
+        lastMessageTime = new Date(Date.now() - 60000).toISOString();
+    }
+    if (PARTNER) startPolling();
+});
+
+// Image modal
+function openImageModal(src) {
+    document.getElementById('modalImg').src = src;
+    document.getElementById('imageModal').classList.add('show');
+}
+function closeImageModal() {
+    document.getElementById('imageModal').classList.remove('show');
+}
+
+// Auto-resize textarea
+function autoResize(el) {
+    el.style.height = '40px';
+    el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+}
+
+// Send on Enter (Shift+Enter for new line)
+function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+}
+
+// Handle file uploads
+async function handleFiles(files) {
+    for (const file of files) {
+        if (file.size > 5 * 1024 * 1024) {
+            showToast(file.name + ' too large (max 5MB)', 'error');
+            continue;
+        }
+        
+        const isImage = file.type.startsWith('image/');
+        const isPdf = file.type === 'application/pdf';
+        
+        if (isImage) {
+            // Compress image
+            await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const img = new Image();
+                    img.src = ev.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const MAX = 1200;
+                        let w = img.width, h = img.height;
+                        if (w > MAX) { h = h * (MAX / w); w = MAX; }
+                        canvas.width = w;
+                        canvas.height = h;
+                        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                        attachments.push({
+                            type: 'image',
+                            fileName: file.name,
+                            fileSize: dataUrl.length * 0.75,
+                            mimeType: 'image/jpeg',
+                            data: dataUrl
+                        });
+                        resolve();
+                    };
+                };
+                reader.readAsDataURL(file);
+            });
+        } else {
+            // PDF or other
+            await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    attachments.push({
+                        type: isPdf ? 'pdf' : 'file',
+                        fileName: file.name,
+                        fileSize: file.size,
+                        mimeType: file.type,
+                        data: ev.target.result
+                    });
+                    resolve();
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+    }
+    renderAttachmentPreview();
+    document.getElementById('fileInput').value = '';
+}
+
+function renderAttachmentPreview() {
+    const container = document.getElementById('attPreview');
+    container.innerHTML = attachments.map((a, i) => {
+        if (a.type === 'image') {
+            return `<div class="preview-item">
+                <img src="${a.data}">
+                <button class="remove" onclick="removeAttachment(${i})">×</button>
+            </div>`;
+        } else {
+            return `<div class="preview-item">
+                <div class="file-tag">
+                    <div style="font-size: 20px;">${a.type === 'pdf' ? '📄' : '📎'}</div>
+                    <div style="font-size: 9px; word-break: break-all;">${a.fileName.slice(0, 12)}</div>
+                </div>
+                <button class="remove" onclick="removeAttachment(${i})">×</button>
+            </div>`;
+        }
+    }).join('');
+}
+
+function removeAttachment(idx) {
+    attachments.splice(idx, 1);
+    renderAttachmentPreview();
+}
+
+async function sendMessage() {
+    const text = document.getElementById('chatInput').value.trim();
+    if (!text && attachments.length === 0) return;
+    
+    const btn = document.getElementById('sendBtn');
+    btn.disabled = true;
+    
+    try {
+        const res = await api('/api/chat/send', {
+            method: 'POST',
+            body: JSON.stringify({
+                receiver: PARTNER,
+                text,
+                attachments: attachments
+            })
+        });
+        
+        if (res.success) {
+            // Append message to chat
+            appendMessage(res.message, true);
+            document.getElementById('chatInput').value = '';
+            document.getElementById('chatInput').style.height = '40px';
+            attachments = [];
+            renderAttachmentPreview();
+            scrollToBottom();
+        }
+    } catch (e) {
+        showToast('Send failed', 'error');
+    }
+    
+    btn.disabled = false;
+}
+
+function appendMessage(m, isSent) {
+    const msgs = document.getElementById('chatMessages');
+    
+    const div = document.createElement('div');
+    div.className = 'message ' + (isSent ? 'sent' : 'received');
+    div.dataset.id = m._id;
+    
+    let html = '';
+    (m.attachments || []).forEach(a => {
+        html += '<div class="message-attachment">';
+        if (a.type === 'image') {
+            html += `<img src="${a.data}" onclick="openImageModal('${a.data}')">`;
+        } else {
+            html += `<a href="${a.data}" download="${a.fileName}" class="file-attachment">
+                <div class="file-icon">${a.type === 'pdf' ? '📄' : '📎'}</div>
+                <div class="file-info">
+                    <div class="file-name">${a.fileName}</div>
+                    <div class="file-size">${(a.fileSize/1024).toFixed(1)} KB</div>
+                </div>
+            </a>`;
+        }
+        html += '</div>';
+    });
+    
+    if (m.text) {
+        html += '<div style="white-space: pre-wrap;">' + escapeHtml(m.text) + '</div>';
+    }
+    
+    const time = new Date(m.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    html += `<div class="message-time"><span>${time}</span>${isSent ? '<span class="message-check">✓</span>' : ''}</div>`;
+    
+    div.innerHTML = html;
+    msgs.appendChild(div);
+    lastMessageTime = m.createdAt;
+}
+
+function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+}
+
+// Polling for new messages every 3 seconds
+function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+        try {
+            const res = await fetch('/api/chat/messages/' + PARTNER + '?since=' + encodeURIComponent(lastMessageTime || ''));
+            const data = await res.json();
+            
+            if (data.messages && data.messages.length > 0) {
+                data.messages.forEach(m => {
+                    if (m.sender !== ME) {
+                        appendMessage(m, false);
+                    }
+                });
+                scrollToBottom();
+            }
+        } catch (e) { /* silent */ }
+    }, 3000);
+}
+
+window.addEventListener('beforeunload', () => {
+    if (pollTimer) clearInterval(pollTimer);
+});
+</script>
+
+<% if (myRole === 'agent') { %>
+<%- include('partials/mobile-bottom-nav', { activeNav: 'chat' }) %>
+<%- include('partials/pwa-banner') %>
+<% } %>
+</body>
+</html>

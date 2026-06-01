@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const session = require('express-session');
 const exceljs = require('exceljs');
 const PDFDocument = require('pdfkit');
+const compression = require('compression');
 
 // Models
 const Entry = require('./models/Entry');
@@ -20,13 +21,44 @@ const Tool = require('./models/Tool');
 const Lead = require('./models/Lead');
 const CorporateEntry = require('./models/CorporateEntry');
 const Booking = require('./models/Booking');
+const Employee = require('./models/Employee');
+const BankTransaction = require('./models/BankTransaction');
+const Customer = require('./models/Customer');
+const ChatMessage = require('./models/ChatMessage');
 
 const app = express();
 
+// === PERFORMANCE: gzip compression (5-10x faster page transfers) ===
+app.use(compression({
+    level: 6,
+    threshold: 1024, // only compress > 1KB
+    filter: (req, res) => {
+        if (req.headers['x-no-compression']) return false;
+        return compression.filter(req, res);
+    }
+}));
+
 app.set('view engine', 'ejs');
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
-app.use(express.static('public'));
+// Disable view caching only in dev; production cache views in memory
+app.set('view cache', true);
+
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Static files with aggressive cache (1 day for images, 1 hour for css/js)
+app.use(express.static('public', {
+    maxAge: '1d',
+    etag: true,
+    lastModified: true,
+    setHeaders: (res, path) => {
+        if (path.endsWith('.css') || path.endsWith('.js')) {
+            res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 hour
+        } else if (path.endsWith('.png') || path.endsWith('.jpg') || path.endsWith('.ico')) {
+            res.setHeader('Cache-Control', 'public, max-age=86400'); // 1 day
+        }
+    }
+}));
+
 app.use(session({
     secret: process.env.SESSION_SECRET || 'searvator_secret_key_123',
     resave: false,
@@ -47,6 +79,15 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/searvator
 // ============ AUTH ============
 const requireAuth = (req, res, next) => { if (req.session.user) next(); else res.redirect('/login'); };
 
+// Detect if request is from a mobile device or PWA standalone
+function isMobileOrPWA(req) {
+    const ua = (req.headers['user-agent'] || '').toLowerCase();
+    if (/iphone|ipad|ipod|android|mobile|webos|blackberry|opera mini|iemobile/i.test(ua)) return true;
+    // PWA standalone or in-app browsers (via display-mode media query won't work server-side, accept WebView UAs)
+    if (/wv|standalone/i.test(ua)) return true;
+    return false;
+}
+
 app.get('/', (req, res) => res.redirect('/login'));
 app.get('/login', (req, res) => res.render('login'));
 app.post('/login', (req, res) => {
@@ -66,6 +107,12 @@ app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login')
 // ============ AGENT DASHBOARD ============
 app.get('/agent', requireAuth, async (req, res) => {
     if (req.session.user.role !== 'agent') return res.redirect('/admin');
+    
+    // If agent on desktop & not bypassed, show install prompt
+    if (!isMobileOrPWA(req) && !req.query.desktop) {
+        return res.render('agent-desktop-warning', { user: req.session.user });
+    }
+    
     let queryDate = new Date();
     if (req.query.date) queryDate = new Date(req.query.date);
     const startOfDay = new Date(queryDate.getFullYear(), queryDate.getMonth(), queryDate.getDate(), 0, 0, 0);
@@ -181,6 +228,7 @@ app.post('/api/whatsapp-sent/:id', requireAuth, async (req, res) => {
 // Reusable function for the premium header on all PDFs
 function drawPdfHeader(doc, docType, docNumber) {
     const W = doc.page.width;
+    const path = require('path');
     
     // Dark gradient-like header background (3 shades layered)
     doc.rect(0, 0, W, 130).fill('#0f172a');
@@ -190,21 +238,30 @@ function drawPdfHeader(doc, docType, docNumber) {
     // Accent line at bottom of header
     doc.rect(0, 130, W, 4).fill('#3b82f6');
     
-    // Logo circle (left)
-    doc.circle(75, 65, 28).fillAndStroke('#3b82f6', '#60a5fa');
-    doc.fillColor('#ffffff').fontSize(32).font('Helvetica-Bold').text('S', 65, 48);
+    // White rounded box behind logo
+    doc.roundedRect(40, 30, 75, 75, 10).fill('#ffffff');
+    
+    // Real Searvator logo
+    try {
+        const logoPath = path.join(__dirname, 'public', 'logo-icon.png');
+        doc.image(logoPath, 45, 35, { fit: [65, 65], align: 'center', valign: 'center' });
+    } catch (e) {
+        // Fallback to S letter
+        doc.fillColor('#0f172a').fontSize(40).font('Helvetica-Bold').text('S', 60, 50);
+    }
     
     // Company name & tagline
-    doc.fillColor('#ffffff').fontSize(24).font('Helvetica-Bold').text('SEARVATOR', 115, 45);
-    doc.fillColor('#94a3b8').fontSize(9).font('Helvetica').text('IT SOLUTIONS PVT. LTD.', 115, 73);
-    doc.fillColor('#cbd5e1').fontSize(8).text('CCTV • Biometric • AI Software • Hardware • Operations', 115, 87);
+    doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold').text('SEARVATOR', 130, 45, { lineBreak: false });
+    doc.fillColor('#94a3b8').fontSize(9).font('Helvetica').text('IT SOLUTIONS PVT. LTD.', 130, 72, { lineBreak: false });
+    doc.fillColor('#cbd5e1').fontSize(7.5).text('CCTV • Biometric • AI Software • Hardware • Operations', 130, 86, { lineBreak: false });
+    doc.fillColor('#fb923c').fontSize(7).font('Helvetica-Bold').text('SEARCH AND FACILITATOR', 130, 99, { lineBreak: false });
     
     // Document type & number (right)
-    doc.fillColor('#ffffff').fontSize(20).font('Helvetica-Bold').text(docType, 0, 50, { align: 'right', width: W - 40 });
+    doc.fillColor('#ffffff').fontSize(20).font('Helvetica-Bold').text(docType, 0, 50, { align: 'right', width: W - 40, lineBreak: false });
     if (docNumber) {
-        doc.fillColor('#60a5fa').fontSize(10).font('Helvetica').text('# ' + docNumber, 0, 78, { align: 'right', width: W - 40 });
+        doc.fillColor('#60a5fa').fontSize(10).font('Helvetica').text('# ' + docNumber, 0, 78, { align: 'right', width: W - 40, lineBreak: false });
     }
-    doc.fillColor('#94a3b8').fontSize(8).text('www.searvator.com', 0, 95, { align: 'right', width: W - 40 });
+    doc.fillColor('#94a3b8').fontSize(8).text('www.searvator.com', 0, 95, { align: 'right', width: W - 40, lineBreak: false });
 }
 
 // Reusable services + contact footer for all PDFs
@@ -547,11 +604,14 @@ app.get('/admin', requireAuth, async (req, res) => {
         query.createdAt = { $gte: d, $lt: new Date(d.getTime() + 24 * 60 * 60 * 1000) };
     }
 
-    const entries = await Entry.find(query).sort({ createdAt: -1 });
-    const allEntries = await Entry.find();
-    const allOrders = await Order.find().sort({ createdAt: -1 });
+    // Get filtered entries (limit 200 for view) - exclude heavy fields (photos)
+    const entries = await Entry.find(query)
+        .select('-proofPhoto -beforePhoto -afterPhoto -editLogs')
+        .sort({ createdAt: -1 }).limit(200).lean();
+    
+    const allOrders = await Order.find().sort({ createdAt: -1 }).limit(200).lean();
 
-    let targets = await Target.findOne();
+    let targets = await Target.findOne().lean();
     if (!targets) targets = { dailyTarget: 10000, weeklyTarget: 70000, monthlyTarget: 300000 };
 
     const now = new Date();
@@ -559,26 +619,67 @@ app.get('/admin', requireAuth, async (req, res) => {
     const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const todayRevenue = allEntries.filter(e => e.createdAt >= startOfToday && e.jobStatus === 'Completed').reduce((s, e) => s + e.revenue, 0)
-        + allOrders.filter(o => o.createdAt >= startOfToday && o.status === 'Completed').reduce((s, o) => s + o.sellingPrice, 0);
-    const weekRevenue = allEntries.filter(e => e.createdAt >= startOfWeek && e.jobStatus === 'Completed').reduce((s, e) => s + e.revenue, 0)
-        + allOrders.filter(o => o.createdAt >= startOfWeek && o.status === 'Completed').reduce((s, o) => s + o.sellingPrice, 0);
-    const monthRevenue = allEntries.filter(e => e.createdAt >= startOfMonth && e.jobStatus === 'Completed').reduce((s, e) => s + e.revenue, 0)
-        + allOrders.filter(o => o.createdAt >= startOfMonth && o.status === 'Completed').reduce((s, o) => s + o.sellingPrice, 0);
-
-    const totalRevenue = entries.filter(e => e.jobStatus === 'Completed').reduce((s, e) => s + (e.revenue || 0), 0)
-        + allOrders.filter(o => o.status === 'Completed').reduce((s, o) => s + o.sellingPrice, 0);
-    const totalExpense = entries.reduce((s, e) => s + (e.travelExpense || 0), 0)
-        + allOrders.filter(o => o.status === 'Completed').reduce((s, o) => s + o.costPrice, 0);
-
-    const followUpRevenue = allEntries.filter(e => e.callStatus === 'Done' && e.conversionStatus === 'Converted').reduce((s, e) => s + (e.revenue || 0), 0);
-
+    // Use aggregation for revenue stats (fast - DB-side calculation)
+    const [todayAgg, weekAgg, monthAgg, allStats, followUpAgg, sourceAgg, conversionAgg] = await Promise.all([
+        Entry.aggregate([
+            { $match: { createdAt: { $gte: startOfToday }, jobStatus: 'Completed' } },
+            { $group: { _id: null, total: { $sum: '$revenue' } } }
+        ]),
+        Entry.aggregate([
+            { $match: { createdAt: { $gte: startOfWeek }, jobStatus: 'Completed' } },
+            { $group: { _id: null, total: { $sum: '$revenue' } } }
+        ]),
+        Entry.aggregate([
+            { $match: { createdAt: { $gte: startOfMonth }, jobStatus: 'Completed' } },
+            { $group: { _id: null, total: { $sum: '$revenue' } } }
+        ]),
+        Entry.aggregate([
+            { $match: { jobStatus: 'Completed' } },
+            { $group: { _id: null, totalRev: { $sum: '$revenue' }, totalExp: { $sum: '$travelExpense' } } }
+        ]),
+        Entry.aggregate([
+            { $match: { callStatus: 'Done', conversionStatus: 'Converted' } },
+            { $group: { _id: null, total: { $sum: '$revenue' } } }
+        ]),
+        Entry.aggregate([
+            { $match: { jobStatus: 'Completed' } },
+            { $group: { _id: null, total: { $sum: '$revenue' } } }
+        ]),
+        Entry.aggregate([
+            { $match: { followUpDate: { $ne: null } } },
+            { $group: { _id: '$conversionStatus', count: { $sum: 1 } } }
+        ])
+    ]);
+    
+    const ordersTodayRev = allOrders.filter(o => o.createdAt >= startOfToday && o.status === 'Completed').reduce((s, o) => s + (o.sellingPrice || 0), 0);
+    const ordersWeekRev = allOrders.filter(o => o.createdAt >= startOfWeek && o.status === 'Completed').reduce((s, o) => s + (o.sellingPrice || 0), 0);
+    const ordersMonthRev = allOrders.filter(o => o.createdAt >= startOfMonth && o.status === 'Completed').reduce((s, o) => s + (o.sellingPrice || 0), 0);
+    
+    const todayRevenue = (todayAgg[0]?.total || 0) + ordersTodayRev;
+    const weekRevenue = (weekAgg[0]?.total || 0) + ordersWeekRev;
+    const monthRevenue = (monthAgg[0]?.total || 0) + ordersMonthRev;
+    
+    const ordersAllRev = allOrders.filter(o => o.status === 'Completed').reduce((s, o) => s + (o.sellingPrice || 0), 0);
+    const ordersAllCost = allOrders.filter(o => o.status === 'Completed').reduce((s, o) => s + (o.costPrice || 0), 0);
+    
+    // Filter-specific totals from loaded entries
+    const totalRevenue = entries.filter(e => e.jobStatus === 'Completed').reduce((s, e) => s + (e.revenue || 0), 0) + ordersAllRev;
+    const totalExpense = entries.reduce((s, e) => s + (e.travelExpense || 0), 0) + ordersAllCost;
+    
+    const followUpRevenue = followUpAgg[0]?.total || 0;
+    
     let sources = { CCTV: 0, Networking: 0, 'Software AI': 0, AMC: 0, '79 Service': 0 };
+    sources['79 Service'] = sourceAgg[0]?.total || 0;
+    // Interested services - count from filtered entries (good enough)
+    entries.filter(e => e.jobStatus === 'Completed').forEach(e => {
+        (e.interestedServices || []).forEach(s => { if (sources[s] !== undefined) sources[s] += 1000; });
+    });
+    
+    // Conversion analysis
     let conversionCounts = { Converted: 0, TotalCalls: 0 };
-    allEntries.filter(e => e.jobStatus === 'Completed').forEach(e => {
-        sources['79 Service'] += e.revenue;
-        e.interestedServices.forEach(s => { if (sources[s] !== undefined) sources[s] += 1000; });
-        if (e.followUpDate) { conversionCounts.TotalCalls++; if (e.conversionStatus === 'Converted') conversionCounts.Converted++; }
+    conversionAgg.forEach(a => {
+        conversionCounts.TotalCalls += a.count;
+        if (a._id === 'Converted') conversionCounts.Converted = a.count;
     });
 
     let weakPoint = "None. All systems performing optimally.";
@@ -600,7 +701,7 @@ app.get('/admin', requireAuth, async (req, res) => {
 
 app.get('/admin/export', requireAuth, async (req, res) => {
     if (req.session.user.role !== 'admin') return res.redirect('/login');
-    const entries = await Entry.find().sort({ createdAt: -1 });
+    const entries = await Entry.find().sort({ createdAt: -1 }).limit(300).lean();
     const workbook = new exceljs.Workbook();
     const worksheet = workbook.addWorksheet('Business Report');
     worksheet.columns = [
@@ -640,7 +741,7 @@ const requireAdmin = (req, res, next) => {
 };
 
 app.get('/ai-projects', requireAuth, requireAdmin, async (req, res) => {
-    const projects = await AIProject.find().sort({ createdAt: -1 });
+    const projects = await AIProject.find().sort({ createdAt: -1 }).limit(100).lean();
     res.render('ai-projects', { user: req.session.user, projects });
 });
 
@@ -730,7 +831,7 @@ app.delete('/api/ai-projects/:id/revenues/:revId', requireAuth, requireAdmin, as
 
 // ======================== CCTV MODULE ========================
 app.get('/cctv', requireAuth, requireAdmin, async (req, res) => {
-    const products = await CCTVProduct.find().sort({ category: 1, productName: 1 });
+    const products = await CCTVProduct.find().sort({ category: 1, productName: 1 }).limit(200).lean();
     const quotations = await Quotation.find().sort({ createdAt: -1 }).limit(50);
     res.render('cctv', { user: req.session.user, products, quotations });
 });
@@ -968,7 +1069,7 @@ app.get('/api/quotations/:id/pdf', requireAuth, requireAdmin, async (req, res) =
 
 // ======================== OTHER BUSINESS ========================
 app.get('/other-business', requireAuth, requireAdmin, async (req, res) => {
-    const items = await OtherBusiness.find().sort({ createdAt: -1 });
+    const items = await OtherBusiness.find().sort({ createdAt: -1 }).limit(100).lean();
     res.render('other-business', { user: req.session.user, items });
 });
 
@@ -1030,7 +1131,7 @@ function calculateOverallStatus(pc) {
 
 // ---- Master AMC Dashboard ----
 app.get('/amc', requireAuth, requireAdmin, async (req, res) => {
-    const offices = await AMCOffice.find().sort({ createdAt: -1 });
+    const offices = await AMCOffice.find().select('-pcs.beforePhoto -pcs.afterPhoto -visits.pcServiceLogs.beforePhoto -visits.pcServiceLogs.afterPhoto').sort({ createdAt: -1 }).limit(100).lean();
     
     // Aggregate stats
     let totalPCs = 0, healthyPCs = 0, issuePCs = 0, criticalPCs = 0;
@@ -1601,7 +1702,7 @@ app.get('/amc/visit/:officeId/:visitId/report', requireAuth, async (req, res) =>
 // ======================== VENDOR MANAGEMENT ========================
 
 app.get('/vendors', requireAuth, requireAdmin, async (req, res) => {
-    const vendors = await Vendor.find().sort({ createdAt: -1 });
+    const vendors = await Vendor.find().select('-bills.billDocument').sort({ createdAt: -1 }).limit(100).lean();
     
     // Aggregate stats
     let totalPurchased = 0, totalPaid = 0, totalPending = 0;
@@ -1618,6 +1719,11 @@ app.get('/vendors', requireAuth, requireAdmin, async (req, res) => {
         vendors,
         stats: { totalPurchased, totalPaid, totalPending, totalVendors: vendors.length }
     });
+});
+
+// Smart vendor compare page
+app.get('/vendor-compare', requireAuth, requireAdmin, async (req, res) => {
+    res.render('vendor-compare', { user: req.session.user, query: req.query.product || '' });
 });
 
 app.get('/vendors/:id', requireAuth, requireAdmin, async (req, res) => {
@@ -1862,7 +1968,7 @@ app.get('/api/vendors/:id/export', requireAuth, requireAdmin, async (req, res) =
 // ======================== STOCK MANAGEMENT ========================
 
 app.get('/stock', requireAuth, requireAdmin, async (req, res) => {
-    const items = await StockItem.find().sort({ category: 1, productName: 1 });
+    const items = await StockItem.find().select('-movements').sort({ category: 1, productName: 1 }).limit(500).lean();
     
     let totalValue = 0, totalItems = 0, lowStockCount = 0;
     const categoryStats = {};
@@ -1958,7 +2064,7 @@ app.post('/api/stock/:id/movement', requireAuth, async (req, res) => {
 });
 
 app.get('/api/stock/export', requireAuth, requireAdmin, async (req, res) => {
-    const items = await StockItem.find().sort({ category: 1, productName: 1 });
+    const items = await StockItem.find().select('-movements').sort({ category: 1, productName: 1 }).limit(500).lean();
     const workbook = new exceljs.Workbook();
     
     // Sheet 1: Current Stock
@@ -2024,7 +2130,7 @@ app.get('/api/stock/export', requireAuth, requireAdmin, async (req, res) => {
 // ======================== TOOLS MANAGEMENT ========================
 
 app.get('/tools', requireAuth, requireAdmin, async (req, res) => {
-    const tools = await Tool.find().sort({ createdAt: -1 });
+    const tools = await Tool.find().select('-photo').sort({ createdAt: -1 }).limit(100).lean();
     
     let totalPurchase = 0, totalMaintenance = 0, totalIssued = 0;
     tools.forEach(t => {
@@ -2128,7 +2234,7 @@ app.post('/api/tools/:id/maintenance', requireAuth, requireAdmin, async (req, re
 // ======================== LEAD / ENQUIRY MANAGEMENT ========================
 
 app.get('/leads', requireAuth, async (req, res) => {
-    const leads = await Lead.find().sort({ createdAt: -1 });
+    const leads = await Lead.find().sort({ createdAt: -1 }).limit(200).lean();
     
     const stats = {
         total: leads.length,
@@ -2315,7 +2421,7 @@ function computePcStatus(pc) {
 
 // LIST: Corporate Entries (admin view)
 app.get('/corporate', requireAuth, requireAdmin, async (req, res) => {
-    const entries = await CorporateEntry.find().sort({ createdAt: -1 });
+    const entries = await CorporateEntry.find().select('-pcs.beforePhoto -pcs.afterPhoto -editLogs').sort({ createdAt: -1 }).limit(200).lean();
     
     let totalRevenue = 0, totalReceived = 0, totalDue = 0, totalPCs = 0;
     entries.forEach(e => {
@@ -2714,7 +2820,7 @@ function generateCorporateDiagnosticPDF(doc, entry) {
 // ======================== BOOKING SYSTEM ========================
 
 app.get('/bookings', requireAuth, async (req, res) => {
-    const allBookings = await Booking.find().sort({ scheduledDate: 1 });
+    const allBookings = await Booking.find().sort({ scheduledDate: 1 }).limit(200).lean();
     
     // Filter for agent
     let bookings = allBookings;
@@ -2941,6 +3047,1040 @@ app.get('/reports', requireAuth, requireAdmin, async (req, res) => {
         allDueEntries, allDueCorp,
         entries, corpEntries
     });
+});
+
+// ============================================================
+//   PHASE 4 - SMART FEATURES
+// ============================================================
+
+// =========== HELPER: Auto-sync customer master ===========
+async function syncCustomer(data, source) {
+    try {
+        if (!data.mobile && !data.mobileNumber) return null;
+        const mobile = String(data.mobile || data.mobileNumber).replace(/\D/g, '').slice(-10);
+        if (mobile.length !== 10) return null;
+        
+        let customer = await Customer.findOne({ mobile });
+        if (!customer) {
+            customer = new Customer({
+                name: data.name || data.customerName || data.leadName || 'Unknown',
+                mobile,
+                companyName: data.companyName || '',
+                email: data.email || '',
+                primaryAddress: data.address || data.location || '',
+                location: data.location || '',
+                gstNumber: data.gstNumber || '',
+                type: data.companyName ? 'Corporate' : 'Individual',
+                sourceModule: source
+            });
+        } else {
+            // Update if better data
+            if (!customer.companyName && data.companyName) customer.companyName = data.companyName;
+            if (!customer.email && data.email) customer.email = data.email;
+            if (!customer.primaryAddress && (data.address || data.location)) {
+                customer.primaryAddress = data.address || data.location;
+            }
+            if (!customer.gstNumber && data.gstNumber) customer.gstNumber = data.gstNumber;
+        }
+        await customer.save();
+        return customer;
+    } catch (e) {
+        console.warn('Customer sync failed:', e.message);
+        return null;
+    }
+}
+
+// ============================================================
+//   CUSTOMER AUTO-FILL API (Smart fill by mobile)
+// ============================================================
+
+// Lookup customer by mobile (returns suggestion list)
+app.get('/api/customers/lookup', requireAuth, async (req, res) => {
+    try {
+        const q = (req.query.q || '').trim();
+        if (q.length < 3) return res.json({ suggestions: [] });
+        
+        const digits = q.replace(/\D/g, '');
+        const filter = digits.length >= 3
+            ? { mobile: { $regex: digits, $options: 'i' } }
+            : { $or: [
+                { name: { $regex: q, $options: 'i' } },
+                { companyName: { $regex: q, $options: 'i' } }
+            ] };
+        
+        const suggestions = await Customer.find(filter).limit(8).sort({ totalRevenue: -1, updatedAt: -1 });
+        res.json({ suggestions });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Get customer by exact mobile
+app.get('/api/customers/by-mobile/:mobile', requireAuth, async (req, res) => {
+    try {
+        const mobile = req.params.mobile.replace(/\D/g, '').slice(-10);
+        const customer = await Customer.findOne({ mobile });
+        
+        if (!customer) return res.json({ found: false });
+        
+        // Get related history
+        const [entries, corpEntries, leads, bookings] = await Promise.all([
+            Entry.find({ mobileNumber: { $regex: mobile + '$' } }).limit(5).sort({ createdAt: -1 }),
+            CorporateEntry.find({ mobileNumber: { $regex: mobile + '$' } }).limit(5).sort({ createdAt: -1 }),
+            Lead.find({ mobile: { $regex: mobile + '$' } }).limit(3).sort({ createdAt: -1 }),
+            Booking.find({ mobileNumber: { $regex: mobile + '$' } }).limit(3).sort({ createdAt: -1 })
+        ]);
+        
+        res.json({
+            found: true,
+            customer,
+            history: {
+                entries: entries.length,
+                corporate: corpEntries.length,
+                leads: leads.length,
+                bookings: bookings.length
+            }
+        });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Bulk sync existing data into customer master
+app.post('/api/customers/sync-all', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        let synced = 0;
+        
+        const allEntries = await Entry.find();
+        for (const e of allEntries) {
+            const c = await syncCustomer({
+                customerName: e.customerName, mobile: e.mobileNumber, location: e.location
+            }, 'Hardware');
+            if (c) synced++;
+        }
+        
+        const corpEntries = await CorporateEntry.find();
+        for (const e of corpEntries) {
+            const c = await syncCustomer({
+                customerName: e.customerName, mobile: e.mobileNumber, location: e.location,
+                companyName: e.companyName, email: e.email, gstNumber: e.gstNumber
+            }, 'Corporate');
+            if (c) synced++;
+        }
+        
+        const leads = await Lead.find();
+        for (const l of leads) {
+            const c = await syncCustomer({
+                customerName: l.leadName, mobile: l.mobile, location: l.address,
+                companyName: l.companyName, email: l.email
+            }, 'Lead');
+            if (c) synced++;
+        }
+        
+        const offices = await AMCOffice.find();
+        for (const o of offices) {
+            const c = await syncCustomer({
+                customerName: o.contactPerson, mobile: o.contactMobile, location: o.address,
+                companyName: o.companyName || o.officeName, email: o.contactEmail
+            }, 'AMC');
+            if (c) synced++;
+        }
+        
+        res.json({ success: true, synced });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ============================================================
+//   MASTER SMART SEARCH
+// ============================================================
+
+app.get('/api/search', requireAuth, async (req, res) => {
+    try {
+        const q = (req.query.q || '').trim();
+        if (q.length < 2) return res.json({ results: [], shortcuts: [] });
+        
+        const ql = q.toLowerCase();
+        const results = [];
+        const shortcuts = [];
+        
+        // Keyword shortcuts
+        const keywords = {
+            'salary': { url: '/hr', label: 'HR & Salary', icon: '💰' },
+            'attendance': { url: '/hr', label: 'HR / Attendance', icon: '📅' },
+            'employee': { url: '/hr', label: 'Employees', icon: '👤' },
+            'hr': { url: '/hr', label: 'HR Management', icon: '👥' },
+            'leave': { url: '/hr', label: 'Leaves', icon: '🏖️' },
+            'advance': { url: '/hr', label: 'Advance Payments', icon: '💸' },
+            'bank': { url: '/bank', label: 'Bank Reconciliation', icon: '🏦' },
+            'statement': { url: '/bank', label: 'Bank Statement', icon: '🏦' },
+            'reconcile': { url: '/bank', label: 'Bank Match', icon: '🏦' },
+            'vendor': { url: '/vendors', label: 'Vendors', icon: '🏭' },
+            'stock': { url: '/stock', label: 'Stock', icon: '📦' },
+            'inventory': { url: '/stock', label: 'Stock', icon: '📦' },
+            'tool': { url: '/tools', label: 'Tools', icon: '🔧' },
+            'lead': { url: '/leads', label: 'Leads', icon: '🎯' },
+            'enquiry': { url: '/leads', label: 'Enquiries', icon: '🎯' },
+            'booking': { url: '/bookings', label: 'Bookings', icon: '📅' },
+            'amc': { url: '/amc', label: 'AMC Management', icon: '🏢' },
+            'office': { url: '/corporate', label: 'Corporate Office', icon: '🏢' },
+            'corporate': { url: '/corporate', label: 'Office Corporate', icon: '🏢' },
+            'cctv': { url: '/cctv', label: 'CCTV Module', icon: '📹' },
+            'quote': { url: '/cctv', label: 'Quotations', icon: '📋' },
+            'quotation': { url: '/cctv', label: 'Quotations', icon: '📋' },
+            'ai': { url: '/ai-projects', label: 'AI Projects', icon: '🤖' },
+            'project': { url: '/ai-projects', label: 'AI Projects', icon: '🤖' },
+            'report': { url: '/reports', label: 'Reports', icon: '📊' },
+            'due': { url: '/reports', label: 'Pending Dues', icon: '💰' },
+            'pending': { url: '/reports', label: 'Pending', icon: '⏳' },
+            'expense': { url: '/reports', label: 'Expenses', icon: '💸' },
+            'customer': { url: '/customers', label: 'Customers', icon: '👥' },
+            'profit': { url: '/reports', label: 'P&L Reports', icon: '📈' }
+        };
+        
+        Object.entries(keywords).forEach(([key, val]) => {
+            if (key.includes(ql) || ql.includes(key)) {
+                if (!shortcuts.find(s => s.url === val.url)) shortcuts.push(val);
+            }
+        });
+        
+        // Search across data
+        const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        const limit = 5;
+        
+        // Customers
+        const customers = await Customer.find({
+            $or: [{ name: regex }, { mobile: regex }, { companyName: regex }]
+        }).limit(limit);
+        customers.forEach(c => results.push({
+            type: 'Customer', title: c.name + (c.companyName ? ' · ' + c.companyName : ''),
+            subtitle: c.mobile + ' · ' + (c.totalServices || 0) + ' services',
+            url: `/customers#${c._id}`, icon: '👤'
+        }));
+        
+        // Entries
+        const entries = await Entry.find({
+            $or: [{ customerName: regex }, { mobileNumber: regex }, { serviceTaken: regex }]
+        }).limit(limit);
+        entries.forEach(e => results.push({
+            type: 'Service', title: e.customerName, subtitle: e.mobileNumber + ' · ' + (e.serviceTaken || ''),
+            url: '/admin', icon: '🔧'
+        }));
+        
+        // Corporate
+        const corps = await CorporateEntry.find({
+            $or: [{ customerName: regex }, { companyName: regex }, { mobileNumber: regex }, { entryNumber: regex }]
+        }).limit(limit);
+        corps.forEach(c => results.push({
+            type: 'Corporate', title: c.companyName || c.customerName,
+            subtitle: c.entryNumber + ' · ' + c.mobileNumber,
+            url: '/corporate/' + c._id, icon: '🏢'
+        }));
+        
+        // Vendors
+        const vendors = await Vendor.find({
+            $or: [{ vendorName: regex }, { mobile: regex }, { contactPerson: regex }]
+        }).limit(limit);
+        vendors.forEach(v => results.push({
+            type: 'Vendor', title: v.vendorName, subtitle: v.contactPerson + ' · ' + v.mobile,
+            url: '/vendors/' + v._id, icon: '🏭'
+        }));
+        
+        // Stock
+        const stocks = await StockItem.find({
+            $or: [{ productName: regex }, { category: regex }, { brand: regex }, { model: regex }]
+        }).limit(limit);
+        stocks.forEach(s => results.push({
+            type: 'Stock', title: s.productName,
+            subtitle: s.category + ' · ' + s.currentStock + ' in stock',
+            url: '/stock/' + s._id, icon: '📦'
+        }));
+        
+        // Leads
+        const leads = await Lead.find({
+            $or: [{ leadName: regex }, { mobile: regex }, { leadNumber: regex }, { companyName: regex }]
+        }).limit(limit);
+        leads.forEach(l => results.push({
+            type: 'Lead', title: l.leadName + (l.companyName ? ' · ' + l.companyName : ''),
+            subtitle: l.leadNumber + ' · ' + l.status,
+            url: '/leads/' + l._id, icon: '🎯'
+        }));
+        
+        // AMC Offices
+        const offices = await AMCOffice.find({
+            $or: [{ officeName: regex }, { companyName: regex }, { contactMobile: regex }, { contactPerson: regex }]
+        }).limit(limit);
+        offices.forEach(o => results.push({
+            type: 'AMC', title: o.officeName, subtitle: o.contactPerson + ' · ' + o.contactMobile,
+            url: '/amc/' + o._id, icon: '🏢'
+        }));
+        
+        // Employees
+        const emps = await Employee.find({
+            $or: [{ name: regex }, { mobile: regex }, { employeeCode: regex }, { username: regex }]
+        }).limit(limit);
+        emps.forEach(e => results.push({
+            type: 'Employee', title: e.name + ' (' + e.role + ')',
+            subtitle: e.employeeCode + ' · ' + e.mobile,
+            url: '/hr/employee/' + e._id, icon: '👤'
+        }));
+        
+        res.json({ results: results.slice(0, 30), shortcuts: shortcuts.slice(0, 6) });
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+// ============================================================
+//   SMART VENDOR SUGGESTION (cheapest, best vendor for product)
+// ============================================================
+
+app.get('/api/vendors/suggest', requireAuth, async (req, res) => {
+    try {
+        const q = (req.query.product || '').trim();
+        if (!q) return res.json({ suggestions: [] });
+        
+        const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        const suggestions = [];
+        
+        // Search all vendor bills for matching products
+        const vendors = await Vendor.find({ 'bills.items.productName': regex });
+        
+        for (const vendor of vendors) {
+            const matchingItems = [];
+            for (const bill of (vendor.bills || [])) {
+                for (const item of (bill.items || [])) {
+                    if (regex.test(item.productName)) {
+                        matchingItems.push({
+                            productName: item.productName,
+                            unitCost: item.unitCost,
+                            sellingPrice: item.sellingPrice,
+                            gstPercent: item.gstPercent,
+                            warranty: item.warranty,
+                            billDate: bill.billDate,
+                            billNumber: bill.billNumber
+                        });
+                    }
+                }
+            }
+            
+            if (matchingItems.length === 0) continue;
+            
+            // Take most recent price
+            matchingItems.sort((a, b) => new Date(b.billDate) - new Date(a.billDate));
+            const latest = matchingItems[0];
+            
+            // Calculate vendor metrics
+            const totalBills = (vendor.bills || []).reduce((s, b) => s + b.grandTotal, 0);
+            const totalPaid = (vendor.payments || []).reduce((s, p) => s + p.amount, 0);
+            const pending = Math.max(0, totalBills - totalPaid);
+            const creditUsed = pending; // pending = credit being used
+            
+            // Score: lower cost = better, paid up = better, more orders = better
+            const cheapnessScore = latest.unitCost > 0 ? (1000 / latest.unitCost) * 10 : 0;
+            const reliabilityScore = totalBills > 0 ? (totalPaid / totalBills) * 50 : 50;
+            const experienceScore = Math.min(matchingItems.length * 5, 30);
+            const totalScore = cheapnessScore + reliabilityScore + experienceScore;
+            
+            suggestions.push({
+                vendorId: vendor._id,
+                vendorName: vendor.vendorName,
+                contact: vendor.contactPerson,
+                mobile: vendor.mobile,
+                category: vendor.category,
+                
+                latestPrice: latest.unitCost,
+                sellingPrice: latest.sellingPrice,
+                gstPercent: latest.gstPercent,
+                warranty: latest.warranty,
+                lastPurchaseDate: latest.billDate,
+                lastBillNumber: latest.billNumber,
+                
+                totalPurchases: matchingItems.length,
+                totalBilled: Math.round(totalBills),
+                totalPaid: Math.round(totalPaid),
+                pendingPayment: Math.round(pending),
+                creditUsed: Math.round(creditUsed),
+                
+                score: Math.round(totalScore),
+                rating: vendor.status === 'Active' ? 'Active' : vendor.status
+            });
+        }
+        
+        // Sort by score (best first)
+        suggestions.sort((a, b) => b.score - a.score);
+        
+        // Add tags
+        if (suggestions.length > 0) {
+            const cheapest = suggestions.reduce((min, v) => v.latestPrice < min.latestPrice ? v : min, suggestions[0]);
+            cheapest._cheapest = true;
+            
+            const mostBought = suggestions.reduce((max, v) => v.totalPurchases > max.totalPurchases ? v : max, suggestions[0]);
+            mostBought._mostBought = true;
+            
+            suggestions[0]._best = true; // highest score
+        }
+        
+        res.json({ suggestions });
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+// ============================================================
+//   HR / EMPLOYEE MANAGEMENT
+// ============================================================
+
+app.get('/hr', requireAuth, requireAdmin, async (req, res) => {
+    const employees = await Employee.find().select('-photo -attendance -salaryPayments -advances -leaves').sort({ status: 1, name: 1 }).limit(50).lean();
+    
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    
+    let totalSalaryThisMonth = 0, totalAdvancesPending = 0, todayPresent = 0;
+    employees.forEach(emp => {
+        // This month salary
+        const thisMonth = (emp.salaryPayments || []).find(s => s.month === today.toISOString().slice(0, 7));
+        if (thisMonth) totalSalaryThisMonth += thisMonth.netPay || 0;
+        else totalSalaryThisMonth += emp.baseSalary || 0;
+        
+        // Advances pending
+        (emp.advances || []).forEach(a => {
+            if (a.status === 'Paid') totalAdvancesPending += (a.pendingAmount || (a.amount - (a.adjustedAmount || 0)));
+        });
+        
+        // Today attendance
+        const todayAtt = (emp.attendance || []).find(a => {
+            const ad = new Date(a.date); ad.setHours(0,0,0,0);
+            return ad.getTime() === today.getTime();
+        });
+        if (todayAtt && todayAtt.status === 'Present') todayPresent++;
+    });
+    
+    res.render('hr', {
+        user: req.session.user,
+        employees,
+        stats: {
+            totalEmployees: employees.length,
+            activeEmployees: employees.filter(e => e.status === 'Active').length,
+            todayPresent,
+            totalSalaryThisMonth,
+            totalAdvancesPending
+        }
+    });
+});
+
+app.get('/hr/employee/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const emp = await Employee.findById(req.params.id);
+        if (!emp) return res.status(404).send('Not found');
+        
+        // Calculate revenue this month from entries
+        const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0,0,0,0);
+        
+        const [entries, corpEntries] = await Promise.all([
+            Entry.find({ agentName: emp.username, createdAt: { $gte: monthStart } }),
+            CorporateEntry.find({ agentName: emp.username, createdAt: { $gte: monthStart } })
+        ]);
+        
+        const monthRevenue = 
+            entries.reduce((s, e) => s + (e.amountReceived || e.revenue || 0), 0) +
+            corpEntries.reduce((s, e) => s + (e.amountReceived || 0), 0);
+        
+        const monthVisits = entries.length + corpEntries.length;
+        const monthExpense = entries.reduce((s, e) => s + (e.travelExpense || 0), 0);
+        
+        res.render('hr-employee', { 
+            user: req.session.user, 
+            emp, 
+            performance: { monthRevenue, monthVisits, monthExpense }
+        });
+    } catch (e) { res.status(500).send(e.message); }
+});
+
+app.post('/api/hr/employees', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const count = await Employee.countDocuments();
+        const data = req.body;
+        data.employeeCode = data.employeeCode || `SEA-E-${String(count + 1).padStart(3, '0')}`;
+        const emp = new Employee(data);
+        await emp.save();
+        res.json({ success: true, emp });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put('/api/hr/employees/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const emp = await Employee.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        res.json({ success: true, emp });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.delete('/api/hr/employees/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await Employee.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Mark attendance
+app.post('/api/hr/employees/:id/attendance', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const emp = await Employee.findById(req.params.id);
+        const { date, status, checkIn, checkOut, notes } = req.body;
+        
+        const d = new Date(date);
+        d.setHours(0, 0, 0, 0);
+        
+        // Check if already exists for this date
+        const existing = emp.attendance.find(a => {
+            const ad = new Date(a.date); ad.setHours(0,0,0,0);
+            return ad.getTime() === d.getTime();
+        });
+        
+        if (existing) {
+            existing.status = status;
+            existing.checkIn = checkIn || existing.checkIn;
+            existing.checkOut = checkOut || existing.checkOut;
+            existing.notes = notes || existing.notes;
+        } else {
+            emp.attendance.push({ date: d, status, checkIn: checkIn || '', checkOut: checkOut || '', notes: notes || '' });
+        }
+        
+        await emp.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Apply leave
+app.post('/api/hr/employees/:id/leaves', requireAuth, async (req, res) => {
+    try {
+        const emp = await Employee.findById(req.params.id);
+        const { fromDate, toDate, leaveType, reason } = req.body;
+        const days = Math.ceil((new Date(toDate) - new Date(fromDate)) / (1000 * 60 * 60 * 24)) + 1;
+        emp.leaves.push({ fromDate, toDate, days, leaveType: leaveType || 'Casual', reason: reason || '', status: 'Pending' });
+        await emp.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Approve/reject leave
+app.put('/api/hr/employees/:id/leaves/:lId', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const emp = await Employee.findById(req.params.id);
+        const leave = emp.leaves.id(req.params.lId);
+        Object.assign(leave, req.body);
+        if (req.body.status === 'Approved') leave.approvedBy = req.session.user.username;
+        await emp.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Add advance
+app.post('/api/hr/employees/:id/advances', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const emp = await Employee.findById(req.params.id);
+        const data = req.body;
+        data.pendingAmount = data.amount;
+        emp.advances.push(data);
+        await emp.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put('/api/hr/employees/:id/advances/:aId', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const emp = await Employee.findById(req.params.id);
+        const adv = emp.advances.id(req.params.aId);
+        Object.assign(adv, req.body);
+        if (adv.adjustedAmount !== undefined) {
+            adv.pendingAmount = Math.max(0, adv.amount - adv.adjustedAmount);
+        }
+        await emp.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Generate salary for a month
+app.post('/api/hr/employees/:id/salary', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const emp = await Employee.findById(req.params.id);
+        const { month } = req.body; // "2026-05"
+        
+        if (!month) return res.status(400).json({ error: 'Month required' });
+        
+        const [yr, mn] = month.split('-').map(Number);
+        const monthStart = new Date(yr, mn - 1, 1);
+        const monthEnd = new Date(yr, mn, 0, 23, 59, 59);
+        const monthName = monthStart.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+        const daysInMonth = monthEnd.getDate();
+        
+        // Calculate attendance for the month
+        const monthAttendance = (emp.attendance || []).filter(a => {
+            const ad = new Date(a.date);
+            return ad >= monthStart && ad <= monthEnd;
+        });
+        
+        const daysWorked = monthAttendance.filter(a => a.status === 'Present').length;
+        const daysAbsent = monthAttendance.filter(a => a.status === 'Absent').length;
+        const halfDays = monthAttendance.filter(a => a.status === 'Half Day').length;
+        const leavesCount = monthAttendance.filter(a => a.status === 'Leave').length;
+        
+        // Get performance from CRM (entries + corporate)
+        const [entries, corpEntries] = await Promise.all([
+            Entry.find({ agentName: emp.username, createdAt: { $gte: monthStart, $lte: monthEnd } }),
+            CorporateEntry.find({ agentName: emp.username, createdAt: { $gte: monthStart, $lte: monthEnd } })
+        ]);
+        
+        const revenueGenerated = 
+            entries.reduce((s, e) => s + (e.amountReceived || e.revenue || 0), 0) +
+            corpEntries.reduce((s, e) => s + (e.amountReceived || 0), 0);
+        const visitsCompleted = entries.length + corpEntries.length;
+        const expensesIncurred = entries.reduce((s, e) => s + (e.travelExpense || 0), 0);
+        
+        // Salary calculation
+        const dailyRate = (emp.baseSalary || 0) / daysInMonth;
+        const proRataBase = Math.round(dailyRate * (daysWorked + halfDays * 0.5 + leavesCount));
+        const incentive = Math.round(revenueGenerated * (emp.incentivePercent || 0) / 100);
+        
+        // Advance deduction (auto-deduct pending advances)
+        let advanceDeducted = 0;
+        const advancesToAdjust = (emp.advances || []).filter(a => a.status === 'Paid' && a.pendingAmount > 0);
+        for (const adv of advancesToAdjust) {
+            const toDeduct = Math.min(adv.pendingAmount, proRataBase * 0.3); // Max 30% of salary
+            advanceDeducted += toDeduct;
+        }
+        
+        const grossPay = proRataBase + incentive + Number(req.body.bonus || 0) + Number(req.body.overtimePay || 0);
+        const totalDeductions = advanceDeducted + Number(req.body.otherDeductions || 0);
+        const netPay = grossPay - totalDeductions;
+        const profitToCompany = revenueGenerated - netPay - expensesIncurred;
+        
+        const salaryData = {
+            month,
+            monthName,
+            daysWorked, daysAbsent, halfDays, leaves: leavesCount,
+            baseSalary: proRataBase,
+            incentive,
+            bonus: Number(req.body.bonus || 0),
+            overtimePay: Number(req.body.overtimePay || 0),
+            advanceDeducted,
+            otherDeductions: Number(req.body.otherDeductions || 0),
+            deductionReason: req.body.deductionReason || '',
+            grossPay,
+            netPay,
+            revenueGenerated,
+            visitsCompleted,
+            expensesIncurred,
+            profitToCompany,
+            status: 'Pending'
+        };
+        
+        // Replace or push
+        const existing = emp.salaryPayments.find(s => s.month === month);
+        if (existing) Object.assign(existing, salaryData);
+        else emp.salaryPayments.push(salaryData);
+        
+        await emp.save();
+        res.json({ success: true, salary: salaryData });
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+// Pay salary
+app.post('/api/hr/employees/:id/pay-salary/:sId', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const emp = await Employee.findById(req.params.id);
+        const sal = emp.salaryPayments.id(req.params.sId);
+        sal.status = 'Paid';
+        sal.paymentDate = new Date();
+        sal.paymentMode = req.body.paymentMode || 'Bank Transfer';
+        sal.paymentRef = req.body.paymentRef || '';
+        
+        // Adjust advances
+        if (sal.advanceDeducted > 0) {
+            let toAdjust = sal.advanceDeducted;
+            for (const adv of emp.advances) {
+                if (adv.status === 'Paid' && adv.pendingAmount > 0 && toAdjust > 0) {
+                    const adjust = Math.min(adv.pendingAmount, toAdjust);
+                    adv.adjustedAmount = (adv.adjustedAmount || 0) + adjust;
+                    adv.pendingAmount -= adjust;
+                    if (adv.pendingAmount <= 0) adv.status = 'Adjusted';
+                    toAdjust -= adjust;
+                }
+            }
+        }
+        
+        await emp.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ============================================================
+//   BANK RECONCILIATION
+// ============================================================
+
+app.get('/bank', requireAuth, requireAdmin, async (req, res) => {
+    const transactions = await BankTransaction.find().sort({ transactionDate: -1 }).limit(500);
+    
+    const stats = {
+        total: transactions.length,
+        matched: transactions.filter(t => t.matchStatus === 'Matched' || t.matchStatus === 'Manual').length,
+        unmatched: transactions.filter(t => t.matchStatus === 'Unmatched').length,
+        totalCredit: transactions.filter(t => t.type === 'CREDIT').reduce((s, t) => s + t.amount, 0),
+        totalDebit: transactions.filter(t => t.type === 'DEBIT').reduce((s, t) => s + t.amount, 0)
+    };
+    stats.matchPercent = stats.total > 0 ? Math.round((stats.matched / stats.total) * 100) : 0;
+    
+    res.render('bank', { user: req.session.user, transactions, stats });
+});
+
+// Add bank transaction(s)
+app.post('/api/bank/transactions', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const data = req.body;
+        const transactions = Array.isArray(data) ? data : [data];
+        const created = [];
+        
+        for (const t of transactions) {
+            const trx = new BankTransaction(t);
+            await trx.save();
+            
+            // Auto-match attempt
+            await autoMatchTransaction(trx);
+            created.push(trx);
+        }
+        
+        res.json({ success: true, count: created.length, transactions: created });
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+// Auto-match logic
+async function autoMatchTransaction(trx) {
+    try {
+        const amt = trx.amount;
+        const dateMin = new Date(trx.transactionDate);
+        dateMin.setDate(dateMin.getDate() - 3);
+        const dateMax = new Date(trx.transactionDate);
+        dateMax.setDate(dateMax.getDate() + 3);
+        
+        if (trx.type === 'CREDIT') {
+            // Match against payments received (entries / corporate)
+            // Try Corporate first
+            const corpMatch = await CorporateEntry.findOne({
+                amountReceived: amt,
+                paymentDate: { $gte: dateMin, $lte: dateMax }
+            });
+            
+            if (corpMatch) {
+                trx.matchStatus = 'Matched';
+                trx.matchedTo = 'CorporateEntry';
+                trx.matchedRefId = corpMatch._id.toString();
+                trx.matchConfidence = 90;
+                trx.category = 'Sales';
+                await trx.save();
+                return;
+            }
+            
+            // Try regular Entry
+            const entryMatch = await Entry.findOne({
+                revenue: amt,
+                createdAt: { $gte: dateMin, $lte: dateMax }
+            });
+            
+            if (entryMatch) {
+                trx.matchStatus = 'Matched';
+                trx.matchedTo = 'Entry';
+                trx.matchedRefId = entryMatch._id.toString();
+                trx.matchConfidence = 80;
+                trx.category = 'Sales';
+                await trx.save();
+                return;
+            }
+        } else {
+            // DEBIT - match against vendor payments / salaries
+            const vendor = await Vendor.findOne({
+                'payments.amount': amt,
+                'payments.paymentDate': { $gte: dateMin, $lte: dateMax }
+            });
+            
+            if (vendor) {
+                trx.matchStatus = 'Matched';
+                trx.matchedTo = 'VendorPayment';
+                trx.matchedRefId = vendor._id.toString();
+                trx.matchConfidence = 85;
+                trx.category = 'Vendor Payment';
+                await trx.save();
+                return;
+            }
+            
+            // Salary
+            const emp = await Employee.findOne({
+                'salaryPayments.netPay': amt,
+                'salaryPayments.paymentDate': { $gte: dateMin, $lte: dateMax }
+            });
+            
+            if (emp) {
+                trx.matchStatus = 'Matched';
+                trx.matchedTo = 'Salary';
+                trx.matchedRefId = emp._id.toString();
+                trx.matchConfidence = 85;
+                trx.category = 'Salary';
+                await trx.save();
+                return;
+            }
+        }
+    } catch (e) { console.warn('Auto-match failed:', e.message); }
+}
+
+// Bulk auto-match all unmatched
+app.post('/api/bank/auto-match-all', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const unmatched = await BankTransaction.find({ matchStatus: 'Unmatched' });
+        let matched = 0;
+        for (const t of unmatched) {
+            await autoMatchTransaction(t);
+            const refreshed = await BankTransaction.findById(t._id);
+            if (refreshed.matchStatus === 'Matched') matched++;
+        }
+        res.json({ success: true, total: unmatched.length, matched });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Manual match
+app.put('/api/bank/transactions/:id/match', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const trx = await BankTransaction.findById(req.params.id);
+        const { matchedTo, matchedRefId, category, notes } = req.body;
+        trx.matchStatus = 'Manual';
+        trx.matchedTo = matchedTo;
+        trx.matchedRefId = matchedRefId || '';
+        trx.category = category || trx.category;
+        trx.notes = notes || trx.notes;
+        trx.matchConfidence = 100;
+        trx.matchedAt = new Date();
+        trx.matchedBy = req.session.user.username;
+        await trx.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Mark as ignored
+app.put('/api/bank/transactions/:id/ignore', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const trx = await BankTransaction.findById(req.params.id);
+        trx.matchStatus = 'Ignored';
+        trx.notes = req.body.notes || trx.notes;
+        await trx.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Delete transaction
+app.delete('/api/bank/transactions/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await BankTransaction.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Export bank reconciliation
+app.get('/api/bank/export', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const transactions = await BankTransaction.find().sort({ transactionDate: -1 });
+        const workbook = new exceljs.Workbook();
+        
+        const sheet = workbook.addWorksheet('Bank Reconciliation');
+        sheet.columns = [
+            { header: 'Date', key: 'transactionDate', width: 14 },
+            { header: 'Description', key: 'description', width: 35 },
+            { header: 'Reference', key: 'referenceNumber', width: 18 },
+            { header: 'Type', key: 'type', width: 10 },
+            { header: 'Amount', key: 'amount', width: 12 },
+            { header: 'Balance', key: 'balance', width: 14 },
+            { header: 'Match Status', key: 'matchStatus', width: 12 },
+            { header: 'Matched To', key: 'matchedTo', width: 16 },
+            { header: 'Category', key: 'category', width: 16 },
+            { header: 'Confidence', key: 'matchConfidence', width: 10 },
+            { header: 'Notes', key: 'notes', width: 25 }
+        ];
+        
+        transactions.forEach(t => {
+            sheet.addRow({
+                transactionDate: t.transactionDate.toLocaleDateString('en-IN'),
+                description: t.description,
+                referenceNumber: t.referenceNumber,
+                type: t.type, amount: t.amount, balance: t.balance,
+                matchStatus: t.matchStatus, matchedTo: t.matchedTo,
+                category: t.category, matchConfidence: t.matchConfidence,
+                notes: t.notes
+            });
+        });
+        
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename=Bank_Reconciliation.xlsx');
+        return workbook.xlsx.write(res).then(() => res.status(200).end());
+    } catch (e) { res.status(500).send(e.message); }
+});
+
+// ============================================================
+//   CUSTOMER MASTER PAGE
+// ============================================================
+
+app.get('/customers', requireAuth, requireAdmin, async (req, res) => {
+    const customers = await Customer.find().sort({ updatedAt: -1 }).limit(500);
+    res.render('customers', { user: req.session.user, customers });
+});
+
+// ============================================================
+//   AGENT ENFORCEMENT MIDDLEWARE
+// ============================================================
+
+// All agent routes should redirect agent to mobile app paths
+// Admin shouldn't end up on agent paths
+function agentOnly(req, res, next) {
+    if (!req.session.user) return res.redirect('/');
+    if (req.session.user.role !== 'agent') return res.redirect('/admin');
+    next();
+}
+
+// ============================================================
+//   CHAT SYSTEM (admin ↔ agent communication)
+// ============================================================
+
+function makeConversationId(u1, u2) {
+    return [u1, u2].sort().join('___');
+}
+
+// Chat page (full UI)
+app.get('/chat', requireAuth, async (req, res) => {
+    const me = req.session.user.username;
+    const myRole = req.session.user.role;
+    
+    // Build conversation partners list
+    let partners = [];
+    if (myRole === 'admin') {
+        // Admin can chat with all agents (vijay, rahul) - also any registered Employee usernames
+        const employees = await Employee.find({ username: { $ne: '', $exists: true } });
+        const usernames = new Set(['vijay', 'rahul']);
+        employees.forEach(e => { if (e.username) usernames.add(e.username); });
+        partners = Array.from(usernames).filter(u => u !== me).map(u => ({ username: u, name: u, role: 'agent' }));
+    } else {
+        // Agents chat with admin
+        partners = [{ username: 'admin', name: 'Admin', role: 'admin' }];
+    }
+    
+    // Get unread counts and last messages
+    for (const p of partners) {
+        const convId = makeConversationId(me, p.username);
+        const unread = await ChatMessage.countDocuments({ 
+            conversationId: convId, 
+            receiver: me, 
+            read: false, 
+            deleted: false 
+        });
+        const lastMsg = await ChatMessage.findOne({ 
+            conversationId: convId, 
+            deleted: false 
+        }).sort({ createdAt: -1 });
+        
+        p.unread = unread;
+        p.lastMessage = lastMsg ? (lastMsg.text || (lastMsg.attachments.length > 0 ? '📎 ' + lastMsg.attachments[0].fileName : '')) : '';
+        p.lastTime = lastMsg ? lastMsg.createdAt : null;
+        p.conversationId = convId;
+    }
+    
+    // Sort by latest message
+    partners.sort((a, b) => (b.lastTime || 0) - (a.lastTime || 0));
+    
+    // If a specific chat is requested
+    const activePartner = req.query.with || (partners[0] ? partners[0].username : '');
+    let messages = [];
+    if (activePartner) {
+        const convId = makeConversationId(me, activePartner);
+        messages = await ChatMessage.find({ conversationId: convId, deleted: false })
+            .sort({ createdAt: 1 })
+            .limit(100);
+        
+        // Mark received messages as read
+        await ChatMessage.updateMany(
+            { conversationId: convId, receiver: me, read: false },
+            { $set: { read: true, readAt: new Date() } }
+        );
+    }
+    
+    res.render('chat', { 
+        user: req.session.user, 
+        partners, 
+        activePartner, 
+        messages,
+        myRole
+    });
+});
+
+// Send message API
+app.post('/api/chat/send', requireAuth, async (req, res) => {
+    try {
+        const me = req.session.user.username;
+        const { receiver, text, attachments } = req.body;
+        
+        if (!receiver) return res.status(400).json({ error: 'Receiver required' });
+        if (!text && (!attachments || attachments.length === 0)) {
+            return res.status(400).json({ error: 'Message or attachment required' });
+        }
+        
+        // Filter attachment sizes (max 5MB each)
+        const filteredAttachments = (attachments || []).filter(a => {
+            const sizeKB = (a.data || '').length * 0.75 / 1024;
+            return sizeKB <= 5120; // 5MB
+        });
+        
+        const msg = new ChatMessage({
+            conversationId: makeConversationId(me, receiver),
+            sender: me,
+            receiver,
+            text: text || '',
+            attachments: filteredAttachments
+        });
+        await msg.save();
+        
+        res.json({ success: true, message: msg });
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+// Poll new messages (long-polling alternative)
+app.get('/api/chat/messages/:partner', requireAuth, async (req, res) => {
+    try {
+        const me = req.session.user.username;
+        const partner = req.params.partner;
+        const convId = makeConversationId(me, partner);
+        
+        const since = req.query.since ? new Date(req.query.since) : null;
+        const filter = { conversationId: convId, deleted: false };
+        if (since) filter.createdAt = { $gt: since };
+        
+        const messages = await ChatMessage.find(filter).sort({ createdAt: 1 }).limit(50);
+        
+        // Auto-mark received as read
+        await ChatMessage.updateMany(
+            { conversationId: convId, receiver: me, read: false },
+            { $set: { read: true, readAt: new Date() } }
+        );
+        
+        res.json({ messages });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Get unread counts (for header badge)
+app.get('/api/chat/unread-count', requireAuth, async (req, res) => {
+    try {
+        const me = req.session.user.username;
+        const count = await ChatMessage.countDocuments({ receiver: me, read: false, deleted: false });
+        res.json({ count });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Delete message (soft delete)
+app.delete('/api/chat/message/:id', requireAuth, async (req, res) => {
+    try {
+        const me = req.session.user.username;
+        const msg = await ChatMessage.findById(req.params.id);
+        if (!msg) return res.status(404).json({ error: 'Not found' });
+        if (msg.sender !== me) return res.status(403).json({ error: 'Can only delete your own messages' });
+        msg.deleted = true;
+        await msg.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // ============ START ============

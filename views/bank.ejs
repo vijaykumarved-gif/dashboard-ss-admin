@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bank Reconciliation — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'bank' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">Bank Reconciliation</h1>
+                <p class="page-subtitle">Auto-match bank entries with CRM records</p>
+            </div>
+            <div class="flex gap-2">
+                <button class="btn btn-success" onclick="autoMatchAll()">⚡ Auto Match All</button>
+                <button class="btn btn-primary" onclick="openModal('addTrxModal')">+ Add Transaction</button>
+                <button class="btn btn-secondary" onclick="openModal('bulkModal')">📋 Bulk Paste</button>
+                <a href="/api/bank/export" class="btn btn-secondary">⬇️ Export</a>
+            </div>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Total Transactions</div>
+                <div class="stat-value"><%= stats.total %></div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Matched</div>
+                <div class="stat-value" style="color: var(--success)"><%= stats.matched %></div>
+                <div class="stat-meta"><%= stats.matchPercent %>% reconciled</div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Unmatched</div>
+                <div class="stat-value" style="color: var(--warning)"><%= stats.unmatched %></div>
+                <div class="stat-meta">Needs review</div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Total Credit (IN)</div>
+                <div class="stat-value"><%= formatINR(stats.totalCredit) %></div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Total Debit (OUT)</div>
+                <div class="stat-value" style="color: var(--danger)"><%= formatINR(stats.totalDebit) %></div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">All Transactions</div>
+                <select id="filterStatus" onchange="filterRows()" style="width: auto;">
+                    <option value="">All Status</option>
+                    <option value="Unmatched">Unmatched</option>
+                    <option value="Matched">Matched</option>
+                    <option value="Manual">Manual</option>
+                    <option value="Ignored">Ignored</option>
+                </select>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Date</th><th>Description</th><th>Ref</th><th>Type</th><th>Amount</th><th>Status</th><th>Match</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody id="trxBody">
+                        <% if (transactions.length === 0) { %>
+                            <tr><td colspan="8" class="text-center" style="padding: 60px; color: var(--text-3);">
+                                <div style="font-size: 32px;">🏦</div>
+                                <p>No transactions yet. Click <strong>+ Add Transaction</strong> to start, or <strong>📋 Bulk Paste</strong> to import.</p>
+                            </td></tr>
+                        <% } else { transactions.forEach(t => {
+                            const sc = t.matchStatus === 'Matched' || t.matchStatus === 'Manual' ? 'success' : t.matchStatus === 'Ignored' ? 'neutral' : 'warning';
+                        %>
+                            <tr class="trx-row" data-status="<%= t.matchStatus %>">
+                                <td class="text-muted"><%= formatDate(t.transactionDate) %></td>
+                                <td class="font-bold" style="font-size: 12px; max-width: 300px;"><%= t.description %></td>
+                                <td class="font-mono" style="font-size: 11px;"><%= t.referenceNumber || '-' %></td>
+                                <td><span class="badge <%= t.type === 'CREDIT' ? 'success' : 'danger' %>"><%= t.type %></span></td>
+                                <td class="font-mono font-bold" style="color: <%= t.type === 'CREDIT' ? 'var(--success)' : 'var(--danger)' %>"><%= formatINR(t.amount) %></td>
+                                <td><span class="badge <%= sc %>"><%= t.matchStatus %></span></td>
+                                <td class="text-muted" style="font-size: 11px;">
+                                    <%= t.matchedTo || '-' %>
+                                    <% if (t.matchConfidence) { %><br>(<%= t.matchConfidence %>%)<% } %>
+                                </td>
+                                <td>
+                                    <% if (t.matchStatus === 'Unmatched') { %>
+                                        <button class="btn btn-xs btn-primary" onclick='manualMatch("<%= t._id %>", <%- JSON.stringify(t.amount) %>, "<%= t.type %>")'>Match</button>
+                                        <button class="btn btn-xs btn-secondary" onclick='ignoreTrx("<%= t._id %>")'>Ignore</button>
+                                    <% } %>
+                                    <button class="btn btn-xs btn-danger" onclick='deleteTrx("<%= t._id %>")'>×</button>
+                                </td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- ADD TRANSACTION MODAL -->
+<div class="modal-overlay" id="addTrxModal">
+    <div class="modal" style="max-width: 550px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Transaction</div>
+            <button class="modal-close" onclick="closeModal('addTrxModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Date *</label>
+                    <input type="date" id="t_date" value="<%= new Date().toISOString().split('T')[0] %>">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Type *</label>
+                    <select id="t_type">
+                        <option value="CREDIT">CREDIT (IN)</option>
+                        <option value="DEBIT">DEBIT (OUT)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Amount (₹) *</label>
+                    <input type="number" id="t_amount" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Balance (after)</label>
+                    <input type="number" id="t_balance" step="0.01">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Description *</label>
+                    <input type="text" id="t_desc" placeholder="UPI/123456 ABC PRODUCTS">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Reference / UTR</label>
+                    <input type="text" id="t_ref">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Bank Name</label>
+                    <input type="text" id="t_bank" placeholder="HDFC, ICICI, etc.">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('addTrxModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveTrx()">Add & Auto-Match</button>
+        </div>
+    </div>
+</div>
+
+<!-- BULK PASTE MODAL -->
+<div class="modal-overlay" id="bulkModal">
+    <div class="modal" style="max-width: 700px;">
+        <div class="modal-header">
+            <div class="modal-title">Bulk Import Transactions</div>
+            <button class="modal-close" onclick="closeModal('bulkModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div style="background: var(--info-light); padding: 12px; border-radius: 8px; margin-bottom: 12px; font-size: 12px;">
+                💡 Paste CSV format: <strong>Date, Description, Reference, Type, Amount, Balance</strong><br>
+                Type should be CREDIT or DEBIT. Dates as YYYY-MM-DD or DD/MM/YYYY.<br>
+                Example: <code>2026-05-15, UPI/ABC Corp, UPI123, CREDIT, 5000, 50000</code>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Paste CSV data:</label>
+                <textarea id="bulk_data" rows="10" style="font-family: monospace; font-size: 12px;" placeholder="2026-05-15, ABC Corp Payment, UPI123, CREDIT, 5000, 50000
+2026-05-16, XYZ Vendor, NEFT456, DEBIT, 12000, 38000"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('bulkModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="bulkImport()">Import All</button>
+        </div>
+    </div>
+</div>
+
+<!-- MANUAL MATCH MODAL -->
+<div class="modal-overlay" id="matchModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Manual Match</div>
+            <button class="modal-close" onclick="closeModal('matchModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="m_id">
+            <div class="form-group">
+                <label class="form-label">Category *</label>
+                <select id="m_category">
+                    <option>Sales</option><option>Vendor Payment</option><option>Salary</option>
+                    <option>Misc Expense</option><option>Refund</option><option>Transfer</option>
+                    <option>Tax Payment</option><option>Office Rent</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Matched To Type</label>
+                <select id="m_type">
+                    <option value="">-- None --</option>
+                    <option>Entry</option><option>CorporateEntry</option>
+                    <option>VendorPayment</option><option>Salary</option>
+                    <option>Booking</option><option>Other</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Reference ID (optional)</label>
+                <input type="text" id="m_ref" placeholder="Entry ID or invoice number">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Notes</label>
+                <textarea id="m_notes" rows="2"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('matchModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveMatch()">Save Match</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+async function saveTrx() {
+    const data = {
+        transactionDate: document.getElementById('t_date').value,
+        type: document.getElementById('t_type').value,
+        amount: Number(document.getElementById('t_amount').value),
+        balance: Number(document.getElementById('t_balance').value || 0),
+        description: document.getElementById('t_desc').value,
+        referenceNumber: document.getElementById('t_ref').value,
+        bankName: document.getElementById('t_bank').value
+    };
+    if (!data.amount || !data.description) return showToast('Amount and description required', 'error');
+    const res = await api('/api/bank/transactions', { method: 'POST', body: JSON.stringify(data) });
+    if (res.success) { showToast('Added & matched', 'success'); setTimeout(() => location.reload(), 500); }
+}
+
+async function bulkImport() {
+    const text = document.getElementById('bulk_data').value.trim();
+    if (!text) return showToast('Paste some data', 'error');
+    
+    const lines = text.split('\n').filter(l => l.trim());
+    const transactions = [];
+    
+    for (const line of lines) {
+        const parts = line.split(',').map(p => p.trim());
+        if (parts.length < 5) continue;
+        
+        const [dateStr, desc, ref, type, amount, balance] = parts;
+        let date;
+        if (dateStr.includes('/')) {
+            const [d, m, y] = dateStr.split('/');
+            date = new Date(y, m-1, d);
+        } else {
+            date = new Date(dateStr);
+        }
+        
+        if (isNaN(date.getTime())) continue;
+        
+        transactions.push({
+            transactionDate: date.toISOString(),
+            description: desc,
+            referenceNumber: ref,
+            type: type.toUpperCase(),
+            amount: Number(amount.replace(/[^0-9.-]/g, '')),
+            balance: Number((balance || '0').replace(/[^0-9.-]/g, ''))
+        });
+    }
+    
+    if (transactions.length === 0) return showToast('No valid rows found', 'error');
+    
+    const res = await api('/api/bank/transactions', { method: 'POST', body: JSON.stringify(transactions) });
+    if (res.success) { showToast(`Imported ${res.count} transactions`, 'success'); setTimeout(() => location.reload(), 800); }
+}
+
+async function autoMatchAll() {
+    if (!confirm('Run auto-match on all unmatched transactions?')) return;
+    showToast('Running auto-match...', 'info');
+    const res = await api('/api/bank/auto-match-all', { method: 'POST' });
+    if (res.success) { showToast(`Matched ${res.matched} of ${res.total}`, 'success'); setTimeout(() => location.reload(), 800); }
+}
+
+function manualMatch(id, amount, type) {
+    document.getElementById('m_id').value = id;
+    document.getElementById('m_category').value = type === 'CREDIT' ? 'Sales' : 'Vendor Payment';
+    openModal('matchModal');
+}
+
+async function saveMatch() {
+    const id = document.getElementById('m_id').value;
+    const data = {
+        category: document.getElementById('m_category').value,
+        matchedTo: document.getElementById('m_type').value,
+        matchedRefId: document.getElementById('m_ref').value,
+        notes: document.getElementById('m_notes').value
+    };
+    const res = await api(`/api/bank/transactions/${id}/match`, { method: 'PUT', body: JSON.stringify(data) });
+    if (res.success) { showToast('Matched', 'success'); setTimeout(() => location.reload(), 500); }
+}
+
+async function ignoreTrx(id) {
+    if (!confirm('Mark as ignored?')) return;
+    const res = await api(`/api/bank/transactions/${id}/ignore`, { method: 'PUT', body: JSON.stringify({}) });
+    if (res.success) { setTimeout(() => location.reload(), 400); }
+}
+
+async function deleteTrx(id) {
+    if (!confirm('Delete this transaction?')) return;
+    const res = await api(`/api/bank/transactions/${id}`, { method: 'DELETE' });
+    if (res.success) { setTimeout(() => location.reload(), 400); }
+}
+
+function filterRows() {
+    const s = document.getElementById('filterStatus').value;
+    document.querySelectorAll('.trx-row').forEach(r => {
+        r.style.display = (!s || r.dataset.status === s) ? '' : 'none';
+    });
+}
+</script>
+</body>
+</html>

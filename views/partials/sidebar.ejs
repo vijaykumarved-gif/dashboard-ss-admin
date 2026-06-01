@@ -1,10 +1,20 @@
 <aside class="sidebar">
     <div class="sidebar-brand">
-        <div class="brand-logo">S</div>
+        <img src="/logo-icon.png" alt="Searvator" style="width: 40px; height: 40px; border-radius: 10px; object-fit: contain; background: white; padding: 4px;">
         <div>
             <div class="brand-name">Searvator</div>
-            <div class="brand-tagline">CRM Suite</div>
+            <div class="brand-tagline">Search and Facilitator</div>
         </div>
+    </div>
+    
+    <!-- SMART SEARCH -->
+    <div style="padding: 8px 16px 4px;">
+        <div style="position: relative;">
+            <input type="text" id="smartSearch" placeholder="🔍 Search anything..." autocomplete="off"
+                style="width: 100%; padding: 8px 12px; font-size: 13px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);">
+            <div id="searchResults" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid var(--border); border-radius: 10px; margin-top: 4px; max-height: 400px; overflow-y: auto; box-shadow: 0 4px 16px rgba(0,0,0,0.12); z-index: 1000;"></div>
+        </div>
+        <div style="font-size: 9px; color: var(--text-3); margin-top: 4px; font-style: italic;">Try: salary, vendor, stock, due...</div>
     </div>
     
     <div class="nav-section-title">Overview</div>
@@ -66,6 +76,24 @@
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
         Reports & Analytics
     </a>
+    <a href="/customers" class="nav-item <%= activePage === 'customers' ? 'active' : '' %>">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+        Customer Master
+    </a>
+    <a href="/chat" class="nav-item <%= activePage === 'chat' ? 'active' : '' %>" id="chatNavItem">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+        Chat <span id="chatBadge" style="display:none; background: var(--danger); color: white; font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-left: 6px;"></span>
+    </a>
+    
+    <div class="nav-section-title">Finance</div>
+    <a href="/hr" class="nav-item <%= activePage === 'hr' ? 'active' : '' %>">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+        HR & Salary
+    </a>
+    <a href="/bank" class="nav-item <%= activePage === 'bank' ? 'active' : '' %>">
+        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+        Bank Reconciliation
+    </a>
     
     <div class="sidebar-footer">
         <div class="user-card">
@@ -104,4 +132,90 @@ document.querySelectorAll('.sidebar .nav-item').forEach(a => {
         }
     });
 });
+
+// === SMART SEARCH ===
+const searchInput = document.getElementById('smartSearch');
+const searchResults = document.getElementById('searchResults');
+let searchTimer = null;
+
+if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+        const q = e.target.value.trim();
+        clearTimeout(searchTimer);
+        
+        if (q.length < 2) {
+            searchResults.style.display = 'none';
+            searchResults.innerHTML = '';
+            return;
+        }
+        
+        searchTimer = setTimeout(async () => {
+            try {
+                const res = await fetch('/api/search?q=' + encodeURIComponent(q));
+                const data = await res.json();
+                
+                let html = '';
+                
+                if (data.shortcuts && data.shortcuts.length > 0) {
+                    html += '<div style="padding: 8px 12px; background: #f0f9ff; font-size: 10px; font-weight: 700; color: #1e40af; text-transform: uppercase;">Quick Links</div>';
+                    data.shortcuts.forEach(s => {
+                        html += `<a href="${s.url}" style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; text-decoration: none; color: #0f172a; border-bottom: 1px solid #f1f5f9; font-size: 13px;">
+                            <span style="font-size: 18px;">${s.icon}</span>
+                            <span style="font-weight: 600;">${s.label}</span>
+                        </a>`;
+                    });
+                }
+                
+                if (data.results && data.results.length > 0) {
+                    html += '<div style="padding: 8px 12px; background: #f8fafc; font-size: 10px; font-weight: 700; color: #475569; text-transform: uppercase;">Results</div>';
+                    data.results.forEach(r => {
+                        html += `<a href="${r.url}" style="display: flex; align-items: start; gap: 8px; padding: 8px 12px; text-decoration: none; color: #0f172a; border-bottom: 1px solid #f1f5f9;">
+                            <span style="font-size: 18px;">${r.icon}</span>
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="font-weight: 600; font-size: 13px;">${r.title}</div>
+                                <div style="font-size: 11px; color: #64748b;">${r.subtitle}</div>
+                            </div>
+                            <span style="font-size: 9px; color: #94a3b8; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; flex-shrink: 0;">${r.type}</span>
+                        </a>`;
+                    });
+                }
+                
+                if (!html) {
+                    html = '<div style="padding: 20px; text-align: center; color: #94a3b8; font-size: 13px;">No results for "' + q + '"</div>';
+                }
+                
+                searchResults.innerHTML = html;
+                searchResults.style.display = 'block';
+            } catch (e) {
+                console.error('Search failed', e);
+            }
+        }, 250);
+    });
+    
+    // Hide on outside click
+    document.addEventListener('click', (e) => {
+        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+            searchResults.style.display = 'none';
+        }
+    });
+}
+
+// === CHAT UNREAD BADGE POLLING ===
+async function refreshChatBadge() {
+    try {
+        const res = await fetch('/api/chat/unread-count');
+        const data = await res.json();
+        const badge = document.getElementById('chatBadge');
+        if (badge) {
+            if (data.count > 0) {
+                badge.textContent = data.count;
+                badge.style.display = 'inline-block';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+    } catch (e) { /* silent */ }
+}
+refreshChatBadge();
+setInterval(refreshChatBadge, 10000);
 </script>

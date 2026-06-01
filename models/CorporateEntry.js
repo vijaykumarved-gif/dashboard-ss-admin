@@ -120,4 +120,11 @@ const corporateEntrySchema = new mongoose.Schema({
     lastModifiedBy: { type: String, default: '' }
 }, { timestamps: true });
 
+
+// Performance indexes
+corporateEntrySchema.index({ agentName: 1, createdAt: -1 });
+corporateEntrySchema.index({ mobileNumber: 1 });
+corporateEntrySchema.index({ createdAt: -1 });
+corporateEntrySchema.index({ paymentStatus: 1 });
+
 module.exports = mongoose.model('CorporateEntry', corporateEntrySchema);

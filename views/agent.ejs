@@ -181,7 +181,7 @@
     <!-- TOP BAR -->
     <div class="top-bar">
         <div class="top-bar-brand">
-            <div class="top-bar-logo">S</div>
+            <img src="/logo-icon.png" alt="S" class="top-bar-logo" style="object-fit: contain; background: white; padding: 2px;">
             <div>
                 <div style="font-weight: 800; font-size: 16px; letter-spacing: -0.02em;">Searvator</div>
                 <div style="font-size: 11px; color: var(--text-3); text-transform: uppercase; font-weight: 600;">Agent Panel</div>
@@ -189,6 +189,7 @@
         </div>
         <div style="display: flex; align-items: center; gap: 12px;">
             <a href="/agent/corporate/new" class="btn btn-sm" style="background: var(--success); color: white;">🏢 New Corporate</a>
+            <a href="/chat" class="btn btn-sm" style="background: #25D366; color: white; position: relative;">💬 Chat <span id="chatTopBadge" style="display:none; position:absolute; top:-4px; right:-4px; background: var(--danger); color: white; font-size: 9px; padding: 1px 5px; border-radius: 10px;"></span></a>
             <a href="/bookings" class="btn btn-sm" style="background: var(--warning); color: white;">📅 Bookings</a>
             <a href="/agent/amc" class="btn btn-sm" style="background: var(--primary); color: white;">📅 My AMC Visits</a>
             <div style="text-align: right;">
@@ -541,6 +542,21 @@
             }
         }
     });
+</script>
+<script>
+async function refreshTopBadge() {
+    try {
+        const res = await fetch('/api/chat/unread-count');
+        const data = await res.json();
+        const b = document.getElementById('chatTopBadge');
+        if (b) {
+            if (data.count > 0) { b.textContent = data.count; b.style.display = 'inline-block'; }
+            else b.style.display = 'none';
+        }
+    } catch (e) {}
+}
+refreshTopBadge();
+setInterval(refreshTopBadge, 10000);
 </script>
 <%- include('partials/mobile-bottom-nav', { activeNav: 'home' }) %>
 <%- include('partials/pwa-banner') %>

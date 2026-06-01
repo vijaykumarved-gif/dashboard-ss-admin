@@ -90,4 +90,9 @@ const vendorSchema = new mongoose.Schema({
     notes: { type: String, default: '' }
 }, { timestamps: true });
 
+
+// Performance indexes
+vendorSchema.index({ vendorName: 1 });
+vendorSchema.index({ status: 1 });
+
 module.exports = mongoose.model('Vendor', vendorSchema);

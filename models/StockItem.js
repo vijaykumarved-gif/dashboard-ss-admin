@@ -63,4 +63,9 @@ stockItemSchema.virtual('totalValue').get(function() {
 stockItemSchema.set('toJSON', { virtuals: true });
 stockItemSchema.set('toObject', { virtuals: true });
 
+
+// Performance indexes
+stockItemSchema.index({ productName: 1 });
+stockItemSchema.index({ category: 1, productName: 1 });
+
 module.exports = mongoose.model('StockItem', stockItemSchema);

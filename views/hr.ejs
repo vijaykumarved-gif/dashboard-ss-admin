@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>HR Management — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'hr' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">HR & Salary Management</h1>
+                <p class="page-subtitle">Employees · Attendance · Payroll · Advances</p>
+            </div>
+            <button class="btn btn-primary" onclick="openModal('newEmpModal')">+ Add Employee</button>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Total Employees</div>
+                <div class="stat-value"><%= stats.totalEmployees %></div>
+                <div class="stat-meta"><%= stats.activeEmployees %> active</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Today Present</div>
+                <div class="stat-value" style="color: var(--success)"><%= stats.todayPresent %></div>
+                <div class="stat-meta">Out of <%= stats.activeEmployees %></div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Total Salary (This Month)</div>
+                <div class="stat-value"><%= formatINR(stats.totalSalaryThisMonth) %></div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Pending Advances</div>
+                <div class="stat-value" style="color: var(--danger)"><%= formatINR(stats.totalAdvancesPending) %></div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header"><div class="card-title">All Employees</div></div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Code</th><th>Name</th><th>Role</th><th>Username</th>
+                            <th>Mobile</th><th>Salary</th><th>Incentive %</th><th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% if (employees.length === 0) { %>
+                            <tr><td colspan="8" class="text-center" style="padding: 60px; color: var(--text-3);">
+                                <div style="font-size: 32px;">👥</div>
+                                <p>No employees yet. Click <strong>+ Add Employee</strong>.</p>
+                            </td></tr>
+                        <% } else { employees.forEach(e => {
+                            const sc = e.status === 'Active' ? 'success' : e.status === 'Inactive' ? 'warning' : 'danger';
+                        %>
+                            <tr style="cursor: pointer;" onclick="location.href='/hr/employee/<%= e._id %>'">
+                                <td class="font-mono font-bold"><%= e.employeeCode %></td>
+                                <td>
+                                    <div class="font-bold"><%= e.name %></div>
+                                    <% if (e.department) { %><div class="text-muted" style="font-size: 11px;"><%= e.department %></div><% } %>
+                                </td>
+                                <td><span class="badge info"><%= e.role %></span></td>
+                                <td class="font-mono"><%= e.username || '-' %></td>
+                                <td class="font-mono"><%= e.mobile %></td>
+                                <td class="font-mono font-bold"><%= formatINR(e.baseSalary) %></td>
+                                <td><%= e.incentivePercent %>%</td>
+                                <td><span class="badge <%= sc %>"><%= e.status %></span></td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<div class="modal-overlay" id="newEmpModal">
+    <div class="modal" style="max-width: 700px;">
+        <div class="modal-header">
+            <div class="modal-title">Add New Employee</div>
+            <button class="modal-close" onclick="closeModal('newEmpModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Name *</label>
+                    <input type="text" id="e_name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">CRM Username</label>
+                    <input type="text" id="e_username" placeholder="vijay / rahul">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Role</label>
+                    <select id="e_role">
+                        <option>Engineer</option><option>Admin</option><option>Manager</option><option>Helper</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Department</label>
+                    <input type="text" id="e_dept" value="Service">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Mobile *</label>
+                    <input type="tel" id="e_mobile">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <input type="email" id="e_email">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Joining Date</label>
+                    <input type="date" id="e_joining" value="<%= new Date().toISOString().split('T')[0] %>">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Base Salary (₹)</label>
+                    <input type="number" id="e_salary" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Incentive %</label>
+                    <input type="number" id="e_incentive" value="0" step="0.1">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Leaves/Month</label>
+                    <input type="number" id="e_leaves" value="2">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Address</label>
+                    <textarea id="e_addr" rows="2"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Aadhaar</label>
+                    <input type="text" id="e_aadhaar">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">PAN</label>
+                    <input type="text" id="e_pan">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Bank A/C</label>
+                    <input type="text" id="e_acc">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">IFSC</label>
+                    <input type="text" id="e_ifsc">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('newEmpModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="createEmp()">Save Employee</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+async function createEmp() {
+    const data = {
+        name: document.getElementById('e_name').value,
+        username: document.getElementById('e_username').value,
+        role: document.getElementById('e_role').value,
+        department: document.getElementById('e_dept').value,
+        mobile: document.getElementById('e_mobile').value,
+        email: document.getElementById('e_email').value,
+        joiningDate: document.getElementById('e_joining').value,
+        baseSalary: Number(document.getElementById('e_salary').value),
+        incentivePercent: Number(document.getElementById('e_incentive').value),
+        leavesPerMonth: Number(document.getElementById('e_leaves').value),
+        address: document.getElementById('e_addr').value,
+        aadhaarNumber: document.getElementById('e_aadhaar').value,
+        panNumber: document.getElementById('e_pan').value,
+        accountNumber: document.getElementById('e_acc').value,
+        ifscCode: document.getElementById('e_ifsc').value
+    };
+    if (!data.name || !data.mobile) return showToast('Name & mobile required', 'error');
+    const res = await api('/api/hr/employees', { method: 'POST', body: JSON.stringify(data) });
+    if (res.success) { showToast('Employee added', 'success'); setTimeout(() => location.reload(), 500); }
+}
+</script>
+</body>
+</html>
