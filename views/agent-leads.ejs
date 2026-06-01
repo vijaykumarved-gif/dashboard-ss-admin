@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>My Leads — <%= agentName.toUpperCase() %></title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+    <style>
+        .lead-card {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px;
+            margin-bottom: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+            position: relative;
+        }
+        .lead-card.new-lead {
+            border-left: 4px solid #ef4444;
+            background: linear-gradient(135deg, #fef2f2, #ffffff);
+        }
+        .lead-card.in-progress {
+            border-left: 4px solid #3b82f6;
+        }
+        .lead-card.won {
+            border-left: 4px solid #10b981;
+            background: linear-gradient(135deg, #f0fdf4, #ffffff);
+        }
+        .new-badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: #ef4444;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 800;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+        }
+        .progress-bar {
+            height: 6px;
+            background: var(--surface-2);
+            border-radius: 999px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #10b981);
+            border-radius: 999px;
+            transition: width 0.3s;
+        }
+        .lead-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            gap: 8px;
+        }
+        .meta-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            background: var(--surface-2);
+            color: var(--text-2);
+        }
+        .agent-header-bar {
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            color: white;
+            padding: 16px;
+            border-radius: 14px;
+            margin-bottom: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .tab-row {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 12px;
+            overflow-x: auto;
+        }
+        .tab-pill {
+            padding: 8px 14px;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .tab-pill.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+    </style>
+</head>
+<body>
+<div class="agent-shell">
+    <div class="agent-header-bar">
+        <div>
+            <a href="/agent" style="color: rgba(255,255,255,0.7); text-decoration: none; font-size: 12px;">← Dashboard</a>
+            <h1 style="font-size: 20px; font-weight: 800; margin-top: 4px;">🎯 My Leads</h1>
+            <div style="font-size: 12px; opacity: 0.8;"><%= agentName.toUpperCase() %> · <%= stats.total %> total leads</div>
+        </div>
+        <div style="text-align: right;">
+            <% if (stats.new > 0) { %>
+                <div style="background: #ef4444; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 800; animation: pulse 2s infinite;">
+                    🔔 <%= stats.new %> NEW
+                </div>
+            <% } %>
+        </div>
+    </div>
+    
+    <!-- Stats Row -->
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px;">
+        <div style="background: white; padding: 12px; border-radius: 12px; text-align: center; border: 1px solid var(--border);">
+            <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase; font-weight: 700;">New</div>
+            <div style="font-size: 22px; font-weight: 800; color: #ef4444;"><%= stats.new %></div>
+        </div>
+        <div style="background: white; padding: 12px; border-radius: 12px; text-align: center; border: 1px solid var(--border);">
+            <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase; font-weight: 700;">In Progress</div>
+            <div style="font-size: 22px; font-weight: 800; color: #3b82f6;"><%= stats.inProgress %></div>
+        </div>
+        <div style="background: white; padding: 12px; border-radius: 12px; text-align: center; border: 1px solid var(--border);">
+            <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase; font-weight: 700;">Won</div>
+            <div style="font-size: 22px; font-weight: 800; color: #10b981;"><%= stats.won %></div>
+        </div>
+        <div style="background: white; padding: 12px; border-radius: 12px; text-align: center; border: 1px solid var(--border);">
+            <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase; font-weight: 700;">Earned</div>
+            <div style="font-size: 14px; font-weight: 800; color: #10b981; line-height: 1.6;"><%= formatINR(stats.wonValue) %></div>
+        </div>
+    </div>
+    
+    <!-- Tabs -->
+    <div class="tab-row">
+        <button class="tab-pill active" onclick="filterTab('all', this)">All (<%= stats.total %>)</button>
+        <button class="tab-pill" onclick="filterTab('new', this)">🔔 New (<%= stats.new %>)</button>
+        <button class="tab-pill" onclick="filterTab('progress', this)">⏳ In Progress (<%= stats.inProgress %>)</button>
+        <button class="tab-pill" onclick="filterTab('won', this)">🏆 Won (<%= stats.won %>)</button>
+    </div>
+    
+    <!-- Leads list -->
+    <div id="leadsList">
+        <% if (leads.length === 0) { %>
+            <div style="background: white; padding: 60px 20px; border-radius: 14px; text-align: center;">
+                <div style="font-size: 40px;">🎯</div>
+                <div style="font-weight: 700; margin-top: 10px;">No leads assigned yet</div>
+                <div style="font-size: 12px; color: var(--text-3); margin-top: 4px;">When admin assigns leads, they'll appear here</div>
+            </div>
+        <% } else { leads.forEach(l => {
+            const isNew = !l.agentSeenAt && !['Won', 'Lost'].includes(l.status);
+            const isWon = l.status === 'Won';
+            const isInProgress = l.agentSeenAt && !['Won', 'Lost'].includes(l.status);
+            const cardClass = isNew ? 'new-lead' : isWon ? 'won' : 'in-progress';
+            const filterTag = isNew ? 'new' : isWon ? 'won' : isInProgress ? 'progress' : 'all';
+            const progress = l.progressPercent || 5;
+        %>
+            <a href="/leads/<%= l._id %>" class="lead-card <%= cardClass %>" data-filter="<%= filterTag %>">
+                <% if (isNew) { %><div class="new-badge">🔔 NEW</div><% } %>
+                
+                <div class="lead-header">
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="font-weight: 800; font-size: 15px;"><%= l.leadName %></div>
+                        <% if (l.companyName) { %>
+                            <div style="font-size: 11px; color: var(--text-3);"><%= l.companyName %></div>
+                        <% } %>
+                    </div>
+                    <div style="text-align: right; flex-shrink: 0;">
+                        <div style="font-weight: 800; font-size: 14px; color: var(--success);"><%= formatINR(l.estimatedValue) %></div>
+                        <% if (l.priority === 'High') { %>
+                            <span class="badge danger" style="font-size: 9px; margin-top: 2px;">HIGH PRIORITY</span>
+                        <% } %>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 4px; flex-wrap: wrap; margin: 8px 0;">
+                    <span class="meta-pill">📞 <%= l.mobile %></span>
+                    <span class="meta-pill"><%= l.leadNumber %></span>
+                    <% (l.interestedIn || []).slice(0, 3).forEach(i => { %>
+                        <span class="meta-pill" style="background: #eff6ff; color: #1e40af;"><%= i %></span>
+                    <% }) %>
+                </div>
+                
+                <% if (l.requirement) { %>
+                    <div style="font-size: 12px; color: var(--text-2); margin: 6px 0; line-height: 1.4;">
+                        💬 <%= l.requirement.length > 100 ? l.requirement.slice(0, 100) + '...' : l.requirement %>
+                    </div>
+                <% } %>
+                
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: <%= progress %>%;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+                    <span class="badge <%= isWon ? 'success' : isNew ? 'danger' : 'info' %>" style="font-size: 10px;"><%= l.status %></span>
+                    <span style="font-size: 10px; color: var(--text-3);">
+                        <%= progress %>% complete · 
+                        <%= l.vendorEstimates ? l.vendorEstimates.length : 0 %> quote(s) · 
+                        <%= l.progress ? l.progress.length : 0 %> activities
+                    </span>
+                </div>
+            </a>
+        <% }) } %>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+function filterTab(filter, btn) {
+    document.querySelectorAll('.tab-pill').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.lead-card').forEach(c => {
+        if (filter === 'all' || c.dataset.filter === filter) {
+            c.style.display = '';
+        } else {
+            c.style.display = 'none';
+        }
+    });
+}
+</script>
+
+<%- include('partials/mobile-bottom-nav', { activeNav: 'leads' }) %>
+<%- include('partials/pwa-banner') %>
+</body>
+</html>

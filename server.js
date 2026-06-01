@@ -127,13 +127,27 @@ app.get('/agent', requireAuth, async (req, res) => {
     const orders = await Order.find({
         $or: [{ createdBy: req.session.user.username }, { assignedAgent: req.session.user.username }]
     }).sort({ createdAt: -1 });
+    
+    // === Leads info ===
+    const myNewLeads = await Lead.find({ 
+        assignedTo: req.session.user.username, 
+        agentSeenAt: null,
+        status: { $nin: ['Won', 'Lost'] }
+    }).sort({ createdAt: -1 }).limit(5).lean();
+    const myInProgressLeads = await Lead.countDocuments({
+        assignedTo: req.session.user.username,
+        agentSeenAt: { $ne: null },
+        status: { $nin: ['Won', 'Lost'] }
+    });
 
     res.render('agent', {
         agentName: req.session.user.username,
         entries,
         pendingJobs,
         orders,
-        selectedDate: req.query.date || ''
+        selectedDate: req.query.date || '',
+        myNewLeads,
+        myInProgressLeads
     });
 });
 
@@ -2234,21 +2248,30 @@ app.post('/api/tools/:id/maintenance', requireAuth, requireAdmin, async (req, re
 // ======================== LEAD / ENQUIRY MANAGEMENT ========================
 
 app.get('/leads', requireAuth, async (req, res) => {
-    const leads = await Lead.find().sort({ createdAt: -1 }).limit(200).lean();
+    const me = req.session.user.username;
+    const isAdmin = req.session.user.role === 'admin';
+    
+    // Filter for agent
+    const filter = isAdmin ? {} : { assignedTo: me };
+    const leads = await Lead.find(filter).sort({ createdAt: -1 }).limit(200).lean();
     
     const stats = {
         total: leads.length,
         new: leads.filter(l => l.status === 'New').length,
         contacted: leads.filter(l => l.status === 'Contacted').length,
-        meeting: leads.filter(l => l.status === 'Meeting Scheduled').length,
+        meeting: leads.filter(l => ['Meeting Scheduled', 'Site Visit Done'].includes(l.status)).length,
+        vendorQuoting: leads.filter(l => ['Vendor Quotes Pending', 'Vendor Quotes Received'].includes(l.status)).length,
         quoteSent: leads.filter(l => l.status === 'Quote Sent').length,
         won: leads.filter(l => l.status === 'Won').length,
         lost: leads.filter(l => l.status === 'Lost').length,
         totalValue: leads.reduce((s, l) => s + (l.estimatedValue || 0), 0),
-        wonValue: leads.filter(l => l.status === 'Won').reduce((s, l) => s + (l.estimatedValue || 0), 0)
+        wonValue: leads.filter(l => l.status === 'Won').reduce((s, l) => s + (l.wonAmount || l.estimatedValue || 0), 0),
+        // Agent specific
+        myNew: leads.filter(l => l.assignedTo === me && !l.agentSeenAt && !['Won', 'Lost'].includes(l.status)).length,
+        inProgress: leads.filter(l => l.agentSeenAt && !['Won', 'Lost'].includes(l.status)).length
     };
     
-    // Today's follow-ups
+    // Today's follow-ups (lean objects, no toObject)
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
     const todayFollowUps = [];
@@ -2256,7 +2279,7 @@ app.get('/leads', requireAuth, async (req, res) => {
         (lead.followUps || []).forEach(f => {
             const fd = new Date(f.date);
             if (fd >= today && fd < tomorrow && f.status === 'Scheduled') {
-                todayFollowUps.push({ ...f.toObject(), leadId: lead._id, leadName: lead.leadName, mobile: lead.mobile });
+                todayFollowUps.push({ ...f, leadId: lead._id, leadName: lead.leadName, mobile: lead.mobile });
             }
         });
     });
@@ -2264,10 +2287,47 @@ app.get('/leads', requireAuth, async (req, res) => {
     res.render('leads', { user: req.session.user, leads, stats, todayFollowUps });
 });
 
+// Agent-specific leads page
+app.get('/agent/leads', requireAuth, async (req, res) => {
+    if (req.session.user.role !== 'agent') return res.redirect('/leads');
+    const me = req.session.user.username;
+    
+    const leads = await Lead.find({ assignedTo: me }).sort({ createdAt: -1 }).limit(100).lean();
+    
+    const stats = {
+        total: leads.length,
+        new: leads.filter(l => !l.agentSeenAt && !['Won', 'Lost'].includes(l.status)).length,
+        inProgress: leads.filter(l => l.agentSeenAt && !['Won', 'Lost'].includes(l.status)).length,
+        won: leads.filter(l => l.status === 'Won').length,
+        lost: leads.filter(l => l.status === 'Lost').length,
+        myNew: 0,
+        contacted: 0, meeting: 0, vendorQuoting: 0, quoteSent: 0,
+        totalValue: leads.reduce((s, l) => s + (l.estimatedValue || 0), 0),
+        wonValue: leads.filter(l => l.status === 'Won').reduce((s, l) => s + (l.wonAmount || 0), 0)
+    };
+    
+    res.render('agent-leads', { user: req.session.user, agentName: me, leads, stats });
+});
+
 app.get('/leads/:id', requireAuth, async (req, res) => {
     try {
         const lead = await Lead.findById(req.params.id);
         if (!lead) return res.status(404).send('Lead not found');
+        
+        // Auto-mark seen if agent opens
+        if (req.session.user.role === 'agent' && 
+            lead.assignedTo === req.session.user.username && 
+            !lead.agentSeenAt) {
+            lead.agentSeenAt = new Date();
+            lead.agentNotified = true;
+            lead.progress.push({
+                action: 'Lead Opened by Agent',
+                description: `${req.session.user.username.toUpperCase()} acknowledged this lead`,
+                actor: req.session.user.username
+            });
+            await lead.save();
+        }
+        
         res.render('lead-detail', { user: req.session.user, lead });
     } catch (e) { res.status(500).send(e.message); }
 });
@@ -2277,7 +2337,31 @@ app.post('/api/leads', requireAuth, async (req, res) => {
         const data = req.body;
         const count = await Lead.countDocuments();
         data.leadNumber = `SEA-L-${String(count + 1).padStart(4, '0')}`;
+        
+        // Auto-log creation
+        data.progress = [{
+            action: 'Lead Created',
+            description: `New lead from ${data.source || 'Direct'}. Interested in: ${(data.interestedIn || []).join(', ')}`,
+            actor: req.session.user.username,
+            statusChange: 'New'
+        }];
+        
+        // If assigned, log assignment + set notification
+        if (data.assignedTo) {
+            data.assignedAt = new Date();
+            data.assignedBy = req.session.user.username;
+            data.agentNotified = false;
+            data.progress.push({
+                action: 'Assigned to Agent',
+                description: `Lead assigned to ${data.assignedTo.toUpperCase()} by ${req.session.user.username}`,
+                actor: req.session.user.username
+            });
+        }
+        
+        data.lastActivityAt = new Date();
+        
         const lead = new Lead(data);
+        lead.progressPercent = lead.computeProgress();
         await lead.save();
         res.json({ success: true, lead });
     } catch (e) { res.status(400).json({ error: e.message }); }
@@ -2285,15 +2369,277 @@ app.post('/api/leads', requireAuth, async (req, res) => {
 
 app.put('/api/leads/:id', requireAuth, async (req, res) => {
     try {
-        const lead = await Lead.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        const lead = await Lead.findById(req.params.id);
+        if (!lead) return res.status(404).json({ error: 'Not found' });
+        
+        const editor = req.session.user.username;
+        const updates = req.body;
+        
+        // Track status change
+        if (updates.status && updates.status !== lead.status) {
+            lead.progress.push({
+                action: 'Status Updated',
+                description: `${lead.status} → ${updates.status}`,
+                actor: editor,
+                statusChange: updates.status
+            });
+        }
+        
+        // Track assignment change
+        if (updates.assignedTo !== undefined && updates.assignedTo !== lead.assignedTo) {
+            lead.progress.push({
+                action: 'Reassigned',
+                description: `Now assigned to ${(updates.assignedTo || 'Unassigned').toUpperCase()}`,
+                actor: editor
+            });
+            if (updates.assignedTo) {
+                lead.assignedAt = new Date();
+                lead.assignedBy = editor;
+                lead.agentNotified = false;
+                lead.agentSeenAt = null;
+            }
+        }
+        
+        Object.assign(lead, updates);
+        lead.lastActivityAt = new Date();
+        lead.progressPercent = lead.computeProgress();
+        
+        await lead.save();
         res.json({ success: true, lead });
-    } catch (e) { res.status(400).json({ error: e.message }); }
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
 });
 
 app.delete('/api/leads/:id', requireAuth, requireAdmin, async (req, res) => {
     try {
         await Lead.findByIdAndDelete(req.params.id);
         res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// === Mark lead as SEEN by agent (notification cleared) ===
+app.post('/api/leads/:id/seen', requireAuth, async (req, res) => {
+    try {
+        const lead = await Lead.findById(req.params.id);
+        if (!lead) return res.status(404).json({ error: 'Not found' });
+        
+        if (lead.assignedTo === req.session.user.username && !lead.agentSeenAt) {
+            lead.agentSeenAt = new Date();
+            lead.agentNotified = true;
+            lead.progress.push({
+                action: 'Lead Opened by Agent',
+                description: `${req.session.user.username.toUpperCase()} acknowledged this lead`,
+                actor: req.session.user.username
+            });
+            await lead.save();
+        }
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// === VENDOR ESTIMATES (agent gets quotes from vendors) ===
+app.post('/api/leads/:id/vendor-estimates', requireAuth, async (req, res) => {
+    try {
+        const lead = await Lead.findById(req.params.id);
+        if (!lead) return res.status(404).json({ error: 'Not found' });
+        
+        const data = req.body;
+        data.addedBy = req.session.user.username;
+        data.totalPrice = (Number(data.unitPrice) || 0) * (Number(data.quantity) || 1);
+        
+        lead.vendorEstimates.push(data);
+        
+        // Log progress
+        lead.progress.push({
+            action: 'Vendor Estimate Added',
+            description: `${data.vendorName}: ₹${data.totalPrice} (${data.productDetails || 'no details'})`,
+            actor: req.session.user.username
+        });
+        
+        // Auto-advance status if first estimate
+        if (lead.vendorEstimates.length === 1 && ['New', 'Contacted', 'Site Visit Done'].includes(lead.status)) {
+            lead.status = 'Vendor Quotes Received';
+        }
+        
+        lead.lastActivityAt = new Date();
+        lead.progressPercent = lead.computeProgress();
+        await lead.save();
+        res.json({ success: true, lead });
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+app.put('/api/leads/:id/vendor-estimates/:vId', requireAuth, async (req, res) => {
+    try {
+        const lead = await Lead.findById(req.params.id);
+        const est = lead.vendorEstimates.id(req.params.vId);
+        if (!est) return res.status(404).json({ error: 'Not found' });
+        
+        // If marking as selected, unselect others
+        if (req.body.isSelected === true) {
+            lead.vendorEstimates.forEach(v => { v.isSelected = false; });
+            lead.progress.push({
+                action: 'Vendor Selected',
+                description: `${est.vendorName} chosen for this deal`,
+                actor: req.session.user.username
+            });
+        }
+        
+        Object.assign(est, req.body);
+        if (req.body.unitPrice !== undefined || req.body.quantity !== undefined) {
+            est.totalPrice = (Number(est.unitPrice) || 0) * (Number(est.quantity) || 1);
+        }
+        
+        lead.lastActivityAt = new Date();
+        await lead.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.delete('/api/leads/:id/vendor-estimates/:vId', requireAuth, async (req, res) => {
+    try {
+        const lead = await Lead.findById(req.params.id);
+        lead.vendorEstimates.id(req.params.vId).deleteOne();
+        await lead.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// === ADD PROGRESS NOTE (any action by agent/admin) ===
+app.post('/api/leads/:id/progress', requireAuth, async (req, res) => {
+    try {
+        const lead = await Lead.findById(req.params.id);
+        if (!lead) return res.status(404).json({ error: 'Not found' });
+        
+        lead.progress.push({
+            action: req.body.action || 'Note Added',
+            description: req.body.description || '',
+            actor: req.session.user.username,
+            photo: req.body.photo || ''
+        });
+        lead.lastActivityAt = new Date();
+        await lead.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// === SEND FINAL QUOTE TO CUSTOMER ===
+app.post('/api/leads/:id/send-quote', requireAuth, async (req, res) => {
+    try {
+        const lead = await Lead.findById(req.params.id);
+        if (!lead) return res.status(404).json({ error: 'Not found' });
+        
+        lead.finalQuoteAmount = Number(req.body.amount) || 0;
+        lead.finalQuoteNotes = req.body.notes || '';
+        lead.finalQuotePhoto = req.body.photo || '';
+        lead.finalQuoteSentAt = new Date();
+        lead.status = 'Quote Sent';
+        
+        lead.progress.push({
+            action: 'Quote Sent to Customer',
+            description: `Final quote: ₹${lead.finalQuoteAmount}. ${lead.finalQuoteNotes}`,
+            actor: req.session.user.username,
+            statusChange: 'Quote Sent'
+        });
+        
+        lead.lastActivityAt = new Date();
+        lead.progressPercent = lead.computeProgress();
+        await lead.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// === MARK AS WON (billing cycle starts) ===
+app.post('/api/leads/:id/won', requireAuth, async (req, res) => {
+    try {
+        const lead = await Lead.findById(req.params.id);
+        if (!lead) return res.status(404).json({ error: 'Not found' });
+        
+        lead.status = 'Won';
+        lead.wonAmount = Number(req.body.wonAmount) || lead.finalQuoteAmount;
+        lead.advancePaid = Number(req.body.advancePaid) || 0;
+        lead.billingStatus = lead.advancePaid > 0 ? 'Advance Paid' : 'Pending';
+        lead.deliveryStatus = 'Pending';
+        lead.convertedAt = new Date();
+        
+        lead.progress.push({
+            action: '🏆 Deal Won!',
+            description: `Won at ₹${lead.wonAmount}. Advance: ₹${lead.advancePaid}`,
+            actor: req.session.user.username,
+            statusChange: 'Won'
+        });
+        
+        lead.lastActivityAt = new Date();
+        lead.progressPercent = 100;
+        
+        // Auto-sync to Customer master
+        await syncCustomer({
+            name: lead.leadName, mobile: lead.mobile,
+            companyName: lead.companyName, email: lead.email,
+            location: lead.address, address: lead.address
+        }, 'Lead-Won');
+        
+        await lead.save();
+        res.json({ success: true });
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+// === MARK AS DELIVERED ===
+app.post('/api/leads/:id/delivered', requireAuth, async (req, res) => {
+    try {
+        const lead = await Lead.findById(req.params.id);
+        lead.deliveryStatus = 'Delivered';
+        lead.deliveryDate = new Date();
+        lead.progress.push({
+            action: '✅ Delivered',
+            description: req.body.notes || 'Product delivered & installed',
+            actor: req.session.user.username
+        });
+        lead.lastActivityAt = new Date();
+        await lead.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// === FINAL PAYMENT RECEIVED ===
+app.post('/api/leads/:id/payment', requireAuth, async (req, res) => {
+    try {
+        const lead = await Lead.findById(req.params.id);
+        const amount = Number(req.body.amount) || 0;
+        lead.finalAmountReceived = (lead.finalAmountReceived || 0) + amount;
+        
+        const totalPaid = lead.advancePaid + lead.finalAmountReceived;
+        if (totalPaid >= lead.wonAmount) {
+            lead.billingStatus = 'Fully Paid';
+        } else if (totalPaid > 0) {
+            lead.billingStatus = 'Partial Paid';
+        }
+        
+        lead.progress.push({
+            action: '💰 Payment Received',
+            description: `₹${amount} via ${req.body.mode || 'cash'}. Total paid: ₹${totalPaid}/${lead.wonAmount}`,
+            actor: req.session.user.username
+        });
+        
+        lead.lastActivityAt = new Date();
+        await lead.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// === GET AGENT'S NEW LEADS COUNT (for notification badge) ===
+app.get('/api/leads/my-pending', requireAuth, async (req, res) => {
+    try {
+        const me = req.session.user.username;
+        const newLeads = await Lead.countDocuments({
+            assignedTo: me,
+            agentSeenAt: null,
+            status: { $nin: ['Won', 'Lost'] }
+        });
+        const inProgress = await Lead.countDocuments({
+            assignedTo: me,
+            agentSeenAt: { $ne: null },
+            status: { $nin: ['Won', 'Lost'] }
+        });
+        res.json({ newLeads, inProgress, total: newLeads + inProgress });
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

@@ -4,13 +4,14 @@
         <span class="nav-icon-bottom">🏠</span>
         <span>Home</span>
     </a>
+    <a href="/agent/leads" class="<%= typeof activeNav !== 'undefined' && activeNav === 'leads' ? 'active' : '' %>" style="position: relative;">
+        <span class="nav-icon-bottom">🎯</span>
+        <span>Leads</span>
+        <span id="leadsBottomBadge" style="display:none; position: absolute; top: 2px; right: 18%; background: var(--danger); color: white; font-size: 9px; padding: 1px 5px; border-radius: 10px; font-weight: 700;"></span>
+    </a>
     <a href="/agent/amc" class="<%= typeof activeNav !== 'undefined' && activeNav === 'amc' ? 'active' : '' %>">
         <span class="nav-icon-bottom">📅</span>
         <span>AMC</span>
-    </a>
-    <a href="/agent/corporate/new" class="<%= typeof activeNav !== 'undefined' && activeNav === 'corporate' ? 'active' : '' %>">
-        <span class="nav-icon-bottom">🏢</span>
-        <span>Office</span>
     </a>
     <a href="/chat" class="<%= typeof activeNav !== 'undefined' && activeNav === 'chat' ? 'active' : '' %>" style="position: relative;">
         <span class="nav-icon-bottom">💬</span>
@@ -23,17 +24,24 @@
     </a>
 </nav>
 <script>
-async function refreshBottomBadge() {
+async function refreshBottomBadges() {
     try {
-        const res = await fetch('/api/chat/unread-count');
-        const data = await res.json();
-        const b = document.getElementById('chatBottomBadge');
-        if (b) {
-            if (data.count > 0) { b.textContent = data.count; b.style.display = 'inline-block'; }
-            else b.style.display = 'none';
+        const [chat, leads] = await Promise.all([
+            fetch('/api/chat/unread-count').then(r => r.json()).catch(() => ({count: 0})),
+            fetch('/api/leads/my-pending').then(r => r.json()).catch(() => ({newLeads: 0}))
+        ]);
+        const b1 = document.getElementById('chatBottomBadge');
+        const b2 = document.getElementById('leadsBottomBadge');
+        if (b1) {
+            if (chat.count > 0) { b1.textContent = chat.count; b1.style.display = 'inline-block'; }
+            else b1.style.display = 'none';
+        }
+        if (b2) {
+            if (leads.newLeads > 0) { b2.textContent = leads.newLeads; b2.style.display = 'inline-block'; }
+            else b2.style.display = 'none';
         }
     } catch (e) {}
 }
-refreshBottomBadge();
-setInterval(refreshBottomBadge, 10000);
+refreshBottomBadges();
+setInterval(refreshBottomBadges, 10000);
 </script>

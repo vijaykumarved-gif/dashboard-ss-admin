@@ -32,10 +32,74 @@
                 <a href="tel:<%= lead.mobile %>" class="btn btn-secondary">📞 Call</a>
                 <a href="https://wa.me/91<%= lead.mobile.replace(/\D/g,'').slice(-10) %>" target="_blank" class="wa-btn">📲 WhatsApp</a>
                 <% if (lead.status !== 'Won' && lead.status !== 'Lost') { %>
-                    <button class="btn btn-success" onclick="openModal('convertModal')">🏆 Convert to Customer</button>
+                    <button class="btn" style="background: #fbbf24; color: #78350f;" onclick="openModal('quoteModal')">📋 Send Quote</button>
+                    <button class="btn btn-success" onclick="openModal('wonModal')">🏆 Mark as Won</button>
+                <% } %>
+                <% if (lead.status === 'Won' && lead.deliveryStatus !== 'Delivered') { %>
+                    <button class="btn btn-primary" onclick="openModal('deliveryModal')">✅ Mark Delivered</button>
+                <% } %>
+                <% if (lead.status === 'Won' && (lead.advancePaid + lead.finalAmountReceived) < lead.wonAmount) { %>
+                    <button class="btn btn-success" onclick="openModal('paymentModal')">💰 Add Payment</button>
                 <% } %>
             </div>
         </div>
+        
+        <!-- PROGRESS BAR -->
+        <div class="card" style="margin-bottom: 12px;">
+            <div class="card-body">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <strong style="font-size: 13px;">📊 Lead Progress: <%= lead.status %></strong>
+                    <span style="font-weight: 800; color: var(--primary);"><%= lead.progressPercent || 5 %>%</span>
+                </div>
+                <div style="height: 10px; background: var(--surface-2); border-radius: 999px; overflow: hidden;">
+                    <div style="height: 100%; background: linear-gradient(90deg, #3b82f6, <%= lead.status === 'Won' ? '#10b981' : '#8b5cf6' %>); width: <%= lead.progressPercent || 5 %>%; transition: width 0.3s;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-3); margin-top: 6px;">
+                    <span>New (5%)</span><span>Contacted</span><span>Visited</span><span>Quotes</span><span>Sent (80%)</span><span>Won (100%)</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- WON / BILLING CARD (only if won) -->
+        <% if (lead.status === 'Won') { 
+            const totalPaid = (lead.advancePaid || 0) + (lead.finalAmountReceived || 0);
+            const pending = (lead.wonAmount || 0) - totalPaid;
+        %>
+        <div class="card" style="background: linear-gradient(135deg, #f0fdf4, #ffffff); border: 2px solid #86efac; margin-bottom: 12px;">
+            <div class="card-body">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <div style="font-size: 24px;">🏆</div>
+                    <div>
+                        <div style="font-weight: 800; color: #166534;">DEAL WON · <%= formatINR(lead.wonAmount) %></div>
+                        <% if (lead.convertedAt) { %><div style="font-size: 11px; color: var(--text-3);">Won on <%= formatDate(lead.convertedAt) %></div><% } %>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+                    <div style="background: white; padding: 10px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 9px; color: var(--text-3); text-transform: uppercase; font-weight: 700;">Won Amount</div>
+                        <div style="font-weight: 800; color: #166534;"><%= formatINR(lead.wonAmount) %></div>
+                    </div>
+                    <div style="background: white; padding: 10px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 9px; color: var(--text-3); text-transform: uppercase; font-weight: 700;">Advance</div>
+                        <div style="font-weight: 800;"><%= formatINR(lead.advancePaid) %></div>
+                    </div>
+                    <div style="background: white; padding: 10px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 9px; color: var(--text-3); text-transform: uppercase; font-weight: 700;">Final Paid</div>
+                        <div style="font-weight: 800; color: var(--success);"><%= formatINR(lead.finalAmountReceived) %></div>
+                    </div>
+                    <div style="background: white; padding: 10px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 9px; color: var(--text-3); text-transform: uppercase; font-weight: 700;">Pending</div>
+                        <div style="font-weight: 800; color: <%= pending > 0 ? 'var(--danger)' : 'var(--success)' %>;"><%= formatINR(pending) %></div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;">
+                    <span class="badge <%= lead.billingStatus === 'Fully Paid' ? 'success' : 'warning' %>">💰 <%= lead.billingStatus %></span>
+                    <span class="badge <%= lead.deliveryStatus === 'Delivered' ? 'success' : 'warning' %>">🚚 Delivery: <%= lead.deliveryStatus %></span>
+                    <% if (lead.deliveryDate) { %><span class="badge info">Delivered: <%= formatDate(lead.deliveryDate) %></span><% } %>
+                </div>
+            </div>
+        </div>
+        <% } %>
         
         <!-- LEAD INFO CARD -->
         <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px;">
@@ -101,6 +165,8 @@
         <div class="tabs">
             <button class="tab active" data-tab-group="ld" data-tab="followups" onclick="switchTab('ld','followups')">📞 Follow-ups (<%= lead.followUps.length %>)</button>
             <button class="tab" data-tab-group="ld" data-tab="meetings" onclick="switchTab('ld','meetings')">🤝 Meetings (<%= lead.meetings.length %>)</button>
+            <button class="tab" data-tab-group="ld" data-tab="vendors" onclick="switchTab('ld','vendors')">🏭 Vendor Quotes (<%= (lead.vendorEstimates || []).length %>)</button>
+            <button class="tab" data-tab-group="ld" data-tab="progress" onclick="switchTab('ld','progress')">📊 Progress (<%= (lead.progress || []).length %>)</button>
             <button class="tab" data-tab-group="ld" data-tab="notes" onclick="switchTab('ld','notes')">📝 Notes</button>
         </div>
         
@@ -175,6 +241,142 @@
                             <% }) } %>
                         </tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- VENDOR ESTIMATES -->
+        <div class="tab-content" data-tab-content="ld" data-content="vendors">
+            <% 
+            const vendors = lead.vendorEstimates || [];
+            const cheapest = vendors.length > 0 ? vendors.reduce((min, v) => (v.totalPrice < min.totalPrice ? v : min), vendors[0]) : null;
+            const selected = vendors.find(v => v.isSelected);
+            %>
+            
+            <% if (vendors.length > 0) { %>
+            <div class="card" style="background: linear-gradient(135deg, #f0fdf4, #ffffff); border: 1px solid #86efac;">
+                <div class="card-body">
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center;">
+                        <div>
+                            <div style="font-size: 10px; color: #166534; text-transform: uppercase; font-weight: 700;">Total Quotes</div>
+                            <div style="font-size: 22px; font-weight: 800; color: #16a34a;"><%= vendors.length %></div>
+                        </div>
+                        <% if (cheapest) { %>
+                        <div>
+                            <div style="font-size: 10px; color: #166534; text-transform: uppercase; font-weight: 700;">💰 Cheapest</div>
+                            <div style="font-size: 14px; font-weight: 800;"><%= cheapest.vendorName %></div>
+                            <div style="font-size: 12px; color: var(--success);"><%= formatINR(cheapest.totalPrice) %></div>
+                        </div>
+                        <% } %>
+                        <div>
+                            <div style="font-size: 10px; color: #166534; text-transform: uppercase; font-weight: 700;">✓ Selected</div>
+                            <div style="font-size: 14px; font-weight: 800;">
+                                <%= selected ? selected.vendorName : 'Not yet' %>
+                            </div>
+                            <% if (selected) { %>
+                                <div style="font-size: 12px; color: var(--primary);"><%= formatINR(selected.totalPrice) %></div>
+                            <% } %>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <% } %>
+            
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">Vendor Estimates</div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('vendorModal')">+ Add Quote</button>
+                </div>
+                <div class="card-body">
+                    <% if (vendors.length === 0) { %>
+                        <div style="padding: 40px 20px; text-align: center; color: var(--text-3);">
+                            <div style="font-size: 32px;">🏭</div>
+                            <p>No vendor quotes yet</p>
+                            <p style="font-size: 11px;">Click "+ Add Quote" to record vendor estimates</p>
+                        </div>
+                    <% } else { vendors.slice().reverse().forEach(v => { %>
+                        <div style="background: <%= v.isSelected ? '#dcfce7' : 'var(--bg-elevated)' %>; border: 2px solid <%= v.isSelected ? '#86efac' : 'var(--border)' %>; border-radius: 10px; padding: 12px; margin-bottom: 8px;">
+                            <div style="display: flex; justify-content: space-between; align-items: start; gap: 10px;">
+                                <div style="flex: 1; min-width: 0;">
+                                    <div style="font-weight: 800;">
+                                        <%= v.vendorName %>
+                                        <% if (v.isSelected) { %><span class="badge success" style="font-size: 9px;">✓ SELECTED</span><% } %>
+                                        <% if (cheapest && cheapest._id.toString() === v._id.toString()) { %><span class="badge" style="background: #fef3c7; color: #92400e; font-size: 9px;">💰 CHEAPEST</span><% } %>
+                                    </div>
+                                    <% if (v.vendorMobile) { %><div style="font-size: 11px; color: var(--text-3);">📞 <%= v.vendorMobile %></div><% } %>
+                                    <% if (v.productDetails) { %><div style="font-size: 12px; margin-top: 4px;"><%= v.productDetails %></div><% } %>
+                                    
+                                    <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;">
+                                        <span class="badge info" style="font-size: 10px;">₹<%= v.unitPrice %> × <%= v.quantity %></span>
+                                        <% if (v.gstPercent) { %><span class="badge neutral" style="font-size: 10px;">GST <%= v.gstPercent %>%</span><% } %>
+                                        <% if (v.warranty) { %><span class="badge neutral" style="font-size: 10px;">⚙️ <%= v.warranty %></span><% } %>
+                                        <% if (v.deliveryTime) { %><span class="badge neutral" style="font-size: 10px;">🚚 <%= v.deliveryTime %></span><% } %>
+                                    </div>
+                                    
+                                    <% if (v.notes) { %><div style="font-size: 11px; color: var(--text-3); margin-top: 4px;">📝 <%= v.notes %></div><% } %>
+                                </div>
+                                <div style="text-align: right; flex-shrink: 0;">
+                                    <div style="font-weight: 800; font-size: 16px; color: var(--primary);"><%= formatINR(v.totalPrice) %></div>
+                                    <div style="font-size: 10px; color: var(--text-3);"><%= formatDate(v.receivedDate) %></div>
+                                    <div style="font-size: 10px; color: var(--text-3);">by <%= v.addedBy %></div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 4px; margin-top: 8px;">
+                                <% if (!v.isSelected) { %>
+                                    <button class="btn btn-xs btn-success" onclick="selectVendor('<%= v._id %>')">✓ Select This Vendor</button>
+                                <% } %>
+                                <% if (v.vendorMobile) { %>
+                                    <a href="tel:<%= v.vendorMobile %>" class="btn btn-xs btn-secondary">📞 Call</a>
+                                <% } %>
+                                <button class="btn btn-xs btn-danger" onclick="deleteVendor('<%= v._id %>')">×</button>
+                            </div>
+                        </div>
+                    <% }) } %>
+                </div>
+            </div>
+        </div>
+        
+        <!-- PROGRESS TIMELINE -->
+        <div class="tab-content" data-tab-content="ld" data-content="progress">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">📊 Activity Timeline</div>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('progressModal')">+ Add Note</button>
+                </div>
+                <div class="card-body">
+                    <% const allProgress = lead.progress || []; %>
+                    <% if (allProgress.length === 0) { %>
+                        <div style="padding: 40px; text-align: center; color: var(--text-3);">
+                            <div style="font-size: 32px;">📊</div>
+                            <p>No activity yet</p>
+                        </div>
+                    <% } else { 
+                        const reversed = [...allProgress].reverse();
+                    %>
+                        <div style="position: relative; padding-left: 20px;">
+                            <div style="position: absolute; left: 7px; top: 4px; bottom: 4px; width: 2px; background: var(--border);"></div>
+                            <% reversed.forEach((p, idx) => { %>
+                                <div style="position: relative; margin-bottom: 14px;">
+                                    <div style="position: absolute; left: -20px; top: 4px; width: 16px; height: 16px; border-radius: 50%; background: <%= idx === 0 ? 'var(--success)' : 'var(--primary)' %>; border: 3px solid white; box-shadow: 0 0 0 1px var(--border);"></div>
+                                    <div style="background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;">
+                                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                                            <div style="font-weight: 700; font-size: 13px;"><%= p.action %></div>
+                                            <div style="font-size: 10px; color: var(--text-3); flex-shrink: 0;">
+                                                <%= new Date(p.timestamp).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) %>
+                                            </div>
+                                        </div>
+                                        <% if (p.description) { %>
+                                            <div style="font-size: 12px; color: var(--text-2); margin-top: 4px;"><%= p.description %></div>
+                                        <% } %>
+                                        <div style="font-size: 10px; color: var(--text-3); margin-top: 4px;">by <strong><%= p.actor.toUpperCase() %></strong></div>
+                                        <% if (p.photo) { %>
+                                            <img src="<%= p.photo %>" style="margin-top: 6px; max-width: 120px; border-radius: 6px; cursor: pointer;" onclick="window.open('<%= p.photo %>')">
+                                        <% } %>
+                                    </div>
+                                </div>
+                            <% }) %>
+                        </div>
+                    <% } %>
                 </div>
             </div>
         </div>
@@ -278,6 +480,206 @@
     </div>
 </div>
 
+<!-- VENDOR QUOTE MODAL -->
+<div class="modal-overlay" id="vendorModal">
+    <div class="modal" style="max-width: 550px;">
+        <div class="modal-header">
+            <div class="modal-title">🏭 Add Vendor Quote</div>
+            <button class="modal-close" onclick="closeModal('vendorModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Vendor Name *</label>
+                    <input type="text" id="v_name" placeholder="ABC Distributors">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Vendor Mobile</label>
+                    <input type="tel" id="v_mobile">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Product Details</label>
+                    <textarea id="v_details" rows="2" placeholder="What's quoted? e.g. CP Plus 5MP Dome Camera with 2yr warranty"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Unit Price (₹) *</label>
+                    <input type="number" id="v_price" oninput="updateTotal()">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Quantity</label>
+                    <input type="number" id="v_qty" value="1" oninput="updateTotal()">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">GST %</label>
+                    <input type="number" id="v_gst" value="18">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Warranty</label>
+                    <input type="text" id="v_warranty" placeholder="2 years">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Delivery Time</label>
+                    <input type="text" id="v_delivery" placeholder="3-5 days">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Payment Terms</label>
+                    <input type="text" id="v_payment" placeholder="50% advance">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Notes</label>
+                    <textarea id="v_notes" rows="2"></textarea>
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <div style="background: var(--info-light); padding: 12px; border-radius: 8px; text-align: center;">
+                        <span style="font-size: 11px; font-weight: 700; color: var(--text-3); text-transform: uppercase;">Total Price</span>
+                        <div id="v_total" style="font-size: 22px; font-weight: 800; color: var(--primary);">₹0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('vendorModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveVendor()">Save Quote</button>
+        </div>
+    </div>
+</div>
+
+<!-- PROGRESS NOTE MODAL -->
+<div class="modal-overlay" id="progressModal">
+    <div class="modal" style="max-width: 450px;">
+        <div class="modal-header">
+            <div class="modal-title">📊 Add Activity Note</div>
+            <button class="modal-close" onclick="closeModal('progressModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">Action *</label>
+                <select id="p_action">
+                    <option>Called Customer</option>
+                    <option>Site Visited</option>
+                    <option>Requirement Discussion</option>
+                    <option>Sent WhatsApp Details</option>
+                    <option>Vendor Inquiry</option>
+                    <option>Customer Negotiation</option>
+                    <option>Customer Requested Discount</option>
+                    <option>Sent Demo</option>
+                    <option>Other Note</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Description</label>
+                <textarea id="p_desc" rows="3" placeholder="What happened? Any details to remember?"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('progressModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="addProgress()">Add</button>
+        </div>
+    </div>
+</div>
+
+<!-- SEND QUOTE MODAL -->
+<div class="modal-overlay" id="quoteModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">📋 Send Final Quote to Customer</div>
+            <button class="modal-close" onclick="closeModal('quoteModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">Final Quote Amount (₹) *</label>
+                <input type="number" id="q_amount" placeholder="Total price to customer">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Notes</label>
+                <textarea id="q_notes" rows="3" placeholder="Validity, payment terms, etc."></textarea>
+            </div>
+            <div style="background: var(--info-light); padding: 12px; border-radius: 8px; font-size: 12px;">
+                💡 This will update status to <strong>"Quote Sent"</strong> and log in progress timeline.
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('quoteModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="sendQuote()">Mark as Sent</button>
+        </div>
+    </div>
+</div>
+
+<!-- WON MODAL -->
+<div class="modal-overlay" id="wonModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">🏆 Mark as Won</div>
+            <button class="modal-close" onclick="closeModal('wonModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Won Amount (₹) *</label>
+                    <input type="number" id="w_amount" value="<%= lead.finalQuoteAmount || lead.estimatedValue %>">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Advance Paid (₹)</label>
+                    <input type="number" id="w_advance" value="0">
+                </div>
+            </div>
+            <div style="background: linear-gradient(135deg, #f0fdf4, #ffffff); border: 1px solid #86efac; padding: 12px; border-radius: 8px; font-size: 12px; margin-top: 10px;">
+                🏆 Lead will be marked as Won. Customer added to master. Billing tracking starts.
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('wonModal')">Cancel</button>
+            <button class="btn btn-success" onclick="markWon()">🏆 Confirm Win</button>
+        </div>
+    </div>
+</div>
+
+<!-- DELIVERY MODAL -->
+<div class="modal-overlay" id="deliveryModal">
+    <div class="modal" style="max-width: 450px;">
+        <div class="modal-header">
+            <div class="modal-title">✅ Mark as Delivered</div>
+            <button class="modal-close" onclick="closeModal('deliveryModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">Delivery Notes</label>
+                <textarea id="d_notes" rows="3" placeholder="Installation done, customer satisfied, any handover details..."></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('deliveryModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="markDelivered()">Confirm Delivery</button>
+        </div>
+    </div>
+</div>
+
+<!-- PAYMENT MODAL -->
+<div class="modal-overlay" id="paymentModal">
+    <div class="modal" style="max-width: 450px;">
+        <div class="modal-header">
+            <div class="modal-title">💰 Record Payment</div>
+            <button class="modal-close" onclick="closeModal('paymentModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">Amount (₹) *</label>
+                <input type="number" id="pay_amount">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Payment Mode</label>
+                <select id="pay_mode">
+                    <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('paymentModal')">Cancel</button>
+            <button class="btn btn-success" onclick="recordPayment()">Save</button>
+        </div>
+    </div>
+</div>
+
 <script src="/js/common.js"></script>
 <script>
     const LEAD_ID = '<%= lead._id %>';
@@ -352,6 +754,94 @@
                 else if (target === 'CCTV Quote') location.href = '/cctv/quotation/new';
             }, 700);
         }
+    }
+    
+    // === NEW: VENDOR ESTIMATES ===
+    function updateTotal() {
+        const price = Number(document.getElementById('v_price').value) || 0;
+        const qty = Number(document.getElementById('v_qty').value) || 1;
+        document.getElementById('v_total').textContent = '₹' + (price * qty).toLocaleString('en-IN');
+    }
+    
+    async function saveVendor() {
+        const data = {
+            vendorName: document.getElementById('v_name').value,
+            vendorMobile: document.getElementById('v_mobile').value,
+            productDetails: document.getElementById('v_details').value,
+            unitPrice: Number(document.getElementById('v_price').value),
+            quantity: Number(document.getElementById('v_qty').value) || 1,
+            gstPercent: Number(document.getElementById('v_gst').value),
+            warranty: document.getElementById('v_warranty').value,
+            deliveryTime: document.getElementById('v_delivery').value,
+            paymentTerms: document.getElementById('v_payment').value,
+            notes: document.getElementById('v_notes').value
+        };
+        if (!data.vendorName || !data.unitPrice) return showToast('Name & price required', 'error');
+        const res = await api(`/api/leads/${LEAD_ID}/vendor-estimates`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Quote added', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function selectVendor(vId) {
+        if (!confirm('Select this vendor for the deal?')) return;
+        const res = await api(`/api/leads/${LEAD_ID}/vendor-estimates/${vId}`, { method: 'PUT', body: JSON.stringify({ isSelected: true }) });
+        if (res.success) { showToast('Vendor selected', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    async function deleteVendor(vId) {
+        if (!confirm('Delete this quote?')) return;
+        const res = await api(`/api/leads/${LEAD_ID}/vendor-estimates/${vId}`, { method: 'DELETE' });
+        if (res.success) setTimeout(() => location.reload(), 400);
+    }
+    
+    // === PROGRESS ===
+    async function addProgress() {
+        const data = {
+            action: document.getElementById('p_action').value,
+            description: document.getElementById('p_desc').value
+        };
+        if (!data.description) return showToast('Description required', 'error');
+        const res = await api(`/api/leads/${LEAD_ID}/progress`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Logged', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    // === SEND QUOTE ===
+    async function sendQuote() {
+        const data = {
+            amount: Number(document.getElementById('q_amount').value),
+            notes: document.getElementById('q_notes').value
+        };
+        if (!data.amount) return showToast('Amount required', 'error');
+        const res = await api(`/api/leads/${LEAD_ID}/send-quote`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Quote marked sent', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    // === MARK WON ===
+    async function markWon() {
+        const data = {
+            wonAmount: Number(document.getElementById('w_amount').value),
+            advancePaid: Number(document.getElementById('w_advance').value || 0)
+        };
+        if (!data.wonAmount) return showToast('Won amount required', 'error');
+        const res = await api(`/api/leads/${LEAD_ID}/won`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('🏆 Won!', 'success'); setTimeout(() => location.reload(), 700); }
+    }
+    
+    // === DELIVERY ===
+    async function markDelivered() {
+        const data = { notes: document.getElementById('d_notes').value };
+        const res = await api(`/api/leads/${LEAD_ID}/delivered`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Marked delivered', 'success'); setTimeout(() => location.reload(), 500); }
+    }
+    
+    // === PAYMENT ===
+    async function recordPayment() {
+        const data = {
+            amount: Number(document.getElementById('pay_amount').value),
+            mode: document.getElementById('pay_mode').value
+        };
+        if (!data.amount) return showToast('Amount required', 'error');
+        const res = await api(`/api/leads/${LEAD_ID}/payment`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('Payment recorded', 'success'); setTimeout(() => location.reload(), 500); }
     }
 </script>
 </body>

@@ -52,6 +52,10 @@
                 <div class="label">Meeting</div>
                 <div class="count" style="color: var(--purple)"><%= stats.meeting %></div>
             </div>
+            <div class="pipeline-card" style="border-color: #f97316;" onclick="filterStatus('Vendor Quotes Received')">
+                <div class="label">Vendor Quotes</div>
+                <div class="count" style="color: #f97316"><%= stats.vendorQuoting %></div>
+            </div>
             <div class="pipeline-card" style="border-color: var(--warning);" onclick="filterStatus('Quote Sent')">
                 <div class="label">Quote Sent</div>
                 <div class="count" style="color: var(--warning)"><%= stats.quoteSent %></div>
@@ -159,7 +163,21 @@
                                 <td class="font-mono font-bold"><%= formatINR(l.estimatedValue) %></td>
                                 <td><span class="badge <%= sc %>"><%= l.status %></span></td>
                                 <td><span class="badge <%= pc %>"><%= l.priority %></span></td>
-                                <td><%= l.assignedTo || '-' %></td>
+                                <td>
+                                    <% if (l.assignedTo) { %>
+                                        <div style="font-weight: 700;"><%= l.assignedTo.toUpperCase() %></div>
+                                        <% if (!l.agentSeenAt && !['Won', 'Lost'].includes(l.status)) { %>
+                                            <span class="badge danger" style="font-size: 9px;">🔔 NEW (not seen)</span>
+                                        <% } else if (l.agentSeenAt && !['Won', 'Lost'].includes(l.status)) { %>
+                                            <span class="badge info" style="font-size: 9px;">👁️ Seen · Working</span>
+                                            <% if (l.vendorEstimates && l.vendorEstimates.length > 0) { %>
+                                                <div style="font-size: 10px; color: var(--success); margin-top: 2px;">📊 <%= l.vendorEstimates.length %> quote(s)</div>
+                                            <% } %>
+                                        <% } %>
+                                    <% } else { %>
+                                        <span class="text-muted">Unassigned</span>
+                                    <% } %>
+                                </td>
                                 <td class="text-muted"><%= formatDate(l.createdAt) %></td>
                             </tr>
                         <% }) } %>
