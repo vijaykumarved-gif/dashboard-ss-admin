@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title><%= invoice.invoiceNumber %> — Searvator</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'invoices' }) %>
+    
+    <main class="main-content">
+        <div style="margin-bottom: 12px;">
+            <a href="/invoices" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back</a>
+        </div>
+        
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">📄 <%= invoice.invoiceNumber %></h1>
+                <p class="page-subtitle"><%= invoice.softwareName %> · <%= invoice.clientName %></p>
+            </div>
+            <div class="flex gap-2">
+                <a href="/invoices/<%= invoice._id %>/pdf" target="_blank" class="btn btn-secondary">📄 Download PDF</a>
+                <% if (invoice.status === 'Fully Paid') { %>
+                    <a href="/invoices/<%= invoice._id %>/pdf?paid=1" target="_blank" class="btn btn-success">📄 PAID PDF</a>
+                <% } else { %>
+                    <button class="btn btn-success" onclick="openModal('paidModal')">✓ Mark as Paid</button>
+                <% } %>
+            </div>
+        </div>
+        
+        <% if (invoice.status === 'Fully Paid') { %>
+        <div style="background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 2px solid #10b981; border-radius: 12px; padding: 16px; margin-bottom: 14px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="font-size: 28px;">✅</div>
+                <div>
+                    <div style="font-weight: 800; color: #166534; font-size: 16px;">PAYMENT RECEIVED IN FULL</div>
+                    <div style="font-size: 12px; color: var(--text-3);">
+                        Paid on <%= formatDate(invoice.paymentDate) %> via <%= invoice.paymentMode %>
+                        <% if (invoice.paymentReference) { %> · Ref: <%= invoice.paymentReference %><% } %>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <% } %>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+            <div class="card">
+                <div class="card-header"><div class="card-title">Client</div></div>
+                <div class="card-body">
+                    <div style="font-weight: 800; font-size: 14px;"><%= invoice.clientName %></div>
+                    <% if (invoice.clientCompany) { %><div><%= invoice.clientCompany %></div><% } %>
+                    <% if (invoice.clientId) { %><div class="text-muted" style="font-size: 11px;">ID: <%= invoice.clientId %></div><% } %>
+                    <% if (invoice.clientMobile) { %><div class="text-muted" style="font-size: 11px;">📞 <%= invoice.clientMobile %></div><% } %>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header"><div class="card-title">Details</div></div>
+                <div class="card-body">
+                    <div style="font-size: 12px;">
+                        Software: <strong><%= invoice.softwareName %></strong><br>
+                        Date: <%= formatDate(invoice.invoiceDate) %><br>
+                        <% if (invoice.billingPeriodLabel) { %>Period: <%= invoice.billingPeriodLabel %><br><% } %>
+                        Status: <span class="badge <%= invoice.status === 'Fully Paid' ? 'success' : 'warning' %>"><%= invoice.status %></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Items -->
+        <div class="card">
+            <div class="card-header"><div class="card-title">Line Items (<%= invoice.items.length %>)</div></div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>#</th><th>Description</th><th>Section</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
+                    <tbody>
+                        <% invoice.items.forEach((it, i) => { %>
+                            <tr>
+                                <td><%= i+1 %></td>
+                                <td>
+                                    <% if (it.itemDate) { %><span class="text-muted" style="font-size: 11px;"><%= formatDate(it.itemDate) %></span> · <% } %>
+                                    <%= it.description %>
+                                </td>
+                                <td><span class="badge info"><%= it.section %> — <%= it.sectionTitle %></span></td>
+                                <td class="font-bold"><%= it.quantity %> <%= it.unit %></td>
+                                <td class="font-mono"><%= formatINR(it.rate) %></td>
+                                <td class="font-mono font-bold"><%= formatINR(it.amount) %></td>
+                            </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Totals -->
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 12px; margin-top: 14px;">
+            <div></div>
+            <div class="card" style="min-width: 300px;">
+                <div class="card-body">
+                    <div style="display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px;">
+                        <span>Subtotal:</span><strong><%= formatINR(invoice.subtotal) %></strong>
+                    </div>
+                    <% if (invoice.gstAmount > 0) { %>
+                    <div style="display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px;">
+                        <span>GST (<%= invoice.gstPercent %>%):</span><strong><%= formatINR(invoice.gstAmount) %></strong>
+                    </div>
+                    <% } %>
+                    <% if (invoice.discount > 0) { %>
+                    <div style="display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px;">
+                        <span>Discount:</span><strong style="color: var(--danger);">- <%= formatINR(invoice.discount) %></strong>
+                    </div>
+                    <% } %>
+                    <hr>
+                    <div style="display: flex; justify-content: space-between; padding: 10px 0; font-size: 18px; font-weight: 800; color: var(--success);">
+                        <span>TOTAL:</span><span><%= formatINR(invoice.grandTotal) %></span>
+                    </div>
+                    <div class="text-muted" style="font-size: 10px; text-align: right;"><%= invoice.amountInWords %></div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- MARK PAID MODAL -->
+<div class="modal-overlay" id="paidModal">
+    <div class="modal" style="max-width: 450px;">
+        <div class="modal-header">
+            <div class="modal-title">✓ Mark Invoice as Paid</div>
+            <button class="modal-close" onclick="closeModal('paidModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">Payment Date</label>
+                <input type="date" id="p_date" value="<%= new Date().toISOString().split('T')[0] %>">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Payment Mode</label>
+                <select id="p_mode">
+                    <option>Bank Transfer</option><option>UPI</option><option>Cheque</option><option>Cash</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Reference / UTR</label>
+                <input type="text" id="p_ref">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Notes</label>
+                <textarea id="p_notes" rows="2"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('paidModal')">Cancel</button>
+            <button class="btn btn-success" onclick="markPaid()">Confirm Paid</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+const INV_ID = '<%= invoice._id %>';
+
+async function markPaid() {
+    const data = {
+        paymentDate: document.getElementById('p_date').value,
+        paymentMode: document.getElementById('p_mode').value,
+        paymentReference: document.getElementById('p_ref').value,
+        paymentNotes: document.getElementById('p_notes').value
+    };
+    const res = await api(`/api/invoices/${INV_ID}/mark-paid`, { method: 'POST', body: JSON.stringify(data) });
+    if (res.success) { showToast('Marked paid ✓', 'success'); setTimeout(() => location.reload(), 500); }
+}
+</script>
+</body>
+</html>

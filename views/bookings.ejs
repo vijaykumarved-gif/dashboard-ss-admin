@@ -98,14 +98,20 @@
                                             <% if (b.assignedAgent) { %><div style="font-size: 11px; margin-top: 4px;">👤 <%= b.assignedAgent.toUpperCase() %></div><% } %>
                                         </div>
                                     </div>
-                                    <div style="display: flex; gap: 6px; margin-top: 10px;">
+                                    <div style="display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;">
                                         <a href="tel:<%= b.mobileNumber %>" class="btn btn-xs btn-secondary">📞 Call</a>
+                                        <a href="https://wa.me/91<%= b.mobileNumber.replace(/\D/g, '').slice(-10) %>" target="_blank" class="btn btn-xs" style="background: #25D366; color: white;">📲 WA</a>
                                         <select onchange="updateStatus('<%= b._id %>', this.value)" style="padding: 4px 8px; font-size: 11px;">
                                             <% ['Pending','Confirmed','In Progress','Completed','Cancelled','Missed'].forEach(s => { %>
                                                 <option <%= b.status === s ? 'selected' : '' %>><%= s %></option>
                                             <% }) %>
                                         </select>
                                         <% if (user.role === 'admin') { %>
+                                            <select onchange="reassignAgent('<%= b._id %>', this.value)" style="padding: 4px 8px; font-size: 11px;">
+                                                <option value="">Unassigned</option>
+                                                <option value="vijay" <%= b.assignedAgent === 'vijay' ? 'selected' : '' %>>👤 Vijay</option>
+                                                <option value="rahul" <%= b.assignedAgent === 'rahul' ? 'selected' : '' %>>👤 Rahul</option>
+                                            </select>
                                             <button class="btn btn-xs btn-danger" onclick="deleteB('<%= b._id %>')">Del</button>
                                         <% } %>
                                     </div>
@@ -268,6 +274,11 @@
     async function updateStatus(id, status) {
         const res = await api(`/api/bookings/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
         if (res.success) showToast('Updated', 'success');
+    }
+    
+    async function reassignAgent(id, agent) {
+        const res = await api(`/api/bookings/${id}`, { method: 'PUT', body: JSON.stringify({ assignedAgent: agent }) });
+        if (res.success) { showToast(agent ? `Assigned to ${agent.toUpperCase()}` : 'Unassigned', 'success'); setTimeout(() => location.reload(), 500); }
     }
     
     async function deleteB(id) {

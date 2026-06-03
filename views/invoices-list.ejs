@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Invoices — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'invoices' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">📄 Invoices</h1>
+                <p class="page-subtitle">All software invoices · Generate · Track · Download PDF</p>
+            </div>
+            <div class="flex gap-2">
+                <a href="/software" class="btn btn-secondary">💼 Software Products</a>
+                <a href="/invoices/new" class="btn btn-primary">+ New Invoice</a>
+            </div>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Total Invoices</div>
+                <div class="stat-value"><%= stats.total %></div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Pending Payment</div>
+                <div class="stat-value" style="color: var(--warning)"><%= stats.pending %></div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Paid Invoices</div>
+                <div class="stat-value" style="color: var(--success)"><%= stats.paid %></div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Total Due</div>
+                <div class="stat-value" style="color: var(--danger); font-size: 16px;"><%= formatINR(stats.totalDue) %></div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Total Received</div>
+                <div class="stat-value" style="font-size: 16px; color: var(--success);"><%= formatINR(stats.totalReceived) %></div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">All Invoices</div>
+                <div class="flex gap-2">
+                    <select onchange="location.href='/invoices?software=' + this.value" style="width: 180px;">
+                        <option value="">All Software</option>
+                        <% softwares.forEach(sw => { %>
+                            <option value="<%= sw.code %>" <%= query.software === sw.code ? 'selected' : '' %>><%= sw.name %></option>
+                        <% }) %>
+                    </select>
+                    <select onchange="location.href='/invoices?status=' + this.value" style="width: 150px;">
+                        <option value="">All Status</option>
+                        <option value="Payment Due" <%= query.status === 'Payment Due' ? 'selected' : '' %>>Payment Due</option>
+                        <option value="Fully Paid" <%= query.status === 'Fully Paid' ? 'selected' : '' %>>Fully Paid</option>
+                        <option value="Partial Paid" <%= query.status === 'Partial Paid' ? 'selected' : '' %>>Partial</option>
+                    </select>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Invoice #</th><th>Client</th><th>Software</th><th>Period</th><th>Date</th><th>Amount</th><th>Status</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                        <% if (invoices.length === 0) { %>
+                            <tr><td colspan="8" class="text-center" style="padding: 60px; color: var(--text-3);">
+                                <div style="font-size: 32px;">📄</div>
+                                <p>No invoices yet. Click <strong>+ New Invoice</strong> to create one.</p>
+                            </td></tr>
+                        <% } else { invoices.forEach(inv => { 
+                            const sc = inv.status === 'Fully Paid' ? 'success' : inv.status === 'Cancelled' ? 'danger' : 'warning';
+                        %>
+                            <tr>
+                                <td class="font-mono font-bold" style="font-size: 11px;"><%= inv.invoiceNumber %></td>
+                                <td>
+                                    <div class="font-bold"><%= inv.clientName %></div>
+                                    <% if (inv.clientCompany) { %><div style="font-size: 10px; color: var(--text-3);"><%= inv.clientCompany %></div><% } %>
+                                </td>
+                                <td><span class="badge info"><%= inv.softwareCode %></span></td>
+                                <td class="text-muted" style="font-size: 11px;"><%= inv.billingPeriodLabel || '-' %></td>
+                                <td class="text-muted" style="font-size: 11px;"><%= formatDate(inv.invoiceDate) %></td>
+                                <td class="font-mono font-bold"><%= formatINR(inv.grandTotal) %></td>
+                                <td><span class="badge <%= sc %>" style="font-size: 10px;"><%= inv.status %></span></td>
+                                <td>
+                                    <a href="/invoices/<%= inv._id %>" class="btn btn-xs btn-secondary">View</a>
+                                    <a href="/invoices/<%= inv._id %>/pdf" target="_blank" class="btn btn-xs btn-primary">📄</a>
+                                    <% if (inv.status !== 'Fully Paid') { %>
+                                        <button class="btn btn-xs btn-success" onclick='markPaid("<%= inv._id %>")'>✓ Paid</button>
+                                    <% } %>
+                                </td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+async function markPaid(id) {
+    const mode = prompt('Payment mode (Bank Transfer / UPI / Cheque / Cash):', 'Bank Transfer');
+    if (!mode) return;
+    const ref = prompt('Payment reference / UTR (optional):', '');
+    const res = await api(`/api/invoices/${id}/mark-paid`, { 
+        method: 'POST', 
+        body: JSON.stringify({ paymentMode: mode, paymentReference: ref, paymentDate: new Date() }) 
+    });
+    if (res.success) { showToast('Marked as paid ✓', 'success'); setTimeout(() => location.reload(), 500); }
+}
+</script>
+</body>
+</html>

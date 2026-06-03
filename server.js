@@ -25,6 +25,9 @@ const Employee = require('./models/Employee');
 const BankTransaction = require('./models/BankTransaction');
 const Customer = require('./models/Customer');
 const ChatMessage = require('./models/ChatMessage');
+const Software = require('./models/Software');
+const SoftwareInvoice = require('./models/SoftwareInvoice');
+const { generateSoftwareInvoicePDF, numberToWords } = require('./utils/invoiceGenerator');
 
 const app = express();
 
@@ -139,6 +142,23 @@ app.get('/agent', requireAuth, async (req, res) => {
         agentSeenAt: { $ne: null },
         status: { $nin: ['Won', 'Lost'] }
     });
+    
+    // === Today's bookings for this agent ===
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const tomorrowStart = new Date(todayStart); tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+    const weekEnd = new Date(todayStart); weekEnd.setDate(weekEnd.getDate() + 7);
+    
+    const myTodayBookings = await Booking.find({
+        assignedAgent: req.session.user.username,
+        scheduledDate: { $gte: todayStart, $lt: tomorrowStart },
+        status: { $nin: ['Completed', 'Cancelled'] }
+    }).sort({ scheduledTime: 1 }).limit(10).lean();
+    
+    const myUpcomingBookings = await Booking.find({
+        assignedAgent: req.session.user.username,
+        scheduledDate: { $gte: tomorrowStart, $lt: weekEnd },
+        status: { $nin: ['Completed', 'Cancelled'] }
+    }).sort({ scheduledDate: 1 }).limit(10).lean();
 
     res.render('agent', {
         agentName: req.session.user.username,
@@ -147,7 +167,9 @@ app.get('/agent', requireAuth, async (req, res) => {
         orders,
         selectedDate: req.query.date || '',
         myNewLeads,
-        myInProgressLeads
+        myInProgressLeads,
+        myTodayBookings,
+        myUpcomingBookings
     });
 });
 
@@ -4427,6 +4449,190 @@ app.delete('/api/chat/message/:id', requireAuth, async (req, res) => {
         await msg.save();
         res.json({ success: true });
     } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ============================================================
+//   SOFTWARE PRODUCTS & INVOICING SYSTEM
+// ============================================================
+
+// List all softwares
+app.get('/software', requireAuth, requireAdmin, async (req, res) => {
+    const softwares = await Software.find().sort({ createdAt: -1 }).lean();
+    const recentInvoices = await SoftwareInvoice.find().select('-items').sort({ createdAt: -1 }).limit(20).lean();
+    
+    const stats = {
+        totalSoftwares: softwares.length,
+        activeClients: softwares.reduce((s, sw) => s + (sw.clients || []).filter(c => c.status === 'Active').length, 0),
+        totalRevenue: softwares.reduce((s, sw) => s + (sw.totalRevenueEarned || 0), 0),
+        totalInvoices: await SoftwareInvoice.countDocuments(),
+        pendingPayment: await SoftwareInvoice.countDocuments({ status: { $ne: 'Fully Paid' } }),
+        paidThisMonth: await SoftwareInvoice.countDocuments({ 
+            status: 'Fully Paid',
+            paymentDate: { $gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) }
+        })
+    };
+    
+    res.render('software-list', { user: req.session.user, softwares, recentInvoices, stats });
+});
+
+// Software detail page (clients + invoices for this software)
+app.get('/software/:id', requireAuth, requireAdmin, async (req, res) => {
+    const software = await Software.findById(req.params.id);
+    if (!software) return res.status(404).send('Software not found');
+    
+    const invoices = await SoftwareInvoice.find({ softwareCode: software.code })
+        .select('-items')
+        .sort({ createdAt: -1 }).limit(50).lean();
+    
+    res.render('software-detail', { user: req.session.user, software, invoices });
+});
+
+// Create software
+app.post('/api/software', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const data = req.body;
+        const sw = new Software(data);
+        await sw.save();
+        res.json({ success: true, software: sw });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Update software
+app.put('/api/software/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const sw = await Software.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        res.json({ success: true, software: sw });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Add client to software
+app.post('/api/software/:id/clients', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const sw = await Software.findById(req.params.id);
+        sw.clients.push(req.body);
+        await sw.save();
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// === INVOICE: List ===
+app.get('/invoices', requireAuth, requireAdmin, async (req, res) => {
+    const filter = {};
+    if (req.query.software) filter.softwareCode = req.query.software;
+    if (req.query.status) filter.status = req.query.status;
+    
+    const invoices = await SoftwareInvoice.find(filter)
+        .select('-items')
+        .sort({ createdAt: -1 }).limit(100).lean();
+    
+    const softwares = await Software.find({ status: 'Active' }).select('code name clients').lean();
+    
+    const stats = {
+        total: invoices.length,
+        pending: invoices.filter(i => i.status !== 'Fully Paid' && i.status !== 'Cancelled').length,
+        paid: invoices.filter(i => i.status === 'Fully Paid').length,
+        totalDue: invoices.filter(i => i.status !== 'Fully Paid').reduce((s, i) => s + i.grandTotal, 0),
+        totalReceived: invoices.filter(i => i.status === 'Fully Paid').reduce((s, i) => s + i.grandTotal, 0)
+    };
+    
+    res.render('invoices-list', { user: req.session.user, invoices, softwares, stats, query: req.query });
+});
+
+// Create new invoice (page)
+app.get('/invoices/new', requireAuth, requireAdmin, async (req, res) => {
+    const softwares = await Software.find({ status: 'Active' }).lean();
+    res.render('invoice-new', { user: req.session.user, softwares, presetSoftware: req.query.software || '' });
+});
+
+// View single invoice
+app.get('/invoices/:id', requireAuth, requireAdmin, async (req, res) => {
+    const invoice = await SoftwareInvoice.findById(req.params.id);
+    if (!invoice) return res.status(404).send('Invoice not found');
+    res.render('invoice-detail', { user: req.session.user, invoice });
+});
+
+// Create invoice API
+app.post('/api/invoices', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const data = req.body;
+        
+        // Auto-generate invoice number
+        const year = new Date().getFullYear();
+        const month = String(new Date().getMonth() + 1).padStart(2, '0');
+        const code = data.softwareCode || 'INV';
+        const count = await SoftwareInvoice.countDocuments({
+            invoiceNumber: { $regex: '^SEA-INV-' + year + '-' + code }
+        });
+        data.invoiceNumber = 'SEA-INV-' + year + '-' + code + '-' + String(count + 1).padStart(2, '0') + month;
+        data.createdBy = req.session.user.username;
+        
+        // Generate amount in words
+        const tempInvoice = new SoftwareInvoice(data);
+        tempInvoice.amountInWords = numberToWords(tempInvoice.grandTotal);
+        await tempInvoice.save();
+        
+        // Update software stats
+        if (data.softwareCode) {
+            await Software.findOneAndUpdate(
+                { code: data.softwareCode },
+                { $inc: { totalInvoicesGenerated: 1 } }
+            );
+        }
+        
+        res.json({ success: true, invoice: tempInvoice });
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+// Mark invoice as paid
+app.post('/api/invoices/:id/mark-paid', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const invoice = await SoftwareInvoice.findById(req.params.id);
+        if (!invoice) return res.status(404).json({ error: 'Not found' });
+        
+        invoice.status = 'Fully Paid';
+        invoice.paymentDate = req.body.paymentDate ? new Date(req.body.paymentDate) : new Date();
+        invoice.amountReceived = invoice.grandTotal;
+        invoice.paymentMode = req.body.paymentMode || 'Bank Transfer';
+        invoice.paymentReference = req.body.paymentReference || '';
+        invoice.paymentNotes = req.body.paymentNotes || '';
+        
+        await invoice.save();
+        
+        // Update software revenue
+        if (invoice.softwareCode) {
+            await Software.findOneAndUpdate(
+                { code: invoice.softwareCode },
+                { $inc: { totalRevenueEarned: invoice.grandTotal } }
+            );
+        }
+        
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Delete invoice
+app.delete('/api/invoices/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await SoftwareInvoice.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// === DOWNLOAD PDF ===
+app.get('/invoices/:id/pdf', requireAuth, async (req, res) => {
+    try {
+        const invoice = await SoftwareInvoice.findById(req.params.id);
+        if (!invoice) return res.status(404).send('Invoice not found');
+        
+        const isPaid = req.query.paid === '1' || invoice.status === 'Fully Paid';
+        
+        res.setHeader('Content-Type', 'application/pdf');
+        const suffix = isPaid ? '_PAID' : '';
+        res.setHeader('Content-Disposition', 'inline; filename="' + invoice.invoiceNumber + suffix + '.pdf"');
+        
+        const doc = generateSoftwareInvoicePDF(invoice, { isPaid });
+        doc.pipe(res);
+    } catch (e) { console.error(e); res.status(500).send(e.message); }
 });
 
 // ============ START ============

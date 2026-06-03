@@ -201,6 +201,51 @@
         </div>
     </div>
     
+    <!-- TODAY'S BOOKINGS (agent assigned) -->
+    <% if (typeof myTodayBookings !== 'undefined' && myTodayBookings.length > 0) { %>
+        <div style="background: linear-gradient(135deg, #fef3c7, #ffffff); border: 2px solid #f59e0b; border-radius: 14px; padding: 16px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div>
+                    <div style="font-weight: 800; font-size: 16px; color: #92400e;">
+                        📅 <%= myTodayBookings.length %> BOOKING<%= myTodayBookings.length > 1 ? 'S' : '' %> TODAY!
+                    </div>
+                    <div style="font-size: 12px; color: #b45309;">Aapko aaj ye visits karne hain</div>
+                </div>
+                <a href="/bookings" class="btn btn-sm" style="background: #f59e0b; color: white;">View All →</a>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+                <% myTodayBookings.forEach(b => { %>
+                    <div style="background: white; padding: 10px; border-radius: 10px; border: 1px solid #fcd34d; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 700; font-size: 13px;"><%= b.customerName %><% if (b.companyName) { %> · <%= b.companyName %><% } %></div>
+                            <div style="font-size: 11px; color: var(--text-3);">
+                                ⏰ <%= b.scheduledTime %> · 📍 <%= b.location %> · <%= b.serviceType %>
+                            </div>
+                            <div style="font-size: 10px; color: var(--text-3); margin-top: 2px;">
+                                <span class="badge info" style="font-size: 9px;"><%= b.bookingType %></span>
+                                <span class="badge <%= b.status === 'Confirmed' ? 'success' : 'warning' %>" style="font-size: 9px;"><%= b.status %></span>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 4px; flex-shrink: 0;">
+                            <a href="tel:<%= b.mobileNumber %>" class="btn btn-xs btn-secondary">📞</a>
+                            <a href="https://wa.me/91<%= b.mobileNumber.replace(/\D/g, '').slice(-10) %>" target="_blank" class="btn btn-xs" style="background: #25D366; color: white;">📲</a>
+                        </div>
+                    </div>
+                <% }) %>
+            </div>
+        </div>
+    <% } %>
+    
+    <% if (typeof myUpcomingBookings !== 'undefined' && myUpcomingBookings.length > 0) { %>
+        <div style="background: linear-gradient(135deg, #eff6ff, #ffffff); border: 1px solid #93c5fd; border-radius: 10px; padding: 12px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <div style="font-weight: 700; font-size: 13px; color: #1e40af;">🗓️ <%= myUpcomingBookings.length %> Upcoming Booking<%= myUpcomingBookings.length > 1 ? 's' : '' %> this week</div>
+                <div style="font-size: 11px; color: var(--text-3);">Next visits in next 7 days</div>
+            </div>
+            <a href="/bookings" class="btn btn-primary btn-sm">View →</a>
+        </div>
+    <% } %>
+    
     <!-- NEW LEADS NOTIFICATION (high priority - shown FIRST) -->
     <% if (typeof myNewLeads !== 'undefined' && myNewLeads.length > 0) { %>
         <div style="background: linear-gradient(135deg, #fef2f2, #ffffff); border: 2px solid #fca5a5; border-radius: 14px; padding: 16px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.15);">

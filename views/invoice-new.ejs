@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>New Invoice — Searvator</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'invoices' }) %>
+    
+    <main class="main-content">
+        <div style="margin-bottom: 12px;">
+            <a href="/invoices" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back</a>
+        </div>
+        
+        <h1 class="page-title">📄 Create New Invoice</h1>
+        <p class="page-subtitle">Select software, fill details, add line items</p>
+        
+        <!-- Software selector -->
+        <div class="card">
+            <div class="card-header"><div class="card-title">1️⃣ Select Software</div></div>
+            <div class="card-body">
+                <select id="softwareSelect" onchange="loadSoftware()" style="font-size: 14px;">
+                    <option value="">-- Select Software --</option>
+                    <% softwares.forEach(sw => { %>
+                        <option value="<%= sw._id %>" data-code="<%= sw.code %>" data-name="<%= sw.name %>" data-pricing='<%= JSON.stringify(sw.defaultPricing || []) %>' data-clients='<%= JSON.stringify(sw.clients || []) %>' <%= presetSoftware === sw.code ? 'selected' : '' %>>
+                            <%= sw.name %> (<%= sw.code %>)
+                        </option>
+                    <% }) %>
+                </select>
+                <div id="softwareInfo" style="margin-top: 10px; display: none;">
+                    <div style="background: var(--info-light); padding: 10px; border-radius: 8px; font-size: 12px;">
+                        ℹ️ <span id="swInfoText"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Client info -->
+        <div class="card">
+            <div class="card-header"><div class="card-title">2️⃣ Client Details</div></div>
+            <div class="card-body">
+                <div class="form-group">
+                    <label class="form-label">Select Existing Client</label>
+                    <select id="clientSelect" onchange="fillClient(this.value)">
+                        <option value="">-- Or enter manually below --</option>
+                    </select>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Client Name *</label>
+                        <input type="text" id="clientName">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Company</label>
+                        <input type="text" id="clientCompany">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Client ID</label>
+                        <input type="text" id="clientId" placeholder="Lab ID, Customer ID">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Mobile</label>
+                        <input type="tel" id="clientMobile">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" id="clientEmail">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">GST Number</label>
+                        <input type="text" id="clientGST">
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Invoice meta -->
+        <div class="card">
+            <div class="card-header"><div class="card-title">3️⃣ Invoice Details</div></div>
+            <div class="card-body">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Invoice Date</label>
+                        <input type="date" id="invoiceDate" value="<%= new Date().toISOString().split('T')[0] %>">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Due Date</label>
+                        <input type="date" id="dueDate">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Billing Period Label</label>
+                        <input type="text" id="periodLabel" placeholder="e.g. April - May 2026">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">GST %</label>
+                        <input type="number" id="gstPercent" value="0" onchange="computeTotals()">
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Line items -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">4️⃣ Line Items</div>
+                <div class="flex gap-2">
+                    <button class="btn btn-sm btn-secondary" onclick="addItem()">+ Single Item</button>
+                    <button class="btn btn-sm btn-primary" onclick="openModal('bulkDateModal')">+ Bulk Date Entries</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="itemsList"></div>
+                <div style="text-align: right; margin-top: 14px; padding: 12px; background: var(--surface-2); border-radius: 8px;">
+                    <div style="display: flex; justify-content: flex-end; gap: 20px; font-size: 13px;">
+                        <span>Subtotal: <strong id="subtotalDisplay">₹0</strong></span>
+                        <span>GST: <strong id="gstDisplay">₹0</strong></span>
+                        <span style="font-size: 16px;">Total: <strong id="totalDisplay" style="color: var(--success);">₹0</strong></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div style="text-align: right; margin-top: 16px;">
+            <button class="btn btn-primary" onclick="saveInvoice()" style="font-size: 14px; padding: 12px 24px;">💾 Generate Invoice</button>
+        </div>
+    </main>
+</div>
+
+<!-- BULK DATE ENTRIES MODAL (like Navigene reports per day) -->
+<div class="modal-overlay" id="bulkDateModal">
+    <div class="modal" style="max-width: 600px;">
+        <div class="modal-header">
+            <div class="modal-title">+ Bulk Date Entries</div>
+            <button class="modal-close" onclick="closeModal('bulkDateModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div style="background: var(--info-light); padding: 10px; border-radius: 8px; margin-bottom: 10px; font-size: 12px;">
+                💡 Paste daily data like: <strong>2026-05-14, 243</strong> (one per line) — system will create one row per date.
+            </div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Section</label>
+                    <select id="bk_section">
+                        <option value="A">Section A</option>
+                        <option value="B">Section B</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Section Title</label>
+                    <input type="text" id="bk_title" placeholder="e.g. Software Reports">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description Prefix</label>
+                    <input type="text" id="bk_desc" placeholder="e.g. Successful Reports">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Unit Label</label>
+                    <input type="text" id="bk_unit" value="reports">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Rate (Rs.)</label>
+                    <input type="number" id="bk_rate" value="10">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Data (date, quantity per line)</label>
+                <textarea id="bk_data" rows="8" style="font-family: monospace; font-size: 12px;" placeholder="2026-05-14, 243
+2026-05-19, 214
+2026-05-20, 166"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('bulkDateModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="addBulkDates()">Add All</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+let items = [];
+let currentSoftware = null;
+
+function loadSoftware() {
+    const sel = document.getElementById('softwareSelect');
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt.value) {
+        currentSoftware = null;
+        document.getElementById('softwareInfo').style.display = 'none';
+        return;
+    }
+    
+    currentSoftware = {
+        id: opt.value,
+        code: opt.dataset.code,
+        name: opt.dataset.name,
+        pricing: JSON.parse(opt.dataset.pricing || '[]'),
+        clients: JSON.parse(opt.dataset.clients || '[]')
+    };
+    
+    document.getElementById('softwareInfo').style.display = 'block';
+    document.getElementById('swInfoText').innerHTML = `<strong>${currentSoftware.name}</strong> (${currentSoftware.code}) · ${currentSoftware.pricing.length} pricing rules · ${currentSoftware.clients.length} clients`;
+    
+    // Populate clients dropdown
+    const cs = document.getElementById('clientSelect');
+    cs.innerHTML = '<option value="">-- Or enter manually below --</option>';
+    currentSoftware.clients.forEach((c, i) => {
+        if (c.status === 'Active') {
+            cs.innerHTML += `<option value="${i}">${c.clientName}${c.clientCompany ? ' · ' + c.clientCompany : ''}</option>`;
+        }
+    });
+}
+
+function fillClient(idx) {
+    if (idx === '' || !currentSoftware) return;
+    const c = currentSoftware.clients[idx];
+    document.getElementById('clientName').value = c.clientName || '';
+    document.getElementById('clientCompany').value = c.clientCompany || '';
+    document.getElementById('clientId').value = c.clientId || '';
+    document.getElementById('clientMobile').value = c.clientMobile || '';
+    document.getElementById('clientEmail').value = c.clientEmail || '';
+}
+
+function addItem(preset) {
+    items.push(preset || { section: 'A', sectionTitle: '', description: '', quantity: 1, unit: 'unit', rate: 0, amount: 0 });
+    renderItems();
+}
+
+function renderItems() {
+    const list = document.getElementById('itemsList');
+    if (items.length === 0) {
+        list.innerHTML = '<div style="text-align: center; padding: 30px; color: var(--text-3);">No items yet. Add items above ⬆️</div>';
+        computeTotals();
+        return;
+    }
+    
+    list.innerHTML = items.map((it, i) => {
+        it.amount = (Number(it.quantity) || 0) * (Number(it.rate) || 0);
+        return `
+        <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 8px;">
+            <div style="display: grid; grid-template-columns: 60px 1fr 1fr 80px 100px 100px 40px; gap: 6px; align-items: center;">
+                <select onchange="updateItem(${i}, 'section', this.value)" style="font-size: 11px;">
+                    <option value="A" ${it.section==='A'?'selected':''}>Sec A</option>
+                    <option value="B" ${it.section==='B'?'selected':''}>Sec B</option>
+                    <option value="C" ${it.section==='C'?'selected':''}>Sec C</option>
+                </select>
+                <input type="text" placeholder="Section Title" value="${it.sectionTitle||''}" oninput="updateItem(${i}, 'sectionTitle', this.value)" style="font-size: 12px;">
+                <input type="text" placeholder="Description *" value="${it.description||''}" oninput="updateItem(${i}, 'description', this.value)" style="font-size: 12px;">
+                <input type="number" placeholder="Qty" value="${it.quantity||1}" oninput="updateItem(${i}, 'quantity', Number(this.value))" style="font-size: 12px;">
+                <input type="number" placeholder="Rate ₹" value="${it.rate||0}" oninput="updateItem(${i}, 'rate', Number(this.value))" style="font-size: 12px;">
+                <div style="font-weight: 800; text-align: right; font-size: 13px;">₹${it.amount.toLocaleString('en-IN')}</div>
+                <button class="btn btn-xs btn-danger" onclick="removeItem(${i})">×</button>
+            </div>
+            ${it.itemDate ? '<div style="font-size: 10px; color: var(--text-3); margin-top: 4px;">📅 ' + new Date(it.itemDate).toLocaleDateString('en-IN') + '</div>' : ''}
+        </div>`;
+    }).join('');
+    
+    computeTotals();
+}
+
+function updateItem(i, key, val) {
+    items[i][key] = val;
+    if (key === 'quantity' || key === 'rate') renderItems();
+    else computeTotals();
+}
+
+function removeItem(i) {
+    items.splice(i, 1);
+    renderItems();
+}
+
+function computeTotals() {
+    const subtotal = items.reduce((s, i) => s + (i.amount || 0), 0);
+    const gstPercent = Number(document.getElementById('gstPercent').value) || 0;
+    const gst = (subtotal * gstPercent) / 100;
+    const total = subtotal + gst;
+    
+    document.getElementById('subtotalDisplay').textContent = '₹' + subtotal.toLocaleString('en-IN');
+    document.getElementById('gstDisplay').textContent = '₹' + gst.toLocaleString('en-IN');
+    document.getElementById('totalDisplay').textContent = '₹' + total.toLocaleString('en-IN');
+}
+
+function addBulkDates() {
+    const section = document.getElementById('bk_section').value;
+    const title = document.getElementById('bk_title').value;
+    const descPrefix = document.getElementById('bk_desc').value;
+    const unit = document.getElementById('bk_unit').value;
+    const rate = Number(document.getElementById('bk_rate').value);
+    const data = document.getElementById('bk_data').value.trim();
+    
+    if (!data || !descPrefix) return showToast('Fill all fields', 'error');
+    
+    const lines = data.split('\n').filter(l => l.trim());
+    let added = 0;
+    
+    lines.forEach(line => {
+        const parts = line.split(',').map(p => p.trim());
+        if (parts.length < 2) return;
+        
+        const [dateStr, qty] = parts;
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return;
+        
+        items.push({
+            section,
+            sectionTitle: title,
+            description: descPrefix + ' - ' + dateStr,
+            quantity: Number(qty) || 0,
+            unit,
+            rate,
+            amount: (Number(qty) || 0) * rate,
+            itemDate: date
+        });
+        added++;
+    });
+    
+    if (added === 0) return showToast('No valid rows', 'error');
+    
+    showToast(`Added ${added} items`, 'success');
+    closeModal('bulkDateModal');
+    renderItems();
+}
+
+async function saveInvoice() {
+    if (!currentSoftware) return showToast('Select a software', 'error');
+    if (!document.getElementById('clientName').value) return showToast('Client name required', 'error');
+    if (items.length === 0) return showToast('Add at least one item', 'error');
+    
+    const data = {
+        softwareCode: currentSoftware.code,
+        softwareName: currentSoftware.name,
+        clientName: document.getElementById('clientName').value,
+        clientCompany: document.getElementById('clientCompany').value,
+        clientId: document.getElementById('clientId').value,
+        clientMobile: document.getElementById('clientMobile').value,
+        clientEmail: document.getElementById('clientEmail').value,
+        clientGST: document.getElementById('clientGST').value,
+        invoiceDate: document.getElementById('invoiceDate').value,
+        dueDate: document.getElementById('dueDate').value || null,
+        billingPeriodLabel: document.getElementById('periodLabel').value,
+        gstPercent: Number(document.getElementById('gstPercent').value) || 0,
+        items
+    };
+    
+    const res = await api('/api/invoices', { method: 'POST', body: JSON.stringify(data) });
+    if (res.success) {
+        showToast('Invoice created! ✓', 'success');
+        setTimeout(() => location.href = '/invoices/' + res.invoice._id, 600);
+    }
+}
+
+// Init
+window.addEventListener('DOMContentLoaded', () => {
+    loadSoftware();
+    renderItems();
+});
+</script>
+</body>
+</html>

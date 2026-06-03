@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Software Products — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'software' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">💼 Software Products & Billing</h1>
+                <p class="page-subtitle">Manage each software product separately · Generate invoices · Track payments</p>
+            </div>
+            <div class="flex gap-2">
+                <a href="/invoices" class="btn btn-secondary">📄 All Invoices</a>
+                <a href="/invoices/new" class="btn btn-success">+ New Invoice</a>
+                <button class="btn btn-primary" onclick="openModal('newSWModal')">+ Add Software</button>
+            </div>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Software Products</div>
+                <div class="stat-value"><%= stats.totalSoftwares %></div>
+                <div class="stat-meta"><%= stats.activeClients %> active clients</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Total Revenue</div>
+                <div class="stat-value" style="color: var(--success); font-size: 18px;"><%= formatINR(stats.totalRevenue) %></div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Pending Payments</div>
+                <div class="stat-value" style="color: var(--warning)"><%= stats.pendingPayment %></div>
+                <div class="stat-meta">of <%= stats.totalInvoices %> invoices</div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Paid This Month</div>
+                <div class="stat-value" style="color: var(--purple)"><%= stats.paidThisMonth %></div>
+            </div>
+        </div>
+        
+        <!-- Software list -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">All Software Products</div>
+            </div>
+            <div class="card-body">
+                <% if (softwares.length === 0) { %>
+                    <div class="empty-state">
+                        <div class="empty-icon">💼</div>
+                        <div class="empty-title">No software products yet</div>
+                        <div>Add your first software product (e.g. Navigene Reports, Inventory App, etc.)</div>
+                        <button class="btn btn-primary" onclick="openModal('newSWModal')" style="margin-top: 12px;">+ Add Software</button>
+                    </div>
+                <% } else { %>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px;">
+                        <% softwares.forEach(sw => { 
+                            const activeClients = (sw.clients || []).filter(c => c.status === 'Active');
+                        %>
+                            <a href="/software/<%= sw._id %>" style="text-decoration: none; color: inherit;">
+                                <div style="background: white; border: 1px solid var(--border); border-radius: 12px; padding: 16px; transition: all 0.2s; cursor: pointer;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 16px rgba(0,0,0,0.08)'" onmouseout="this.style.transform=''; this.style.boxShadow=''">
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                                        <div>
+                                            <div style="font-weight: 800; font-size: 16px;"><%= sw.name %></div>
+                                            <div style="font-size: 11px; color: var(--text-3);"><%= sw.code %> · <%= sw.category %></div>
+                                        </div>
+                                        <span class="badge <%= sw.status === 'Active' ? 'success' : 'neutral' %>"><%= sw.status %></span>
+                                    </div>
+                                    
+                                    <% if (sw.description) { %>
+                                        <div style="font-size: 12px; color: var(--text-2); margin-bottom: 10px;"><%= sw.description.length > 80 ? sw.description.slice(0,80)+'...' : sw.description %></div>
+                                    <% } %>
+                                    
+                                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 10px; background: var(--surface-2); border-radius: 8px; margin-bottom: 8px;">
+                                        <div style="text-align: center;">
+                                            <div style="font-size: 9px; color: var(--text-3); text-transform: uppercase;">Clients</div>
+                                            <div style="font-weight: 800; color: var(--primary);"><%= activeClients.length %></div>
+                                        </div>
+                                        <div style="text-align: center;">
+                                            <div style="font-size: 9px; color: var(--text-3); text-transform: uppercase;">Invoices</div>
+                                            <div style="font-weight: 800;"><%= sw.totalInvoicesGenerated || 0 %></div>
+                                        </div>
+                                        <div style="text-align: center;">
+                                            <div style="font-size: 9px; color: var(--text-3); text-transform: uppercase;">Revenue</div>
+                                            <div style="font-weight: 800; color: var(--success); font-size: 11px;">₹<%= ((sw.totalRevenueEarned || 0)/1000).toFixed(0) %>K</div>
+                                        </div>
+                                    </div>
+                                    
+                                    <% if ((sw.defaultPricing || []).length > 0) { %>
+                                        <div style="font-size: 10px; color: var(--text-3); margin-top: 6px;">
+                                            <strong>Pricing:</strong>
+                                            <%= sw.defaultPricing.slice(0,2).map(p => p.label + ' Rs.' + p.rate).join(', ') %>
+                                            <% if (sw.defaultPricing.length > 2) { %> +<%= sw.defaultPricing.length - 2 %> more<% } %>
+                                        </div>
+                                    <% } %>
+                                </div>
+                            </a>
+                        <% }) %>
+                    </div>
+                <% } %>
+            </div>
+        </div>
+        
+        <!-- Recent invoices -->
+        <% if (recentInvoices.length > 0) { %>
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">Recent Invoices</div>
+                <a href="/invoices" class="btn btn-sm btn-secondary">View All →</a>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Invoice #</th><th>Client</th><th>Software</th><th>Date</th><th>Amount</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>
+                        <% recentInvoices.forEach(inv => { 
+                            const sc = inv.status === 'Fully Paid' ? 'success' : inv.status === 'Cancelled' ? 'danger' : 'warning';
+                        %>
+                            <tr style="cursor: pointer;" onclick="location.href='/invoices/<%= inv._id %>'">
+                                <td class="font-mono font-bold"><%= inv.invoiceNumber %></td>
+                                <td>
+                                    <div class="font-bold"><%= inv.clientName %></div>
+                                    <% if (inv.clientCompany) { %><div style="font-size: 11px; color: var(--text-3);"><%= inv.clientCompany %></div><% } %>
+                                </td>
+                                <td><span class="badge info"><%= inv.softwareCode %></span></td>
+                                <td class="text-muted"><%= formatDate(inv.invoiceDate) %></td>
+                                <td class="font-mono font-bold"><%= formatINR(inv.grandTotal) %></td>
+                                <td><span class="badge <%= sc %>"><%= inv.status %></span></td>
+                            </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <% } %>
+    </main>
+</div>
+
+<!-- ADD SOFTWARE MODAL -->
+<div class="modal-overlay" id="newSWModal">
+    <div class="modal" style="max-width: 600px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Software Product</div>
+            <button class="modal-close" onclick="closeModal('newSWModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Software Code * <span class="text-muted" style="font-size: 10px;">(3-5 chars, e.g. NAV)</span></label>
+                    <input type="text" id="sw_code" placeholder="NAV" maxlength="6" style="text-transform: uppercase;">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Category</label>
+                    <select id="sw_category">
+                        <option>Custom Software</option>
+                        <option>Reports System</option>
+                        <option>Inventory Management</option>
+                        <option>ERP</option>
+                        <option>POS</option>
+                        <option>CRM</option>
+                        <option>Analytics</option>
+                        <option>Other</option>
+                    </select>
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Software Name *</label>
+                    <input type="text" id="sw_name" placeholder="e.g. Navigene Genetic Reports System">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Description</label>
+                    <textarea id="sw_desc" rows="2" placeholder="What does this software do?"></textarea>
+                </div>
+            </div>
+            
+            <hr style="margin: 16px 0;">
+            <div style="font-weight: 700; margin-bottom: 8px; font-size: 13px;">💰 Default Pricing</div>
+            <div id="pricingList"></div>
+            <button class="btn btn-secondary btn-sm" onclick="addPricing()">+ Add Pricing Item</button>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('newSWModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveSW()">Save Software</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+let pricingItems = [];
+
+function addPricing() {
+    pricingItems.push({ label: '', unit: 'unit', rate: 0, section: 'A', isRecurring: false });
+    renderPricing();
+}
+
+function renderPricing() {
+    const list = document.getElementById('pricingList');
+    list.innerHTML = pricingItems.map((p, i) => `
+        <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 6px; margin-bottom: 6px; align-items: center;">
+            <input type="text" placeholder="Label (e.g. Per Report)" value="${p.label}" oninput="updatePricing(${i}, 'label', this.value)">
+            <input type="text" placeholder="Unit" value="${p.unit}" oninput="updatePricing(${i}, 'unit', this.value)">
+            <input type="number" placeholder="Rate ₹" value="${p.rate}" oninput="updatePricing(${i}, 'rate', Number(this.value))">
+            <select onchange="updatePricing(${i}, 'section', this.value)">
+                <option value="A" ${p.section==='A'?'selected':''}>Section A</option>
+                <option value="B" ${p.section==='B'?'selected':''}>Section B</option>
+                <option value="C" ${p.section==='C'?'selected':''}>Section C</option>
+            </select>
+            <button class="btn btn-xs btn-danger" onclick="removePricing(${i})">×</button>
+        </div>
+    `).join('');
+}
+
+function updatePricing(i, key, value) {
+    pricingItems[i][key] = value;
+}
+
+function removePricing(i) {
+    pricingItems.splice(i, 1);
+    renderPricing();
+}
+
+async function saveSW() {
+    const data = {
+        code: document.getElementById('sw_code').value.toUpperCase(),
+        name: document.getElementById('sw_name').value,
+        category: document.getElementById('sw_category').value,
+        description: document.getElementById('sw_desc').value,
+        defaultPricing: pricingItems.filter(p => p.label && p.rate > 0)
+    };
+    if (!data.code || !data.name) return showToast('Code & name required', 'error');
+    
+    const res = await api('/api/software', { method: 'POST', body: JSON.stringify(data) });
+    if (res.success) { showToast('Software added', 'success'); setTimeout(() => location.reload(), 500); }
+}
+</script>
+</body>
+</html>

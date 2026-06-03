@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title><%= software.name %> — Searvator</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'software' }) %>
+    
+    <main class="main-content">
+        <div style="margin-bottom: 12px;">
+            <a href="/software" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back to Software</a>
+        </div>
+        
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">💼 <%= software.name %></h1>
+                <p class="page-subtitle">Code: <strong><%= software.code %></strong> · <%= software.category %> · <%= software.status %></p>
+            </div>
+            <div class="flex gap-2">
+                <a href="/invoices/new?software=<%= software.code %>" class="btn btn-success">+ Generate Invoice</a>
+                <button class="btn btn-primary" onclick="openModal('addClientModal')">+ Add Client</button>
+            </div>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Active Clients</div>
+                <div class="stat-value"><%= (software.clients || []).filter(c => c.status === 'Active').length %></div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Total Invoices</div>
+                <div class="stat-value"><%= software.totalInvoicesGenerated || 0 %></div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Total Revenue</div>
+                <div class="stat-value" style="font-size: 16px; color: var(--success);"><%= formatINR(software.totalRevenueEarned || 0) %></div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Pending Invoices</div>
+                <div class="stat-value" style="color: var(--warning);"><%= invoices.filter(i => i.status !== 'Fully Paid').length %></div>
+            </div>
+        </div>
+        
+        <!-- Pricing -->
+        <% if ((software.defaultPricing || []).length > 0) { %>
+        <div class="card">
+            <div class="card-header"><div class="card-title">💰 Default Pricing</div></div>
+            <div class="card-body">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                    <% software.defaultPricing.forEach(p => { %>
+                        <div style="background: var(--surface-2); padding: 12px; border-radius: 10px; border: 1px solid var(--border);">
+                            <div style="font-size: 11px; color: var(--text-3); text-transform: uppercase; font-weight: 700;">Section <%= p.section %></div>
+                            <div style="font-weight: 700; font-size: 13px;"><%= p.label %></div>
+                            <div style="font-size: 18px; font-weight: 800; color: var(--primary); margin-top: 4px;">₹<%= p.rate %></div>
+                            <div style="font-size: 10px; color: var(--text-3);">per <%= p.unit %></div>
+                        </div>
+                    <% }) %>
+                </div>
+            </div>
+        </div>
+        <% } %>
+        
+        <!-- Clients -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">👥 Clients Using This Software</div>
+                <span class="text-muted"><%= (software.clients || []).length %> clients</span>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Name</th><th>Company</th><th>Client ID</th><th>Mobile</th><th>Status</th><th>Action</th></tr></thead>
+                    <tbody>
+                        <% if ((software.clients || []).length === 0) { %>
+                            <tr><td colspan="6" class="text-center" style="padding: 30px; color: var(--text-3);">No clients yet</td></tr>
+                        <% } else { software.clients.forEach(c => { %>
+                            <tr>
+                                <td class="font-bold"><%= c.clientName %></td>
+                                <td><%= c.clientCompany || '-' %></td>
+                                <td class="font-mono" style="font-size: 11px;"><%= c.clientId || '-' %></td>
+                                <td class="font-mono"><%= c.clientMobile || '-' %></td>
+                                <td><span class="badge <%= c.status === 'Active' ? 'success' : 'neutral' %>"><%= c.status %></span></td>
+                                <td>
+                                    <a href="/invoices/new?software=<%= software.code %>&client=<%= encodeURIComponent(c.clientName) %>" class="btn btn-xs btn-primary">+ Invoice</a>
+                                </td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Invoices -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">📄 Invoices for this Software</div>
+                <a href="/invoices/new?software=<%= software.code %>" class="btn btn-sm btn-success">+ New Invoice</a>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Invoice #</th><th>Client</th><th>Date</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
+                    <tbody>
+                        <% if (invoices.length === 0) { %>
+                            <tr><td colspan="6" class="text-center" style="padding: 30px; color: var(--text-3);">No invoices yet</td></tr>
+                        <% } else { invoices.forEach(inv => { 
+                            const sc = inv.status === 'Fully Paid' ? 'success' : 'warning';
+                        %>
+                            <tr>
+                                <td class="font-mono font-bold"><%= inv.invoiceNumber %></td>
+                                <td><%= inv.clientName %></td>
+                                <td><%= formatDate(inv.invoiceDate) %></td>
+                                <td class="font-mono font-bold"><%= formatINR(inv.grandTotal) %></td>
+                                <td><span class="badge <%= sc %>"><%= inv.status %></span></td>
+                                <td>
+                                    <a href="/invoices/<%= inv._id %>" class="btn btn-xs btn-secondary">View</a>
+                                    <a href="/invoices/<%= inv._id %>/pdf" target="_blank" class="btn btn-xs btn-primary">📄 PDF</a>
+                                </td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- ADD CLIENT MODAL -->
+<div class="modal-overlay" id="addClientModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Client</div>
+            <button class="modal-close" onclick="closeModal('addClientModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Client Name *</label>
+                    <input type="text" id="c_name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Company</label>
+                    <input type="text" id="c_company">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Client ID</label>
+                    <input type="text" id="c_id" placeholder="Lab ID, Customer ID">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Mobile</label>
+                    <input type="tel" id="c_mobile">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Email</label>
+                    <input type="email" id="c_email">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('addClientModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveClient()">Add Client</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+const SW_ID = '<%= software._id %>';
+
+async function saveClient() {
+    const data = {
+        clientName: document.getElementById('c_name').value,
+        clientCompany: document.getElementById('c_company').value,
+        clientId: document.getElementById('c_id').value,
+        clientMobile: document.getElementById('c_mobile').value,
+        clientEmail: document.getElementById('c_email').value
+    };
+    if (!data.clientName) return showToast('Name required', 'error');
+    
+    const res = await api(`/api/software/${SW_ID}/clients`, { method: 'POST', body: JSON.stringify(data) });
+    if (res.success) { showToast('Client added', 'success'); setTimeout(() => location.reload(), 500); }
+}
+</script>
+</body>
+</html>
