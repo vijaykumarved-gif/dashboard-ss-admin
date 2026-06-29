@@ -38,6 +38,7 @@ const corporatePcSchema = new mongoose.Schema({
     // Future requirements
     futureRequirements: [{ type: String }], // 'RAM Upgrade', 'SSD', 'Monitor', etc.
     remarks: { type: String, default: '' },
+    healthSummary: { type: String, default: '' }, // Auto-generated English diagnostic summary
     overallStatus: { type: String, default: 'Good' } // Good, Needs Attention, Critical
 }, { _id: true });
 

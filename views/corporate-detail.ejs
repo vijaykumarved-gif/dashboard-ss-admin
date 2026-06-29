@@ -148,6 +148,13 @@
                             <% }) %>
                         </div>
                         
+                        <% if (pc.healthSummary) { %>
+                            <div style="font-size: 12px; margin-top: 8px; padding: 10px 12px; background: <%= sc === 'success' ? '#f0fdf4' : sc === 'warning' ? '#fffbeb' : '#fef2f2' %>; border: 1px solid <%= sc === 'success' ? '#86efac' : sc === 'warning' ? '#fcd34d' : '#fca5a5' %>; border-radius: 8px;">
+                                <strong style="font-size: 11px; text-transform: uppercase; color: #475569;">📋 Diagnostic Summary:</strong>
+                                <div style="margin-top: 4px; line-height: 1.5;"><%= pc.healthSummary %></div>
+                            </div>
+                        <% } %>
+                        
                         <% if (pc.workDone) { %>
                             <div style="font-size: 12px; margin-top: 8px;"><strong>Work Done:</strong> <%= pc.workDone %></div>
                         <% } %>

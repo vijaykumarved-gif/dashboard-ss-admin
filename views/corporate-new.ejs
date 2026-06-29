@@ -519,6 +519,15 @@
                         }).join('')}
                     </div>
                     
+                    <!-- AUTO-GENERATED HEALTH SUMMARY -->
+                    <div id="${p.id}_summary" class="health-summary" style="margin-top: 12px; padding: 12px 14px; border-radius: 10px; border: 1px solid #e2e8f0; background: #f8fafc;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #475569;">📋 Auto Diagnostic Summary</span>
+                            <span id="${p.id}_status" class="badge success" style="font-size: 10px;">Good</span>
+                        </div>
+                        <div id="${p.id}_summaryText" style="font-size: 12.5px; line-height: 1.6; color: #1e293b;"></div>
+                    </div>
+                    
                     <div class="form-group" style="margin-top: 10px;">
                         <label class="form-label">Work Done</label>
                         <textarea rows="2" oninput="update(${idx},'workDone',this.value)" placeholder="e.g. Cleaned dust, RAM upgrade, fan replaced">${p.workDone}</textarea>
@@ -546,6 +555,9 @@
         `).join('');
         
         recalc();
+        
+        // Populate auto-diagnostic summary for every PC after render
+        pcs.forEach((p, i) => updateHealthSummary(i));
     }
     
     function expandAll(open) {
@@ -580,6 +592,117 @@
             }
             recalc();
         }
+        // Refresh auto-summary when any hardware component changes
+        const hwFields = ['motherboard','cpu','ramStatus','ramSlots','hddHealth','drive','fan','temperature','battery','monitor','webcam','connectors'];
+        if (hwFields.includes(f)) {
+            updateHealthSummary(idx);
+        }
+    }
+    
+    // === AUTO DIAGNOSTIC SUMMARY GENERATOR ===
+    function updateHealthSummary(idx) {
+        const p = pcs[idx];
+        const labels = {
+            motherboard: 'Motherboard', cpu: 'CPU', ramStatus: 'RAM', ramSlots: 'RAM Slots',
+            hddHealth: 'Storage/HDD', drive: 'Optical Drive', fan: 'Cooling Fan',
+            temperature: 'Temperature', battery: 'Battery', monitor: 'Monitor',
+            webcam: 'Webcam', connectors: 'Ports/Connectors'
+        };
+        const fields = ['motherboard','cpu','ramStatus','ramSlots','hddHealth','drive','fan','temperature','battery','monitor','webcam','connectors'];
+        
+        const good = [], repair = [], missing = [], na = [];
+        
+        fields.forEach(f => {
+            const val = p[f];
+            const label = labels[f];
+            if (f === 'temperature') {
+                if (val === 'Overheating') repair.push(label + ' (Overheating)');
+                else if (val === 'Missing') missing.push(label);
+                else if (val === 'N/A') na.push(label);
+                else good.push(label);
+            } else {
+                if (val === 'Issue/Repair') repair.push(label);
+                else if (val === 'Missing') missing.push(label);
+                else if (val === 'N/A') na.push(label);
+                else good.push(label);
+            }
+        });
+        
+        // Build English summary sentences
+        let parts = [];
+        
+        if (repair.length > 0) {
+            parts.push(`<strong style="color:#dc2626;">Needs Repair/Attention:</strong> ${repair.join(', ')} ${repair.length === 1 ? 'requires' : 'require'} servicing or replacement.`);
+        }
+        if (missing.length > 0) {
+            parts.push(`<strong style="color:#ea580c;">Missing Components:</strong> ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not present in this system.`);
+        }
+        if (good.length > 0) {
+            parts.push(`<strong style="color:#16a34a;">Working Fine:</strong> ${good.join(', ')} ${good.length === 1 ? 'is' : 'are'} in good condition.`);
+        }
+        if (na.length > 0) {
+            parts.push(`<strong style="color:#64748b;">Not Applicable:</strong> ${na.join(', ')}.`);
+        }
+        
+        // Overall status
+        let statusText, statusClass, headline;
+        if (repair.length === 0 && missing.length === 0) {
+            statusText = 'All Good';
+            statusClass = 'success';
+            headline = `This ${p.pcType || 'system'} is in good working condition. No repairs needed.`;
+        } else if (repair.length + missing.length <= 2) {
+            statusText = 'Needs Attention';
+            statusClass = 'warning';
+            headline = `This ${p.pcType || 'system'} needs minor attention - ${repair.length + missing.length} component(s) flagged.`;
+        } else {
+            statusText = 'Critical';
+            statusClass = 'danger';
+            headline = `This ${p.pcType || 'system'} has multiple issues - ${repair.length + missing.length} components need action.`;
+        }
+        
+        const summaryHtml = `<div style="margin-bottom:6px; font-weight:600;">${headline}</div>` + parts.map(t => `<div style="margin-bottom:3px;">• ${t}</div>`).join('');
+        
+        // Update the DOM
+        const textEl = document.getElementById(p.id + '_summaryText');
+        const statusEl = document.getElementById(p.id + '_status');
+        const boxEl = document.getElementById(p.id + '_summary');
+        if (textEl) textEl.innerHTML = summaryHtml;
+        if (statusEl) {
+            statusEl.textContent = statusText;
+            statusEl.className = 'badge ' + statusClass;
+        }
+        if (boxEl) {
+            const bg = statusClass === 'success' ? '#f0fdf4' : statusClass === 'warning' ? '#fffbeb' : '#fef2f2';
+            const border = statusClass === 'success' ? '#86efac' : statusClass === 'warning' ? '#fcd34d' : '#fca5a5';
+            boxEl.style.background = bg;
+            boxEl.style.borderColor = border;
+        }
+        
+        // Auto-fill the work-done suggestion if empty (only repair items)
+        if ((repair.length > 0 || missing.length > 0)) {
+            const suggested = buildWorkSuggestion(repair, missing);
+            p._suggestedWork = suggested;
+        }
+        
+        // Store the generated summary into remarks automatically (plain text version)
+        const plainSummary = headline + (parts.length ? ' ' + stripHtml(parts.join(' ')) : '');
+        p.healthSummary = plainSummary;
+    }
+    
+    function buildWorkSuggestion(repair, missing) {
+        const actions = [];
+        repair.forEach(r => {
+            const item = r.split(' (')[0];
+            actions.push('Repair/replace ' + item.toLowerCase());
+        });
+        missing.forEach(m => actions.push('Install ' + m.toLowerCase()));
+        return actions.join('; ');
+    }
+    
+    function stripHtml(html) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        return tmp.textContent || tmp.innerText || '';
     }
     
     function removePC(idx) {
@@ -654,7 +777,7 @@
             serviceType: document.getElementById('serviceType').value,
             visitDate: document.getElementById('visitDate').value,
             visitTime: document.getElementById('visitTime').value,
-            pcs: pcs.map(p => { const { id, ...rest } = p; return rest; }),
+            pcs: pcs.map(p => { const { id, _suggestedWork, ...rest } = p; return rest; }),
             discount: Number(document.getElementById('discount').value || 0),
             discountReason: document.getElementById('discountReason').value,
             gstPercent: Number(document.getElementById('gstPercent').value || 18),
