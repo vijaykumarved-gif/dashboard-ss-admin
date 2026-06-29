@@ -111,6 +111,7 @@
                     <div class="form-group">
                         <label class="form-label">Service Type</label>
                         <select id="serviceType">
+                            <option>79 Service</option>
                             <option>Office Maintenance</option>
                             <option>Annual Service</option>
                             <option>Diagnostic Only</option>
@@ -137,14 +138,50 @@
                     <div class="card-title">💻 PCs / Systems</div>
                     <div class="card-subtitle"><span id="pcCount">0</span> PC added · Click each to fill diagnostic</div>
                 </div>
-                <button class="btn btn-primary" onclick="addPC()">+ Add PC</button>
+                <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" onclick="openBulkAdd()">⚡ Bulk Add (e.g. 20 PCs)</button>
+                    <button class="btn btn-primary" onclick="addPC()">+ Add PC</button>
+                </div>
             </div>
+            
+            <!-- Bulk add panel (hidden by default) -->
+            <div id="bulkPanel" style="display: none; padding: 14px 18px; background: linear-gradient(135deg, #eff6ff, #ffffff); border-bottom: 1px solid var(--border);">
+                <div style="font-weight: 700; font-size: 13px; margin-bottom: 8px; color: #1e40af;">⚡ Quick Bulk Add - Create multiple PCs instantly</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 8px; align-items: end;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label" style="font-size: 11px;">How many PCs?</label>
+                        <input type="number" id="bulkCount" value="20" min="1" max="100">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label" style="font-size: 11px;">Name Prefix</label>
+                        <input type="text" id="bulkPrefix" value="PC" placeholder="PC">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label" style="font-size: 11px;">Type</label>
+                        <select id="bulkType">
+                            <option>Desktop</option>
+                            <option>Laptop</option>
+                            <option>All-in-One</option>
+                            <option>Server</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label" style="font-size: 11px;">Rate each (₹)</label>
+                        <input type="number" id="bulkRate" value="79">
+                    </div>
+                    <button class="btn btn-success" onclick="doBulkAdd()" style="height: 38px;">Create All</button>
+                </div>
+                <div style="font-size: 11px; color: var(--text-3); margin-top: 8px;">
+                    💡 Ye <strong id="bulkPreview">PC-01, PC-02 ... PC-20</strong> banayega. Phir har ek me sirf jo change karna ho wo karo - default sab "Good" hai.
+                </div>
+            </div>
+            
             <div class="card-body">
                 <div id="pcsList"></div>
                 <div id="emptyPcs" class="empty-state" style="padding: 30px;">
                     <div class="empty-icon">💻</div>
                     <div class="empty-title">No PCs added yet</div>
-                    <div>Click <strong>+ Add PC</strong> to start entering systems</div>
+                    <div>Click <strong>+ Add PC</strong> for one, or <strong>⚡ Bulk Add</strong> for many at once</div>
                 </div>
             </div>
         </div>
@@ -335,6 +372,65 @@
         renderPCs();
     }
     
+    // === BULK ADD ===
+    function openBulkAdd() {
+        const panel = document.getElementById('bulkPanel');
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        updateBulkPreview();
+    }
+    
+    function updateBulkPreview() {
+        const count = Number(document.getElementById('bulkCount').value) || 0;
+        const prefix = document.getElementById('bulkPrefix').value || 'PC';
+        const preview = document.getElementById('bulkPreview');
+        if (count <= 0) { preview.textContent = '...'; return; }
+        if (count <= 3) {
+            preview.textContent = Array.from({length: count}, (_, i) => prefix + '-' + String(i+1).padStart(2,'0')).join(', ');
+        } else {
+            preview.textContent = `${prefix}-01, ${prefix}-02 ... ${prefix}-${String(count).padStart(2,'0')}`;
+        }
+    }
+    
+    function doBulkAdd() {
+        const count = Number(document.getElementById('bulkCount').value) || 0;
+        const prefix = document.getElementById('bulkPrefix').value || 'PC';
+        const type = document.getElementById('bulkType').value;
+        const rate = Number(document.getElementById('bulkRate').value) || 79;
+        
+        if (count <= 0 || count > 100) return showToast('Enter 1-100 PCs', 'error');
+        
+        const startNum = pcs.length + 1;
+        for (let i = 0; i < count; i++) {
+            const num = startNum + i;
+            const id = 'pc_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2,6);
+            pcs.push({
+                id,
+                pcSrNo: String(num),
+                pcType: type,
+                pcName: prefix + '-' + String(num).padStart(2, '0'),
+                pcModel: '',
+                serialNumber: '',
+                user: '', department: '',
+                motherboard: 'Good', cpu: 'Good', ramStatus: 'Good', ramSlots: 'Good',
+                hddHealth: 'Good', drive: 'Good', fan: 'Good', temperature: 'Normal',
+                connectors: 'Good', battery: 'Good', charger: 'Good', powerCable: 'Good',
+                monitor: 'Good', webcam: 'Good',
+                workDone: '', serviceRate: rate, remarks: '',
+                beforePhoto: '', afterPhoto: '',
+                futureRequirements: []
+            });
+        }
+        
+        document.getElementById('bulkPanel').style.display = 'none';
+        renderPCs();
+        showToast(`✓ ${count} PCs created! Total: ${pcs.length} PCs`, 'success');
+        // Scroll to first new PC
+        setTimeout(() => {
+            const list = document.getElementById('pcsList');
+            if (list) list.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 200);
+    }
+    
     function renderPCs() {
         const list = document.getElementById('pcsList');
         const empty = document.getElementById('emptyPcs');
@@ -348,7 +444,21 @@
         }
         empty.style.display = 'none';
         
-        list.innerHTML = pcs.map((p, idx) => `
+        // Toolbar for bulk operations when 3+ PCs
+        const toolbar = pcs.length >= 3 ? `
+            <div style="display: flex; gap: 8px; margin-bottom: 12px; padding: 10px; background: var(--surface-2); border-radius: 8px; flex-wrap: wrap; align-items: center;">
+                <span style="font-size: 12px; font-weight: 700; color: var(--text-2);">${pcs.length} PCs:</span>
+                <button class="btn btn-xs btn-secondary" onclick="expandAll(true)">Expand All</button>
+                <button class="btn btn-xs btn-secondary" onclick="expandAll(false)">Collapse All</button>
+                <div style="display: flex; gap: 4px; align-items: center; margin-left: auto;">
+                    <span style="font-size: 11px; color: var(--text-3);">Set all rates ₹</span>
+                    <input type="number" id="bulkRateAll" value="79" style="width: 70px; padding: 4px 8px; font-size: 12px;">
+                    <button class="btn btn-xs btn-primary" onclick="applyRateAll()">Apply</button>
+                </div>
+            </div>
+        ` : '';
+        
+        list.innerHTML = toolbar + pcs.map((p, idx) => `
             <div class="pc-card" id="${p.id}">
                 <div class="head" onclick="document.getElementById('${p.id}').classList.toggle('open')">
                     <div>
@@ -398,7 +508,7 @@
                     <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-2); margin-bottom: 8px;">Hardware Component Health</div>
                     <div class="hw-grid">
                         ${['motherboard','cpu','ramStatus','ramSlots','hddHealth','drive','fan','temperature','battery','monitor','webcam','connectors'].map(f => {
-                            const opts = f === 'temperature' ? ['Normal','Overheating'] : f === 'battery' ? ['Good','Dead/Replace','N/A'] : ['Good','Issue/Repair'];
+                            const opts = f === 'temperature' ? ['Normal','Overheating','N/A','Missing'] : ['Good','Issue/Repair','N/A','Missing'];
                             const labels = { motherboard:'Motherboard', cpu:'CPU', ramStatus:'RAM', ramSlots:'RAM Slots', hddHealth:'Storage', drive:'Optical Drive', fan:'Fan', temperature:'Temperature', battery:'Battery', monitor:'Monitor', webcam:'Webcam', connectors:'Connectors' };
                             return `<div class="form-group" style="margin-bottom: 0;">
                                 <label>${labels[f]}</label>
@@ -438,6 +548,24 @@
         recalc();
     }
     
+    function expandAll(open) {
+        pcs.forEach(p => {
+            const card = document.getElementById(p.id);
+            if (card) {
+                if (open) card.classList.add('open');
+                else card.classList.remove('open');
+            }
+        });
+    }
+    
+    function applyRateAll() {
+        const rate = Number(document.getElementById('bulkRateAll').value) || 0;
+        pcs.forEach(p => { p.serviceRate = rate; });
+        renderPCs();
+        recalc();
+        showToast(`All ${pcs.length} PCs set to ₹${rate}`, 'success');
+    }
+    
     function update(idx, f, v) {
         if (f === 'serviceRate') v = Number(v) || 0;
         pcs[idx][f] = v;
@@ -457,8 +585,7 @@
     function removePC(idx) {
         if (!confirm('Remove this PC?')) return;
         pcs.splice(idx, 1);
-        renderPCs();
-    }
+        renderPCs();    }
     
     function compressPhoto(input, idx, field) {
         const file = input.files[0]; if (!file) return;
@@ -467,15 +594,18 @@
             const img = new Image(); img.src = ev.target.result;
             img.onload = () => {
                 const canvas = document.createElement('canvas');
-                const MAX = 800;
-                canvas.width = MAX;
-                canvas.height = img.height * (MAX / img.width);
-                canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+                const MAX = 640;
+                let w = img.width, h = img.height;
+                if (w > MAX) { h = h * (MAX / w); w = MAX; }
+                canvas.width = w;
+                canvas.height = h;
+                canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
                 pcs[idx][field] = dataUrl;
                 const previewId = pcs[idx].id + '_' + (field === 'beforePhoto' ? 'before' : 'after');
                 const preview = document.getElementById(previewId);
                 if (preview) { preview.src = dataUrl; preview.classList.add('show'); }
+                showToast((field === 'beforePhoto' ? 'Before' : 'After') + ' photo added', 'success');
             };
         };
         reader.readAsDataURL(file);
@@ -499,12 +629,19 @@
     }
     
     async function submitEntry() {
+        const btn = document.querySelector('button[onclick="submitEntry()"]');
+        
         if (!gps) {
             if (!confirm('GPS not captured yet. Submit without GPS verification?')) {
                 captureGPS();
                 return;
             }
         }
+        
+        if (!document.getElementById('customerName').value || !document.getElementById('mobileNumber').value || !document.getElementById('location').value) {
+            return showToast('Customer name, mobile, and address required', 'error');
+        }
+        if (pcs.length === 0) return showToast('Add at least one PC', 'error');
         
         const data = {
             agentName: AGENT,
@@ -535,20 +672,33 @@
             data.gpsCapturedAt = new Date();
         }
         
-        if (!data.customerName || !data.mobileNumber || !data.location) {
-            return showToast('Customer name, mobile, and address required', 'error');
-        }
-        if (pcs.length === 0) return showToast('Add at least one PC', 'error');
+        // Disable button + show progress
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving bill...'; }
+        showToast('Saving entry & generating bill...', 'info');
         
-        const res = await api('/api/corporate', { method: 'POST', body: JSON.stringify(data) });
-        if (res.success) {
-            showToast('✓ Corporate entry saved!', 'success');
-            setTimeout(() => location.href = '/corporate/' + res.entry._id, 700);
+        try {
+            const res = await api('/api/corporate', { method: 'POST', body: JSON.stringify(data) });
+            if (res && res.success) {
+                showToast('✓ Bill generated successfully!', 'success');
+                setTimeout(() => location.href = '/corporate/' + res.entry._id, 700);
+            } else {
+                if (btn) { btn.disabled = false; btn.textContent = '✓ Submit Corporate Entry'; }
+                showToast('Error: ' + (res && res.error ? res.error : 'Could not save. Try removing some photos if too large.'), 'error');
+            }
+        } catch (e) {
+            if (btn) { btn.disabled = false; btn.textContent = '✓ Submit Corporate Entry'; }
+            showToast('Save failed: ' + e.message + '. Photos may be too large - try fewer/smaller photos.', 'error');
         }
     }
     
     // Initial state
     recalc();
+    
+    // Live bulk preview update
+    ['bulkCount', 'bulkPrefix'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', updateBulkPreview);
+    });
 </script>
 <% if (user.role === 'agent') { %>
 <%- include('partials/mobile-bottom-nav', { activeNav: 'corporate' }) %>
