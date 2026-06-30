@@ -58,6 +58,18 @@
                 <div class="card">
                     <div class="card-header"><div class="card-title">Client Information</div></div>
                     <div class="card-body">
+                        <!-- CUSTOMER AUTO-FILL SEARCH -->
+                        <div style="margin-bottom: 16px; padding: 12px 14px; background: linear-gradient(135deg, #eff6ff, #ffffff); border: 1px solid #bfdbfe; border-radius: 10px; position: relative;">
+                            <label class="form-label" style="color: #1e40af; font-weight: 700;">🔍 Quick Fill - Search Existing Customer</label>
+                            <input type="text" id="custSearch" placeholder="Type mobile number, name, or company..." autocomplete="off"
+                                style="width: 100%; margin-top: 4px;"
+                                oninput="searchCustomer(this.value)" onfocus="searchCustomer(this.value)">
+                            <div id="custSuggestions" style="display: none; position: absolute; left: 14px; right: 14px; top: 72px; background: white; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); max-height: 280px; overflow-y: auto; z-index: 50;"></div>
+                            <div style="font-size: 11px; color: var(--text-3); margin-top: 6px;">
+                                💡 Customer ka mobile/name daalo → details auto-fill ho jayengi. Naya customer ho to niche manually bharo.
+                            </div>
+                        </div>
+                        
                         <div class="form-grid">
                             <div class="form-group">
                                 <label class="form-label">Client Name *</label>
@@ -102,7 +114,15 @@
                             <div class="card-title">Items</div>
                             <div class="card-subtitle">Pick products from catalog →, or add custom items below</div>
                         </div>
-                        <button class="btn btn-secondary btn-sm" onclick="addCustomItem()">+ Custom Item</button>
+                        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                            <span style="font-size: 11px; color: var(--text-3); font-weight: 600;">Set all GST:</span>
+                            <button class="btn btn-xs btn-secondary" onclick="setAllGst(0)" style="background:#dcfce7; color:#166534;">0%</button>
+                            <button class="btn btn-xs btn-secondary" onclick="setAllGst(5)">5%</button>
+                            <button class="btn btn-xs btn-secondary" onclick="setAllGst(12)">12%</button>
+                            <button class="btn btn-xs btn-secondary" onclick="setAllGst(18)">18%</button>
+                            <button class="btn btn-xs btn-secondary" onclick="setAllGst(28)">28%</button>
+                            <button class="btn btn-secondary btn-sm" onclick="addCustomItem()">+ Custom Item</button>
+                        </div>
                     </div>
                     <div>
                         <div class="items-header">
@@ -241,7 +261,7 @@
                     <input type="number" value="${it.quantity || 1}" oninput="updateItem(${idx}, 'quantity', this.value)" min="1">
                     <input type="text" value="${it.unit || 'Pcs'}" oninput="updateItem(${idx}, 'unit', this.value)">
                     <input type="number" value="${it.unitPrice || 0}" oninput="updateItem(${idx}, 'unitPrice', this.value)">
-                    <input type="number" value="${it.gstPercent || 18}" oninput="updateItem(${idx}, 'gstPercent', this.value)">
+                    <input type="number" value="${it.gstPercent ?? 18}" oninput="updateItem(${idx}, 'gstPercent', this.value)" min="0" max="28">
                     <div class="font-mono font-bold text-right">${formatINR(it.total)}</div>
                     <button class="remove-btn" onclick="removeItem(${idx})">×</button>
                 </div>
@@ -251,12 +271,26 @@
     }
     
     function updateItem(idx, field, val) {
-        if (['quantity', 'unitPrice', 'gstPercent'].includes(field)) val = Number(val);
+        if (['quantity', 'unitPrice', 'gstPercent'].includes(field)) {
+            val = val === '' ? (field === 'gstPercent' ? 0 : 0) : Number(val);
+        }
         items[idx][field] = val;
         const it = items[idx];
         const sub = (it.quantity || 0) * (it.unitPrice || 0);
-        it.total = sub + (sub * (it.gstPercent || 0) / 100);
-        renderItems();
+        const gstP = Number(it.gstPercent) || 0;
+        it.total = sub + (sub * gstP / 100);
+        // Only re-render the total cell + grand totals, NOT the whole row (so input focus stays)
+        updateRowTotal(idx);
+        recalcTotals();
+    }
+    
+    // Update just the total display of a row without re-rendering inputs
+    function updateRowTotal(idx) {
+        const rows = document.querySelectorAll('#itemsContainer .item-row');
+        if (rows[idx]) {
+            const totalCell = rows[idx].querySelector('.font-mono.font-bold.text-right');
+            if (totalCell) totalCell.textContent = formatINR(items[idx].total);
+        }
     }
     
     function addProduct(p) {
@@ -307,6 +341,17 @@
     function removeItem(idx) {
         items.splice(idx, 1);
         renderItems();
+    }
+    
+    function setAllGst(pct) {
+        if (items.length === 0) return showToast('Add items first', 'error');
+        items.forEach(it => {
+            it.gstPercent = pct;
+            const sub = (it.quantity || 0) * (it.unitPrice || 0);
+            it.total = sub + (sub * pct / 100);
+        });
+        renderItems();
+        showToast(`All items set to ${pct}% GST`, 'success');
     }
     
     function recalcTotals() {
@@ -367,6 +412,73 @@
             }, 500);
         }
     }
+    
+    // === CUSTOMER AUTO-FILL ===
+    let custSearchTimer = null;
+    
+    function searchCustomer(q) {
+        clearTimeout(custSearchTimer);
+        const box = document.getElementById('custSuggestions');
+        
+        if (!q || q.trim().length < 3) {
+            box.style.display = 'none';
+            return;
+        }
+        
+        custSearchTimer = setTimeout(async () => {
+            try {
+                const res = await fetch('/api/customers/lookup?q=' + encodeURIComponent(q.trim()));
+                const data = await res.json();
+                const list = data.suggestions || [];
+                
+                if (list.length === 0) {
+                    box.innerHTML = '<div style="padding: 14px; text-align: center; color: #94a3b8; font-size: 13px;">No matching customer found.<br><span style="font-size:11px;">Fill details manually below ⬇️</span></div>';
+                    box.style.display = 'block';
+                    return;
+                }
+                
+                box.innerHTML = list.map(c => `
+                    <div onclick='fillCustomer(${JSON.stringify(c).replace(/'/g, "&#39;")})' 
+                        style="padding: 10px 14px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.15s;"
+                        onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background='white'">
+                        <div style="font-weight: 700; font-size: 13px; color: #0f172a;">${c.name}${c.companyName ? ' · ' + c.companyName : ''}</div>
+                        <div style="font-size: 11px; color: #64748b; margin-top: 2px;">
+                            📞 ${c.mobile}${(c.primaryAddress || c.location) ? ' · 📍 ' + (c.primaryAddress || c.location).slice(0, 40) : ''}
+                        </div>
+                        ${c.totalServices ? `<div style="font-size: 10px; color: #16a34a; margin-top: 2px;">✓ ${c.totalServices} past services · ₹${(c.totalRevenue||0).toLocaleString('en-IN')} revenue</div>` : ''}
+                    </div>
+                `).join('');
+                box.style.display = 'block';
+            } catch (e) {
+                box.style.display = 'none';
+            }
+        }, 300);
+    }
+    
+    function fillCustomer(c) {
+        document.getElementById('q_client').value = c.name || '';
+        document.getElementById('q_company').value = c.companyName || '';
+        document.getElementById('q_mobile').value = c.mobile || '';
+        document.getElementById('q_email').value = c.email || '';
+        const fullAddr = c.primaryAddress || c.location || '';
+        document.getElementById('q_address').value = fullAddr;
+        // Site location: use city/location or address
+        const siteEl = document.getElementById('q_site');
+        if (siteEl && !siteEl.value) siteEl.value = c.location || fullAddr || '';
+        
+        document.getElementById('custSuggestions').style.display = 'none';
+        document.getElementById('custSearch').value = c.name + ' (' + c.mobile + ')';
+        showToast('✓ Customer details filled: ' + c.name, 'success');
+    }
+    
+    // Close suggestions when clicking outside
+    document.addEventListener('click', (e) => {
+        const search = document.getElementById('custSearch');
+        const box = document.getElementById('custSuggestions');
+        if (search && box && !search.contains(e.target) && !box.contains(e.target)) {
+            box.style.display = 'none';
+        }
+    });
     
     renderItems();
 </script>
