@@ -4,6 +4,7 @@ const quotationItemSchema = new mongoose.Schema({
     productId: { type: mongoose.Schema.Types.ObjectId, ref: 'CCTVProduct' },
     productName: { type: String, required: true },
     specifications: { type: String, default: '' },
+    warranty: { type: String, default: '1 Year' }, // per-item warranty
     quantity: { type: Number, required: true, default: 1 },
     unit: { type: String, default: 'Pcs' },
     unitPrice: { type: Number, required: true },

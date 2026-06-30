@@ -298,13 +298,14 @@ function drawPdfHeader(doc, docType, docNumber) {
         doc.fillColor('#60a5fa').fontSize(10).font('Helvetica').text('# ' + docNumber, 0, 78, { align: 'right', width: W - 40, lineBreak: false });
     }
     doc.fillColor('#94a3b8').fontSize(8).text('www.searvator.com', 0, 95, { align: 'right', width: W - 40, lineBreak: false });
+    doc.fillColor('#fcd34d').fontSize(7).font('Helvetica-Bold').text('CIN: U62011GJ2026PTC172346', 0, 110, { align: 'right', width: W - 40, lineBreak: false });
 }
 
 // Reusable services + contact footer for all PDFs
 function drawPdfFooter(doc) {
     const W = doc.page.width;
     const H = doc.page.height;
-    const footerY = H - 130;
+    const footerY = H - 138;
     
     // Services strip (dark blue band)
     doc.rect(0, footerY, W, 50).fill('#1e3a8a');
@@ -343,8 +344,10 @@ function drawPdfFooter(doc) {
     });
     
     // Bottom line
+    doc.fillColor('#fcd34d').fontSize(8).font('Helvetica-Bold')
+        .text('CIN: U62011GJ2026PTC172346', 0, footerY + 113, { align: 'center', width: W, lineBreak: false, height: 10 });
     doc.fillColor('#64748b').fontSize(7).font('Helvetica')
-        .text('Ahmedabad, Gujarat, India  |  This is a system-generated document', 0, footerY + 115, { align: 'center', width: W, lineBreak: false, height: 10 });
+        .text('Ahmedabad, Gujarat, India  |  This is a system-generated document', 0, footerY + 123, { align: 'center', width: W, lineBreak: false, height: 10 });
 }
 
 // Creates a PDF doc that REFUSES to add new pages (forces single page)
@@ -976,10 +979,12 @@ app.get('/api/quotations/:id/pdf', requireAuth, requireAdmin, async (req, res) =
         doc.pipe(res);
 
         doc.rect(0, 0, doc.page.width, 90).fill('#0f172a');
-        doc.fillColor('#ffffff').fontSize(26).font('Helvetica-Bold').text('SEARVATOR', 40, 28);
-        doc.fontSize(9).font('Helvetica').fillColor('#94a3b8').text('AI • Hardware • CCTV • Biometric Solutions', 40, 58);
-        doc.fontSize(9).fillColor('#cbd5e1').text('QUOTATION', 0, 32, { align: 'right', width: doc.page.width - 40 });
-        doc.fontSize(14).fillColor('#ffffff').font('Helvetica-Bold').text(q.quotationNumber, 0, 50, { align: 'right', width: doc.page.width - 40 });
+        doc.fillColor('#ffffff').fontSize(26).font('Helvetica-Bold').text('SEARVATOR', 40, 22);
+        doc.fontSize(9).font('Helvetica').fillColor('#94a3b8').text('AI • Hardware • CCTV • Biometric Solutions', 40, 52);
+        doc.fontSize(7).fillColor('#fcd34d').font('Helvetica-Bold').text('CIN: U62011GJ2026PTC172346', 40, 66);
+        doc.fontSize(9).fillColor('#cbd5e1').font('Helvetica').text('QUOTATION', 0, 28, { align: 'right', width: doc.page.width - 40 });
+        doc.fontSize(14).fillColor('#ffffff').font('Helvetica-Bold').text(q.quotationNumber, 0, 44, { align: 'right', width: doc.page.width - 40 });
+        doc.fontSize(7).fillColor('#94a3b8').font('Helvetica').text('+91 9106959092 | www.searvator.com', 0, 66, { align: 'right', width: doc.page.width - 40 });
 
         doc.fillColor('#000000').fontSize(10).font('Helvetica');
         let y = 110;
@@ -1014,7 +1019,7 @@ app.get('/api/quotations/:id/pdf', requireAuth, requireAdmin, async (req, res) =
         y = Math.max(y, ry) + 20;
 
         const tableTop = y;
-        const colX = { sno: 40, desc: 75, qty: 320, unit: 360, price: 400, gst: 460, total: 500 };
+        const colX = { sno: 40, desc: 70, qty: 300, unit: 332, price: 372, warr: 432, total: 502 };
 
         doc.rect(40, tableTop, doc.page.width - 80, 24).fill('#0f172a');
         doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9);
@@ -1023,7 +1028,7 @@ app.get('/api/quotations/:id/pdf', requireAuth, requireAdmin, async (req, res) =
         doc.text('Qty', colX.qty, tableTop + 8);
         doc.text('Unit', colX.unit, tableTop + 8);
         doc.text('Price', colX.price, tableTop + 8);
-        doc.text('GST%', colX.gst, tableTop + 8);
+        doc.text('Warranty', colX.warr, tableTop + 8);
         doc.text('Total', colX.total, tableTop + 8);
 
         y = tableTop + 24;
@@ -1036,16 +1041,16 @@ app.get('/api/quotations/:id/pdf', requireAuth, requireAdmin, async (req, res) =
                 doc.fillColor('#000000');
             }
             doc.text(String(idx + 1), colX.sno, y + 6);
-            doc.font('Helvetica-Bold').text(item.productName, colX.desc, y + 6, { width: 235 });
+            doc.font('Helvetica-Bold').fontSize(9).text(item.productName, colX.desc, y + 6, { width: 225 });
             if (item.specifications) {
-                doc.font('Helvetica').fillColor('#64748b').fontSize(8).text(item.specifications, colX.desc, y + 18, { width: 235 });
+                doc.font('Helvetica').fillColor('#64748b').fontSize(7.5).text(item.specifications, colX.desc, y + 18, { width: 225 });
                 doc.fillColor('#000000').fontSize(9);
             }
-            doc.font('Helvetica').text(String(item.quantity), colX.qty, y + 6);
+            doc.font('Helvetica').fontSize(9).text(String(item.quantity), colX.qty, y + 6);
             doc.text(item.unit || 'Pcs', colX.unit, y + 6);
-            doc.text(`Rs.${item.unitPrice.toLocaleString('en-IN')}`, colX.price, y + 6);
-            doc.text(`${item.gstPercent}%`, colX.gst, y + 6);
-            doc.font('Helvetica-Bold').text(`Rs.${Math.round(item.total).toLocaleString('en-IN')}`, colX.total, y + 6);
+            doc.text(`Rs.${item.unitPrice.toLocaleString('en-IN')}`, colX.price, y + 6, { width: 55 });
+            doc.fillColor('#16a34a').fontSize(8).text(item.warranty || '1 Year', colX.warr, y + 6, { width: 65 });
+            doc.fillColor('#000000').font('Helvetica-Bold').fontSize(9).text(`Rs.${Math.round(item.total).toLocaleString('en-IN')}`, colX.total, y + 6, { width: 60 });
             doc.font('Helvetica');
             y += rowHeight;
         });
@@ -1091,10 +1096,11 @@ app.get('/api/quotations/:id/pdf', requireAuth, requireAdmin, async (req, res) =
             doc.font('Helvetica').text(q.notes, 40, y, { width: doc.page.width - 80 });
         }
 
-        const footerY = doc.page.height - 50;
-        doc.rect(0, footerY, doc.page.width, 50).fill('#0f172a');
-        doc.fillColor('#94a3b8').fontSize(8).font('Helvetica').text('Thank you for considering Searvator. We look forward to working with you.', 40, footerY + 18, { align: 'center', width: doc.page.width - 80 });
-        doc.fontSize(7).text('This is a system-generated quotation.', 40, footerY + 32, { align: 'center', width: doc.page.width - 80 });
+        const footerY = doc.page.height - 55;
+        doc.rect(0, footerY, doc.page.width, 55).fill('#0f172a');
+        doc.fillColor('#94a3b8').fontSize(8).font('Helvetica').text('Thank you for considering Searvator. We look forward to working with you.', 40, footerY + 12, { align: 'center', width: doc.page.width - 80 });
+        doc.fillColor('#fcd34d').fontSize(8).font('Helvetica-Bold').text('SEARVATOR IT SOLUTIONS PVT. LTD.  |  CIN: U62011GJ2026PTC172346', 40, footerY + 28, { align: 'center', width: doc.page.width - 80 });
+        doc.fillColor('#64748b').fontSize(7).font('Helvetica').text('+91 9106959092  |  info@searvator.com  |  Ahmedabad, Gujarat  |  System-generated quotation', 40, footerY + 42, { align: 'center', width: doc.page.width - 80 });
 
         doc.end();
     } catch (e) {

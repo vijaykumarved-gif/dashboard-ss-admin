@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <%- include('partials/mobile-head') %>
     <title><%= quotation ? 'Edit Quotation' : 'New Quotation' %> — Searvator CRM</title>
     <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
     <style>
         .builder-grid { display: grid; grid-template-columns: 1fr 380px; gap: 20px; align-items: start; }
         @media (max-width: 1100px) { .builder-grid { grid-template-columns: 1fr; } }
@@ -82,7 +82,7 @@
                             <div class="form-group">
                                 <label class="form-label">Project Type</label>
                                 <select id="q_type">
-                                    <% ['CCTV Installation','Biometric','AMC','Hybrid Setup','Other'].forEach(s => { %>
+                                    <% ['CCTV Installation','Biometric','Desktop Computer','Laptop','Computer Parts/Upgrade','Server','Printer/Scanner','AMC','Hybrid Setup','Other'].forEach(s => { %>
                                         <option <%= quotation && quotation.projectType === s ? 'selected' : '' %>><%= s %></option>
                                     <% }) %>
                                 </select>
@@ -173,12 +173,34 @@
             
             <!-- RIGHT: Product Picker -->
             <div class="product-picker">
+                <div class="font-bold mb-2" style="font-size: 14px;">⚡ Quick Add - Computer Parts</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px;">
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('Desktop PC (Assembled)', 'Intel i5 12th Gen, 16GB DDR4, 512GB SSD, Cabinet', '1 Year', 35000)">🖥️ Desktop PC</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('Laptop', 'Intel i5, 8GB RAM, 512GB SSD, 15.6 inch', '1 Year', 45000)">💻 Laptop</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('RAM 8GB DDR4', '8GB DDR4 3200MHz', '3 Years', 1500)">RAM 8GB</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('RAM 16GB DDR4', '16GB DDR4 3200MHz', '3 Years', 2800)">RAM 16GB</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('SSD 256GB', '256GB SATA SSD', '3 Years', 1800)">SSD 256GB</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('SSD 512GB', '512GB NVMe SSD', '3 Years', 3200)">SSD 512GB</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('SSD 1TB', '1TB NVMe SSD', '3 Years', 5500)">SSD 1TB</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('HDD 1TB', '1TB 7200RPM SATA', '2 Years', 3000)">HDD 1TB</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('Monitor 22 inch', '22 inch FHD LED', '3 Years', 7000)">Monitor 22\"</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('Keyboard + Mouse', 'USB Wired Combo', '1 Year', 600)">KB+Mouse</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('SMPS / Power Supply', '500W Power Supply', '1 Year', 1200)">SMPS</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('Cabinet', 'ATX Cabinet with Fans', '1 Year', 1500)">Cabinet</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('Motherboard', 'H610 / B660 Chipset', '3 Years', 8000)">Motherboard</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('Processor', 'Intel i5 12th Gen', '3 Years', 14000)">Processor</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('Graphics Card', 'GTX 1650 4GB', '3 Years', 12000)">GPU</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('UPS', '600VA UPS Backup', '1 Year', 2500)">UPS</button>
+                    <button class="btn btn-xs btn-secondary" onclick="quickAdd('Windows 11 License', 'Genuine Windows 11 Pro', 'Lifetime', 8000)">Windows</button>
+                    <button class="btn btn-xs" style="background: #16a34a; color: white;" onclick="addCustomItem()">+ Custom</button>
+                </div>
+                
                 <div class="font-bold mb-2" style="font-size: 14px;">📦 Pick from Catalog</div>
                 <input type="text" class="product-search" id="productSearch" placeholder="Search products..." oninput="filterProducts()">
                 <div id="productList">
                     <% if (products.length === 0) { %>
                         <div style="padding: 20px; text-align: center; color: var(--text-3); font-size: 12px;">
-                            No products in catalog. <a href="/cctv">Add some first</a>
+                            No products in catalog. Use Quick Add buttons above ⬆️
                         </div>
                     <% } else { products.forEach(p => { %>
                         <div class="product-item" data-name="<%= p.productName.toLowerCase() %>" onclick='addProduct(<%- JSON.stringify(p) %>)'>
@@ -213,7 +235,8 @@
                 <div class="item-row">
                     <div>
                         <input type="text" value="${it.productName || ''}" oninput="updateItem(${idx}, 'productName', this.value)" placeholder="Item name">
-                        <input type="text" value="${it.specifications || ''}" oninput="updateItem(${idx}, 'specifications', this.value)" placeholder="Spec (optional)" style="margin-top: 4px; font-size: 11px;">
+                        <input type="text" value="${it.specifications || ''}" oninput="updateItem(${idx}, 'specifications', this.value)" placeholder="Spec (e.g. i5 12th Gen, 16GB RAM, 512GB SSD)" style="margin-top: 4px; font-size: 11px;">
+                        <input type="text" value="${it.warranty || '1 Year'}" oninput="updateItem(${idx}, 'warranty', this.value)" placeholder="Warranty (e.g. 1 Year, 3 Years)" style="margin-top: 4px; font-size: 11px; color: #16a34a;">
                     </div>
                     <input type="number" value="${it.quantity || 1}" oninput="updateItem(${idx}, 'quantity', this.value)" min="1">
                     <input type="text" value="${it.unit || 'Pcs'}" oninput="updateItem(${idx}, 'unit', this.value)">
@@ -255,6 +278,7 @@
         items.push({
             productName: '',
             specifications: '',
+            warranty: '1 Year',
             quantity: 1,
             unit: 'Pcs',
             unitPrice: 0,
@@ -262,6 +286,22 @@
             total: 0
         });
         renderItems();
+    }
+    
+    function quickAdd(name, spec, warranty, price) {
+        const gst = 18;
+        items.push({
+            productName: name,
+            specifications: spec,
+            warranty: warranty,
+            quantity: 1,
+            unit: 'Pcs',
+            unitPrice: price,
+            gstPercent: gst,
+            total: price + (price * gst / 100)
+        });
+        renderItems();
+        showToast(`Added: ${name}`, 'success');
     }
     
     function removeItem(idx) {
