@@ -116,6 +116,19 @@ const corporateEntrySchema = new mongoose.Schema({
     // Edit history
     editLogs: [editLogSchema],
     
+    // Post-payment edit lock + admin override token
+    editLocked: { type: Boolean, default: false }, // becomes true after payment marked Paid
+    editUnlockToken: { type: String, default: '' }, // 4-digit token admin generates to allow editing
+    editUnlockTokenUsed: { type: Boolean, default: false },
+    editUnlockedAt: { type: Date }, // when admin last unlocked for editing
+    editUnlockedBy: { type: String, default: '' },
+    postPaymentEdits: [{ // log of edits done AFTER payment (shown prominently at top)
+        editedBy: { type: String },
+        editedAt: { type: Date, default: Date.now },
+        summary: { type: String },
+        authorizedBy: { type: String } // admin who gave the token
+    }],
+    
     // Created/updated meta
     createdBy: { type: String, default: '' },
     lastModifiedBy: { type: String, default: '' }

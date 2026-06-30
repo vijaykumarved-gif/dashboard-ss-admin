@@ -271,6 +271,11 @@
     let pcs = [];
     let lookupTimer = null;
     
+    // === EDIT MODE ===
+    const EDIT_ENTRY = <%- editEntry ? JSON.stringify(editEntry) : 'null' %>;
+    const IS_EDIT = !!EDIT_ENTRY;
+    const EDIT_ID = EDIT_ENTRY ? EDIT_ENTRY._id : null;
+    
     // === CUSTOMER AUTO-FILL ===
     async function lookupCustomer(query) {
         clearTimeout(lookupTimer);
@@ -796,20 +801,27 @@
         }
         
         // Disable button + show progress
-        if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving bill...'; }
-        showToast('Saving entry & generating bill...', 'info');
+        if (btn) { btn.disabled = true; btn.textContent = IS_EDIT ? '⏳ Updating...' : '⏳ Saving bill...'; }
+        showToast(IS_EDIT ? 'Updating entry...' : 'Saving entry & generating bill...', 'info');
         
         try {
-            const res = await api('/api/corporate', { method: 'POST', body: JSON.stringify(data) });
+            const url = IS_EDIT ? '/api/corporate/' + EDIT_ID : '/api/corporate';
+            const method = IS_EDIT ? 'PUT' : 'POST';
+            const res = await api(url, { method, body: JSON.stringify(data) });
             if (res && res.success) {
-                showToast('✓ Bill generated successfully!', 'success');
-                setTimeout(() => location.href = '/corporate/' + res.entry._id, 700);
+                showToast(IS_EDIT ? '✓ Entry updated!' : '✓ Bill generated successfully!', 'success');
+                const goId = IS_EDIT ? EDIT_ID : res.entry._id;
+                setTimeout(() => location.href = '/corporate/' + goId, 700);
             } else {
-                if (btn) { btn.disabled = false; btn.textContent = '✓ Submit Corporate Entry'; }
-                showToast('Error: ' + (res && res.error ? res.error : 'Could not save. Try removing some photos if too large.'), 'error');
+                if (btn) { btn.disabled = false; btn.textContent = IS_EDIT ? '💾 Update Entry' : '✓ Submit Corporate Entry'; }
+                if (res && res.locked) {
+                    showToast('🔒 Entry is locked (payment complete). Ask admin for an edit token.', 'error');
+                } else {
+                    showToast('Error: ' + (res && res.error ? res.error : 'Could not save. Try removing some photos if too large.'), 'error');
+                }
             }
         } catch (e) {
-            if (btn) { btn.disabled = false; btn.textContent = '✓ Submit Corporate Entry'; }
+            if (btn) { btn.disabled = false; btn.textContent = IS_EDIT ? '💾 Update Entry' : '✓ Submit Corporate Entry'; }
             showToast('Save failed: ' + e.message + '. Photos may be too large - try fewer/smaller photos.', 'error');
         }
     }
@@ -822,6 +834,50 @@
         const el = document.getElementById(id);
         if (el) el.addEventListener('input', updateBulkPreview);
     });
+    
+    // === LOAD EDIT DATA ===
+    if (IS_EDIT && EDIT_ENTRY) {
+        // Pre-fill customer fields
+        const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+        setVal('customerName', EDIT_ENTRY.customerName);
+        setVal('companyName', EDIT_ENTRY.companyName);
+        setVal('mobileNumber', EDIT_ENTRY.mobileNumber);
+        setVal('email', EDIT_ENTRY.email);
+        setVal('location', EDIT_ENTRY.location);
+        setVal('gstNumber', EDIT_ENTRY.gstNumber);
+        setVal('serviceType', EDIT_ENTRY.serviceType);
+        if (EDIT_ENTRY.visitDate) setVal('visitDate', new Date(EDIT_ENTRY.visitDate).toISOString().split('T')[0]);
+        setVal('visitTime', EDIT_ENTRY.visitTime);
+        setVal('discount', EDIT_ENTRY.discount);
+        setVal('discountReason', EDIT_ENTRY.discountReason);
+        setVal('gstPercent', EDIT_ENTRY.gstPercent);
+        setVal('amountReceived', EDIT_ENTRY.amountReceived);
+        setVal('paymentMode', EDIT_ENTRY.paymentMode);
+        setVal('travelExpense', EDIT_ENTRY.travelExpense);
+        setVal('futureSummary', EDIT_ENTRY.futureRequirementsSummary);
+        
+        // Load PCs (give each a fresh id for the UI)
+        pcs = (EDIT_ENTRY.pcs || []).map((p, i) => ({
+            ...p,
+            id: 'pc_edit_' + i + '_' + Date.now()
+        }));
+        
+        // Load GPS if present
+        if (EDIT_ENTRY.gpsLatitude) {
+            gps = { latitude: EDIT_ENTRY.gpsLatitude, longitude: EDIT_ENTRY.gpsLongitude, accuracy: EDIT_ENTRY.gpsAccuracy };
+        }
+        
+        renderPCs();
+        recalc();
+        
+        // Update page heading + submit button
+        const pageTitle = document.querySelector('.page-title');
+        if (pageTitle) pageTitle.textContent = '✏️ Edit: ' + (EDIT_ENTRY.entryNumber || 'Corporate Entry');
+        const submitBtn = document.querySelector('button[onclick="submitEntry()"]');
+        if (submitBtn) submitBtn.textContent = '💾 Update Entry';
+        
+        showToast('Editing ' + (EDIT_ENTRY.entryNumber || 'entry') + ' - make changes and Update', 'info');
+    }
 </script>
 <% if (user.role === 'agent') { %>
 <%- include('partials/mobile-bottom-nav', { activeNav: 'corporate' }) %>

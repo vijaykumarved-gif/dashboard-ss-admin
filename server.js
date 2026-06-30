@@ -2814,13 +2814,29 @@ app.get('/corporate', requireAuth, requireAdmin, async (req, res) => {
 
 // NEW Corporate Entry form
 app.get('/corporate/new', requireAuth, (req, res) => {
-    res.render('corporate-new', { user: req.session.user, agentName: req.session.user.username });
+    res.render('corporate-new', { user: req.session.user, agentName: req.session.user.username, editEntry: null });
+});
+
+// Edit existing corporate entry (blocked if locked)
+app.get('/corporate/:id/edit', requireAuth, async (req, res) => {
+    try {
+        const entry = await CorporateEntry.findById(req.params.id).lean();
+        if (!entry) return res.status(404).send('Entry not found');
+        if (entry.editLocked) {
+            return res.redirect('/corporate/' + req.params.id + '?locked=1');
+        }
+        res.render('corporate-new', { 
+            user: req.session.user, 
+            agentName: entry.agentName || req.session.user.username,
+            editEntry: entry
+        });
+    } catch (e) { res.status(500).send(e.message); }
 });
 
 // Agent view
 app.get('/agent/corporate/new', requireAuth, (req, res) => {
     if (req.session.user.role !== 'agent') return res.redirect('/admin');
-    res.render('corporate-new', { user: req.session.user, agentName: req.session.user.username });
+    res.render('corporate-new', { user: req.session.user, agentName: req.session.user.username, editEntry: null });
 });
 
 // Corporate Detail
@@ -2863,16 +2879,28 @@ app.put('/api/corporate/:id', requireAuth, async (req, res) => {
         
         const editor = req.session.user.username;
         const updates = req.body;
+        
+        // EDIT LOCK CHECK: if payment is done and entry is locked, block edit
+        if (entry.editLocked) {
+            return res.status(403).json({ 
+                error: 'This entry is locked because payment is complete. Ask an admin to generate an edit-unlock token, then verify it to enable editing.',
+                locked: true
+            });
+        }
+        
         const editLogs = [];
+        const wasPaid = entry.paymentStatus === 'Paid';
         
         // Track changes for simple top-level fields
         const trackedFields = ['customerName', 'companyName', 'mobileNumber', 'location', 'visitDate', 'visitTime', 'serviceType', 'overallRemarks', 'amountReceived', 'discount', 'discountReason', 'paymentMode', 'gstPercent'];
+        const changedFields = [];
         trackedFields.forEach(f => {
             if (updates[f] !== undefined && String(entry[f] || '') !== String(updates[f] || '')) {
                 editLogs.push({
                     editedBy: editor, field: f,
                     oldValue: entry[f], newValue: updates[f]
                 });
+                changedFields.push(f);
                 entry[f] = updates[f];
             }
         });
@@ -2884,6 +2912,7 @@ app.put('/api/corporate/:id', requireAuth, async (req, res) => {
                 oldValue: `${entry.pcs.length} PCs`,
                 newValue: `${updates.pcs.length} PCs (modified)`
             });
+            changedFields.push('PC services');
             updates.pcs.forEach(p => { p.overallStatus = computePcStatus(p); });
             entry.pcs = updates.pcs;
         }
@@ -2891,7 +2920,24 @@ app.put('/api/corporate/:id', requireAuth, async (req, res) => {
         editLogs.forEach(log => entry.editLogs.push(log));
         entry.lastModifiedBy = editor;
         
+        // If this was a post-payment edit (unlocked via token), record it prominently
+        if (entry.editUnlockedAt && entry.editUnlockTokenUsed && changedFields.length > 0) {
+            entry.postPaymentEdits.push({
+                editedBy: editor,
+                editedAt: new Date(),
+                summary: 'Edited after payment: ' + changedFields.join(', '),
+                authorizedBy: entry.editUnlockedBy
+            });
+            // Re-lock after the edit is saved (single-use unlock)
+            entry.editLocked = true;
+        }
+        
         computeCorporateTotals(entry);
+        
+        // If still fully paid after edit, keep locked
+        if (entry.paymentStatus === 'Paid') {
+            entry.editLocked = true;
+        }
         
         await entry.save();
         res.json({ success: true, entry });
@@ -2919,8 +2965,47 @@ app.post('/api/corporate/:id/payment', requireAuth, async (req, res) => {
             note: 'Payment added'
         });
         
+        // Lock editing once fully paid
+        if (entry.paymentStatus === 'Paid') {
+            entry.editLocked = true;
+        }
+        
         await entry.save();
         res.json({ success: true, entry });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ADMIN: Generate edit-unlock token (to allow editing a paid/locked entry)
+app.post('/api/corporate/:id/generate-edit-token', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const entry = await CorporateEntry.findById(req.params.id);
+        if (!entry) return res.status(404).json({ error: 'Not found' });
+        const token = Math.floor(1000 + Math.random() * 9000).toString();
+        entry.editUnlockToken = token;
+        entry.editUnlockTokenUsed = false;
+        await entry.save();
+        res.json({ success: true, token, entryNumber: entry.entryNumber, generatedBy: req.session.user.username });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Verify edit-unlock token (anyone with the token from admin can unlock for editing)
+app.post('/api/corporate/:id/verify-edit-token', requireAuth, async (req, res) => {
+    try {
+        const entry = await CorporateEntry.findById(req.params.id);
+        if (!entry) return res.status(404).json({ error: 'Not found' });
+        const { token } = req.body;
+        
+        if (entry.editUnlockToken && entry.editUnlockToken === String(token).trim() && !entry.editUnlockTokenUsed) {
+            entry.editLocked = false; // unlock for editing
+            entry.editUnlockedAt = new Date();
+            entry.editUnlockedBy = req.session.user.username;
+            // token is single-use - mark used so it can't be reused
+            entry.editUnlockTokenUsed = true;
+            await entry.save();
+            res.json({ success: true, verified: true });
+        } else {
+            res.json({ success: true, verified: false, error: 'Invalid or already-used token' });
+        }
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
