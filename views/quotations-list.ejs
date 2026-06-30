@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Quotations — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'quotations' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">📋 Quotations</h1>
+                <p class="page-subtitle">Track quotations from Draft → Sent → Approved → Delivered</p>
+            </div>
+            <a href="/cctv/quotation/new" class="btn btn-primary">+ New Quotation</a>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card blue">
+                <div class="stat-label">Total Quotations</div>
+                <div class="stat-value"><%= stats.total %></div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Sent (Pending)</div>
+                <div class="stat-value" style="color: var(--warning);"><%= stats.sent %></div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Approved</div>
+                <div class="stat-value" style="color: var(--success);"><%= stats.approved %></div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Approved Value</div>
+                <div class="stat-value" style="font-size: 16px; color: var(--purple);"><%= formatINR(stats.approvedValue) %></div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Collected</div>
+                <div class="stat-value" style="font-size: 16px; color: var(--success);"><%= formatINR(stats.collected) %></div>
+            </div>
+        </div>
+        
+        <!-- Status filter tabs -->
+        <div style="display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap;">
+            <a href="/quotations" class="btn btn-sm <%= !query.status ? 'btn-primary' : 'btn-secondary' %>">All (<%= stats.total %>)</a>
+            <a href="/quotations?status=Draft" class="btn btn-sm <%= query.status === 'Draft' ? 'btn-primary' : 'btn-secondary' %>">Draft (<%= stats.draft %>)</a>
+            <a href="/quotations?status=Sent" class="btn btn-sm <%= query.status === 'Sent' ? 'btn-primary' : 'btn-secondary' %>">Sent (<%= stats.sent %>)</a>
+            <a href="/quotations?status=Approved" class="btn btn-sm <%= query.status === 'Approved' ? 'btn-primary' : 'btn-secondary' %>">Approved (<%= stats.approved %>)</a>
+            <a href="/quotations?status=Rejected" class="btn btn-sm <%= query.status === 'Rejected' ? 'btn-primary' : 'btn-secondary' %>">Rejected (<%= stats.rejected %>)</a>
+            <a href="/quotations?status=Converted" class="btn btn-sm <%= query.status === 'Converted' ? 'btn-primary' : 'btn-secondary' %>">Delivered (<%= stats.converted %>)</a>
+        </div>
+        
+        <div class="card">
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Quotation #</th><th>Client</th><th>Project</th><th>Amount</th><th>Status</th><th>Payment</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                        <% if (quotations.length === 0) { %>
+                            <tr><td colspan="7" class="text-center" style="padding: 50px; color: var(--text-3);">
+                                <div style="font-size: 32px;">📋</div>
+                                <p>No quotations found</p>
+                            </td></tr>
+                        <% } else { quotations.forEach(q => { 
+                            const sc = q.status === 'Approved' ? 'success' : q.status === 'Converted' ? 'success' : q.status === 'Rejected' ? 'danger' : q.status === 'Sent' ? 'info' : 'neutral';
+                            const pc = q.paymentStatus === 'Fully Paid' ? 'success' : q.paymentStatus === 'Advance Paid' ? 'warning' : 'neutral';
+                            const totalPaid = (q.advanceReceived || 0) + (q.finalPaymentReceived || 0);
+                        %>
+                            <tr>
+                                <td class="font-mono font-bold" style="font-size: 11px;"><%= q.quotationNumber %></td>
+                                <td>
+                                    <div class="font-bold"><%= q.clientName %></div>
+                                    <% if (q.clientMobile) { %><div style="font-size: 10px; color: var(--text-3);"><%= q.clientMobile %></div><% } %>
+                                </td>
+                                <td><span class="badge info" style="font-size: 10px;"><%= q.projectType %></span></td>
+                                <td class="font-mono font-bold"><%= formatINR(q.grandTotal) %></td>
+                                <td><span class="badge <%= sc %>"><%= q.status %></span></td>
+                                <td>
+                                    <% if (q.status === 'Approved' || q.status === 'Converted') { %>
+                                        <span class="badge <%= pc %>" style="font-size: 9px;"><%= q.paymentStatus || 'Pending' %></span>
+                                        <% if (totalPaid > 0) { %><div style="font-size: 10px; color: var(--success);"><%= formatINR(totalPaid) %></div><% } %>
+                                    <% } else { %>
+                                        <span class="text-muted" style="font-size: 11px;">-</span>
+                                    <% } %>
+                                </td>
+                                <td>
+                                    <a href="/cctv/quotation/<%= q._id %>/edit" class="btn btn-xs btn-secondary">Edit</a>
+                                    <a href="/api/quotations/<%= q._id %>/pdf" target="_blank" class="btn btn-xs btn-primary">📄</a>
+                                    <% if (q.status === 'Draft' || q.status === 'Sent') { %>
+                                        <button class="btn btn-xs btn-success" onclick="approveQuote('<%= q._id %>')">✓ Approve</button>
+                                    <% } %>
+                                    <% if (q.status === 'Approved') { %>
+                                        <button class="btn btn-xs btn-primary" onclick="addPayment('<%= q._id %>')">💰 Payment</button>
+                                        <button class="btn btn-xs btn-secondary" onclick="deliverQuote('<%= q._id %>')">📦 Deliver</button>
+                                    <% } %>
+                                </td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+async function approveQuote(id) {
+    const advance = prompt('Advance amount received (₹) — leave blank if none:', '');
+    const body = {};
+    if (advance && Number(advance) > 0) {
+        body.advance = Number(advance);
+        body.advanceMode = prompt('Payment mode (Cash/UPI/Bank Transfer):', 'Bank Transfer') || '';
+    }
+    const res = await api(`/api/quotations/${id}/approve`, { method: 'POST', body: JSON.stringify(body) });
+    if (res.success) { showToast('✓ Quotation approved!', 'success'); setTimeout(() => location.reload(), 600); }
+}
+
+async function addPayment(id) {
+    const amount = prompt('Payment amount received (₹):', '');
+    if (!amount || Number(amount) <= 0) return;
+    const res = await api(`/api/quotations/${id}/payment`, { method: 'POST', body: JSON.stringify({ amount: Number(amount) }) });
+    if (res.success) { showToast('Payment recorded! Total: ₹' + res.totalPaid.toLocaleString('en-IN'), 'success'); setTimeout(() => location.reload(), 600); }
+}
+
+async function deliverQuote(id) {
+    if (!confirm('Mark this quotation as delivered/completed?')) return;
+    const res = await api(`/api/quotations/${id}/deliver`, { method: 'POST', body: JSON.stringify({}) });
+    if (res.success) { showToast('✓ Marked as delivered!', 'success'); setTimeout(() => location.reload(), 600); }
+}
+</script>
+</body>
+</html>

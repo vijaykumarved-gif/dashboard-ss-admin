@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title><%= customer.name %> — Customer 360</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'customers' }) %>
+    
+    <main class="main-content">
+        <div style="margin-bottom: 12px;">
+            <a href="/customers" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back to Customers</a>
+        </div>
+        
+        <!-- Customer header -->
+        <div style="background: linear-gradient(135deg, #0f172a, #1e293b); border-radius: 14px; padding: 20px 24px; color: white; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 12px;">
+                <div>
+                    <h1 style="font-size: 24px; font-weight: 800; margin: 0;"><%= customer.companyName || customer.name %></h1>
+                    <div style="color: #94a3b8; font-size: 13px; margin-top: 4px;">
+                        <% if (customer.companyName) { %>Contact: <%= customer.name %> · <% } %>
+                        📞 <%= customer.mobile %>
+                        <% if (customer.email) { %> · ✉️ <%= customer.email %><% } %>
+                    </div>
+                    <% if (customer.primaryAddress || customer.location) { %>
+                        <div style="color: #cbd5e1; font-size: 12px; margin-top: 4px;">📍 <%= customer.primaryAddress || customer.location %></div>
+                    <% } %>
+                    <% if (customer.gstNumber) { %>
+                        <div style="color: #fcd34d; font-size: 11px; margin-top: 4px;">GST: <%= customer.gstNumber %></div>
+                    <% } %>
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <a href="https://wa.me/91<%= customer.mobile.replace(/\D/g, '').slice(-10) %>" target="_blank" class="btn btn-sm" style="background: #25D366; color: white;">📲 WhatsApp</a>
+                    <a href="tel:<%= customer.mobile %>" class="btn btn-sm btn-secondary">📞 Call</a>
+                    <a href="/cctv/quotation/new?mobile=<%= customer.mobile %>" class="btn btn-sm btn-primary">+ New Quotation</a>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Stats -->
+        <div class="stats-grid">
+            <div class="stat-card green">
+                <div class="stat-label">Lifetime Revenue</div>
+                <div class="stat-value" style="font-size: 17px; color: var(--success);"><%= formatINR(stats.lifetimeRevenue) %></div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Pending Due</div>
+                <div class="stat-value" style="font-size: 17px; color: var(--danger);"><%= formatINR(stats.pendingDue) %></div>
+            </div>
+            <div class="stat-card blue">
+                <div class="stat-label">Total Services</div>
+                <div class="stat-value"><%= stats.totalServices %></div>
+            </div>
+            <div class="stat-card amber">
+                <div class="stat-label">Quotations</div>
+                <div class="stat-value"><%= stats.totalQuotations %> <span style="font-size: 11px; color: var(--success);">(<%= stats.approvedQuotations %> ✓)</span></div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-label">Bookings</div>
+                <div class="stat-value"><%= stats.totalBookings %></div>
+            </div>
+            <div class="stat-card blue">
+                <div class="stat-label">Leads</div>
+                <div class="stat-value"><%= stats.totalLeads %></div>
+            </div>
+        </div>
+        
+        <!-- UNIFIED TIMELINE -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">📜 Complete History (Timeline)</div>
+                <span class="text-muted"><%= timeline.length %> total events across all modules</span>
+            </div>
+            <div class="card-body">
+                <% if (timeline.length === 0) { %>
+                    <div class="empty-state" style="padding: 30px;">
+                        <div class="empty-icon">📭</div>
+                        <div class="empty-title">No activity yet</div>
+                        <div>Bookings, leads, quotations & services will appear here</div>
+                    </div>
+                <% } else { %>
+                    <div style="position: relative;">
+                        <% timeline.forEach((ev, idx) => { 
+                            const statusColor = (['Won','Approved','Paid','Fully Paid','Delivered','Completed','Converted'].includes(ev.status)) ? 'success' : 
+                                                (['Lost','Rejected','Cancelled'].includes(ev.status)) ? 'danger' : 'warning';
+                        %>
+                            <div style="display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border);">
+                                <div style="font-size: 22px; flex-shrink: 0;"><%= ev.icon %></div>
+                                <div style="flex: 1;">
+                                    <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 6px;">
+                                        <div>
+                                            <span style="font-weight: 700; font-size: 14px;"><%= ev.type %></span>
+                                            <span class="badge <%= statusColor %>" style="font-size: 10px; margin-left: 6px;"><%= ev.status %></span>
+                                        </div>
+                                        <div style="font-size: 11px; color: var(--text-3);"><%= formatDate(ev.date) %></div>
+                                    </div>
+                                    <div style="font-size: 13px; color: var(--text-2); margin-top: 2px;"><%= ev.title %></div>
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                                        <% if (ev.amount > 0) { %>
+                                            <span style="font-size: 13px; font-weight: 700; color: var(--success);"><%= formatINR(ev.amount) %></span>
+                                        <% } else { %><span></span><% } %>
+                                        <a href="<%= ev.link %>" style="font-size: 11px; color: var(--primary); text-decoration: none;">View →</a>
+                                    </div>
+                                </div>
+                            </div>
+                        <% }) %>
+                    </div>
+                <% } %>
+            </div>
+        </div>
+        
+        <!-- Module-wise breakdown -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px;">
+            <!-- Quotations -->
+            <div class="card">
+                <div class="card-header"><div class="card-title">📋 Quotations (<%= quotations.length %>)</div></div>
+                <div class="card-body" style="padding: 0;">
+                    <% if (quotations.length === 0) { %>
+                        <div style="padding: 20px; text-align: center; color: var(--text-3); font-size: 13px;">No quotations</div>
+                    <% } else { quotations.forEach(q => { 
+                        const sc = q.status === 'Approved' || q.status === 'Converted' ? 'success' : q.status === 'Rejected' ? 'danger' : 'warning';
+                    %>
+                        <a href="/cctv/quotation/<%= q._id %>/edit" style="display: block; padding: 10px 16px; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <div style="font-weight: 700; font-size: 12px;"><%= q.quotationNumber %></div>
+                                    <div style="font-size: 11px; color: var(--text-3);"><%= q.projectType %></div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <div style="font-weight: 700; font-size: 13px;"><%= formatINR(q.grandTotal) %></div>
+                                    <span class="badge <%= sc %>" style="font-size: 9px;"><%= q.status %></span>
+                                </div>
+                            </div>
+                        </a>
+                    <% }) } %>
+                </div>
+            </div>
+            
+            <!-- Corporate Services -->
+            <div class="card">
+                <div class="card-header"><div class="card-title">🏢 Corporate Services (<%= corporateEntries.length %>)</div></div>
+                <div class="card-body" style="padding: 0;">
+                    <% if (corporateEntries.length === 0) { %>
+                        <div style="padding: 20px; text-align: center; color: var(--text-3); font-size: 13px;">No corporate services</div>
+                    <% } else { corporateEntries.forEach(c => { 
+                        const sc = c.paymentStatus === 'Paid' ? 'success' : c.paymentStatus === 'Partial' ? 'warning' : 'danger';
+                    %>
+                        <a href="/corporate/<%= c._id %>" style="display: block; padding: 10px 16px; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <div style="font-weight: 700; font-size: 12px;"><%= c.entryNumber %></div>
+                                    <div style="font-size: 11px; color: var(--text-3);"><%= c.pcs ? c.pcs.length : 0 %> PCs · <%= formatDate(c.visitDate) %></div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <div style="font-weight: 700; font-size: 13px;"><%= formatINR(c.grandTotal) %></div>
+                                    <span class="badge <%= sc %>" style="font-size: 9px;"><%= c.paymentStatus %></span>
+                                </div>
+                            </div>
+                        </a>
+                    <% }) } %>
+                </div>
+            </div>
+            
+            <!-- Bookings -->
+            <div class="card">
+                <div class="card-header"><div class="card-title">📅 Bookings (<%= bookings.length %>)</div></div>
+                <div class="card-body" style="padding: 0;">
+                    <% if (bookings.length === 0) { %>
+                        <div style="padding: 20px; text-align: center; color: var(--text-3); font-size: 13px;">No bookings</div>
+                    <% } else { bookings.forEach(b => { 
+                        const sc = b.status === 'Completed' ? 'success' : b.status === 'Cancelled' ? 'danger' : 'warning';
+                    %>
+                        <div style="padding: 10px 16px; border-bottom: 1px solid var(--border);">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <div style="font-weight: 700; font-size: 12px;"><%= b.serviceType || 'Service' %></div>
+                                    <div style="font-size: 11px; color: var(--text-3);"><%= formatDate(b.scheduledDate) %> <%= b.scheduledTime || '' %></div>
+                                </div>
+                                <span class="badge <%= sc %>" style="font-size: 9px;"><%= b.status %></span>
+                            </div>
+                        </div>
+                    <% }) } %>
+                </div>
+            </div>
+            
+            <!-- Leads -->
+            <div class="card">
+                <div class="card-header"><div class="card-title">🎯 Leads (<%= leads.length %>)</div></div>
+                <div class="card-body" style="padding: 0;">
+                    <% if (leads.length === 0) { %>
+                        <div style="padding: 20px; text-align: center; color: var(--text-3); font-size: 13px;">No leads</div>
+                    <% } else { leads.forEach(l => { 
+                        const sc = l.status === 'Won' ? 'success' : l.status === 'Lost' ? 'danger' : 'warning';
+                    %>
+                        <a href="/leads/<%= l._id %>" style="display: block; padding: 10px 16px; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <div style="font-weight: 700; font-size: 12px;"><%= l.title || l.requirement || 'Lead' %></div>
+                                    <div style="font-size: 11px; color: var(--text-3);"><%= formatDate(l.createdAt) %></div>
+                                </div>
+                                <span class="badge <%= sc %>" style="font-size: 9px;"><%= l.status %></span>
+                            </div>
+                        </a>
+                    <% }) } %>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+<% if (user.role === 'agent') { %>
+<%- include('partials/mobile-bottom-nav', { activeNav: 'home' }) %>
+<% } %>
+</body>
+</html>

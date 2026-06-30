@@ -38,7 +38,26 @@ const quotationSchema = new mongoose.Schema({
     warranty: { type: String, default: '1 Year Manufacturer Warranty' },
     notes: { type: String, default: '' },
     
-    status: { type: String, default: 'Draft' }, // Draft, Sent, Approved, Rejected, Expired
+    status: { type: String, default: 'Draft' }, // Draft, Sent, Approved, Rejected, Expired, Converted
+    
+    // Approval lifecycle tracking
+    sentAt: { type: Date },
+    approvedAt: { type: Date },
+    approvedBy: { type: String, default: '' }, // who marked it approved
+    rejectedAt: { type: Date },
+    rejectionReason: { type: String, default: '' },
+    
+    // What happens after approval - convert to order/service
+    advanceReceived: { type: Number, default: 0 },
+    advanceDate: { type: Date },
+    advanceMode: { type: String, default: '' },
+    finalPaymentReceived: { type: Number, default: 0 },
+    paymentStatus: { type: String, default: 'Pending' }, // Pending, Advance Paid, Fully Paid
+    deliveryStatus: { type: String, default: 'Not Started' }, // Not Started, In Progress, Delivered
+    deliveredAt: { type: Date },
+    
+    // Link back to customer
+    customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },
     
     createdBy: { type: String, default: 'Admin' }
 }, { timestamps: true });

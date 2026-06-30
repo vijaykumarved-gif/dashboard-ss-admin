@@ -905,13 +905,19 @@ app.get('/api/cctv/products', requireAuth, async (req, res) => {
 // CCTV Quotations
 app.get('/cctv/quotation/new', requireAuth, requireAdmin, async (req, res) => {
     const products = await CCTVProduct.find({ inStock: true }).sort({ category: 1, productName: 1 });
-    res.render('quotation-builder', { user: req.session.user, products, quotation: null });
+    // Pre-fill from customer if mobile provided
+    let prefillCustomer = null;
+    if (req.query.mobile) {
+        const mob = req.query.mobile.replace(/\D/g, '').slice(-10);
+        prefillCustomer = await Customer.findOne({ mobile: new RegExp(mob + '$') }).lean();
+    }
+    res.render('quotation-builder', { user: req.session.user, products, quotation: null, prefillCustomer });
 });
 
 app.get('/cctv/quotation/:id/edit', requireAuth, requireAdmin, async (req, res) => {
     const products = await CCTVProduct.find({ inStock: true }).sort({ category: 1, productName: 1 });
     const quotation = await Quotation.findById(req.params.id);
-    res.render('quotation-builder', { user: req.session.user, products, quotation });
+    res.render('quotation-builder', { user: req.session.user, products, quotation, prefillCustomer: null });
 });
 
 app.post('/api/quotations', requireAuth, requireAdmin, async (req, res) => {
@@ -932,6 +938,19 @@ app.post('/api/quotations', requireAuth, requireAdmin, async (req, res) => {
         data.subtotal = subtotal;
         data.gstAmount = gstAmount;
         data.grandTotal = subtotal + gstAmount + (data.installationCharges || 0) - (data.discount || 0);
+
+        // Auto-link or create customer so quotation shows in Customer 360
+        const mob = (data.clientMobile || '').replace(/\D/g, '').slice(-10);
+        if (mob) {
+            let customer = await Customer.findOne({ mobile: new RegExp(mob + '$') });
+            if (!customer) {
+                customer = await Customer.create({
+                    name: data.clientName, mobile: data.clientMobile, companyName: data.clientCompany || '',
+                    email: data.clientEmail || '', primaryAddress: data.clientAddress || '', sourceModule: 'Quotation'
+                });
+            }
+            data.customerId = customer._id;
+        }
 
         const quotation = new Quotation(data);
         await quotation.save();
@@ -965,6 +984,112 @@ app.delete('/api/quotations/:id', requireAuth, requireAdmin, async (req, res) =>
         await Quotation.findByIdAndDelete(req.params.id);
         res.json({ success: true });
     } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// === QUOTATION LIFECYCLE ACTIONS ===
+
+// Mark as Sent
+app.post('/api/quotations/:id/sent', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const q = await Quotation.findByIdAndUpdate(req.params.id, 
+            { status: 'Sent', sentAt: new Date() }, { new: true });
+        res.json({ success: true, quotation: q });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Approve quotation (customer accepted)
+app.post('/api/quotations/:id/approve', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const q = await Quotation.findById(req.params.id);
+        if (!q) return res.status(404).json({ error: 'Not found' });
+        
+        q.status = 'Approved';
+        q.approvedAt = new Date();
+        q.approvedBy = req.session.user.username;
+        
+        // Optional advance payment at approval
+        if (req.body.advance) {
+            q.advanceReceived = Number(req.body.advance) || 0;
+            q.advanceDate = new Date();
+            q.advanceMode = req.body.advanceMode || '';
+            q.paymentStatus = q.advanceReceived >= q.grandTotal ? 'Fully Paid' : 'Advance Paid';
+        }
+        q.deliveryStatus = 'In Progress';
+        
+        // Link/create customer
+        const mob = (q.clientMobile || '').replace(/\D/g, '').slice(-10);
+        if (mob) {
+            let customer = await Customer.findOne({ mobile: new RegExp(mob + '$') });
+            if (!customer) {
+                customer = await Customer.create({
+                    name: q.clientName, mobile: q.clientMobile, companyName: q.clientCompany,
+                    email: q.clientEmail, primaryAddress: q.clientAddress, sourceModule: 'Quotation'
+                });
+            }
+            q.customerId = customer._id;
+        }
+        
+        await q.save();
+        res.json({ success: true, quotation: q });
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+// Reject quotation
+app.post('/api/quotations/:id/reject', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const q = await Quotation.findByIdAndUpdate(req.params.id,
+            { status: 'Rejected', rejectedAt: new Date(), rejectionReason: req.body.reason || '' },
+            { new: true });
+        res.json({ success: true, quotation: q });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Record payment against approved quotation
+app.post('/api/quotations/:id/payment', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const q = await Quotation.findById(req.params.id);
+        if (!q) return res.status(404).json({ error: 'Not found' });
+        
+        const amount = Number(req.body.amount) || 0;
+        q.finalPaymentReceived = (q.finalPaymentReceived || 0) + amount;
+        const totalPaid = (q.advanceReceived || 0) + q.finalPaymentReceived;
+        q.paymentStatus = totalPaid >= q.grandTotal ? 'Fully Paid' : 'Advance Paid';
+        
+        await q.save();
+        res.json({ success: true, quotation: q, totalPaid });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Mark delivered
+app.post('/api/quotations/:id/deliver', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const q = await Quotation.findByIdAndUpdate(req.params.id,
+            { deliveryStatus: 'Delivered', deliveredAt: new Date(), status: 'Converted' },
+            { new: true });
+        res.json({ success: true, quotation: q });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// All Quotations list (lifecycle dashboard)
+app.get('/quotations', requireAuth, requireAdmin, async (req, res) => {
+    const filter = {};
+    if (req.query.status) filter.status = req.query.status;
+    
+    const quotations = await Quotation.find(filter).select('-items').sort({ createdAt: -1 }).limit(200).lean();
+    
+    const allQuotes = await Quotation.find().select('status grandTotal advanceReceived finalPaymentReceived').lean();
+    const stats = {
+        total: allQuotes.length,
+        draft: allQuotes.filter(q => q.status === 'Draft').length,
+        sent: allQuotes.filter(q => q.status === 'Sent').length,
+        approved: allQuotes.filter(q => q.status === 'Approved').length,
+        rejected: allQuotes.filter(q => q.status === 'Rejected').length,
+        converted: allQuotes.filter(q => q.status === 'Converted').length,
+        approvedValue: allQuotes.filter(q => q.status === 'Approved' || q.status === 'Converted').reduce((s, q) => s + (q.grandTotal || 0), 0),
+        collected: allQuotes.reduce((s, q) => s + (q.advanceReceived || 0) + (q.finalPaymentReceived || 0), 0)
+    };
+    
+    res.render('quotations-list', { user: req.session.user, quotations, stats, query: req.query });
 });
 
 // CCTV Quotation PDF
@@ -4471,6 +4596,64 @@ app.get('/api/bank/export', requireAuth, requireAdmin, async (req, res) => {
 app.get('/customers', requireAuth, requireAdmin, async (req, res) => {
     const customers = await Customer.find().sort({ updatedAt: -1 }).limit(500);
     res.render('customers', { user: req.session.user, customers });
+});
+
+// ============================================================
+//   CUSTOMER 360 - Unified view linking ALL modules by mobile
+// ============================================================
+app.get('/customers/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const customer = await Customer.findById(req.params.id).lean();
+        if (!customer) return res.status(404).send('Customer not found');
+        
+        // Normalize mobile (last 10 digits) for cross-module matching
+        const mob = (customer.mobile || '').replace(/\D/g, '').slice(-10);
+        const mobRegex = new RegExp(mob + '$');
+        
+        // Pull EVERYTHING linked to this customer across all modules (by mobile)
+        const [bookings, leads, quotations, corporateEntries, hardwareEntries, amcOffices] = await Promise.all([
+            Booking.find({ mobileNumber: mobRegex }).sort({ scheduledDate: -1 }).limit(50).lean(),
+            Lead.find({ mobile: mobRegex }).sort({ createdAt: -1 }).limit(50).lean(),
+            Quotation.find({ clientMobile: mobRegex }).select('-items').sort({ createdAt: -1 }).limit(50).lean(),
+            CorporateEntry.find({ mobileNumber: mobRegex }).select('-pcs.beforePhoto -pcs.afterPhoto').sort({ createdAt: -1 }).limit(50).lean(),
+            Entry.find({ mobileNumber: mobRegex }).select('-beforePhoto -afterPhoto').sort({ createdAt: -1 }).limit(50).lean(),
+            AMCOffice.find({ contactMobile: mobRegex }).select('-pcs.beforePhoto -pcs.afterPhoto').sort({ createdAt: -1 }).limit(50).lean()
+        ]);
+        
+        // Build unified timeline (all events sorted by date)
+        const timeline = [];
+        bookings.forEach(b => timeline.push({ type: 'Booking', date: b.scheduledDate || b.createdAt, status: b.status, title: b.serviceType || 'Booking', amount: 0, link: '/bookings', id: b._id, icon: '📅' }));
+        leads.forEach(l => timeline.push({ type: 'Lead', date: l.createdAt, status: l.status, title: l.title || l.requirement || 'Lead', amount: l.wonAmount || 0, link: '/leads/' + l._id, id: l._id, icon: '🎯' }));
+        quotations.forEach(q => timeline.push({ type: 'Quotation', date: q.createdAt, status: q.status, title: q.projectType + ' (' + q.quotationNumber + ')', amount: q.grandTotal || 0, link: '/cctv/quotation/' + q._id + '/edit', id: q._id, icon: '📋' }));
+        corporateEntries.forEach(c => timeline.push({ type: 'Corporate Service', date: c.visitDate || c.createdAt, status: c.paymentStatus, title: c.serviceType + ' (' + (c.pcs ? c.pcs.length : 0) + ' PCs)', amount: c.grandTotal || 0, link: '/corporate/' + c._id, id: c._id, icon: '🏢' }));
+        hardwareEntries.forEach(e => timeline.push({ type: 'Hardware Service', date: e.createdAt, status: e.jobStatus, title: e.workType || 'Repair', amount: e.totalAmount || 0, link: '/admin', id: e._id, icon: '🔧' }));
+        amcOffices.forEach(a => timeline.push({ type: 'AMC', date: a.createdAt, status: a.status || 'Active', title: a.officeName || 'AMC Contract', amount: a.contractValue || 0, link: '/amc', id: a._id, icon: '📝' }));
+        
+        timeline.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        // Aggregate stats
+        const stats = {
+            totalBookings: bookings.length,
+            totalLeads: leads.length,
+            totalQuotations: quotations.length,
+            approvedQuotations: quotations.filter(q => q.status === 'Approved').length,
+            totalServices: corporateEntries.length + hardwareEntries.length,
+            totalAMC: amcOffices.length,
+            lifetimeRevenue: corporateEntries.reduce((s, c) => s + (c.amountReceived || 0), 0) + 
+                             leads.filter(l => l.status === 'Won').reduce((s, l) => s + (l.finalAmountReceived || 0), 0),
+            pendingDue: corporateEntries.reduce((s, c) => s + (c.amountDue || 0), 0),
+            quotationValue: quotations.filter(q => q.status === 'Approved').reduce((s, q) => s + (q.grandTotal || 0), 0)
+        };
+        
+        res.render('customer-detail', {
+            user: req.session.user,
+            customer, timeline, stats,
+            bookings, leads, quotations, corporateEntries, hardwareEntries, amcOffices
+        });
+    } catch (e) {
+        console.error(e);
+        res.status(500).send('Error loading customer: ' + e.message);
+    }
 });
 
 // ============================================================

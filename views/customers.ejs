@@ -36,14 +36,17 @@
                                 <p>No customers yet. Click <strong>Re-sync</strong> to import from existing data.</p>
                             </td></tr>
                         <% } else { customers.forEach(c => { %>
-                            <tr class="cust-row" data-search="<%= (c.name + ' ' + c.mobile + ' ' + (c.companyName||'')).toLowerCase() %>">
+                            <tr class="cust-row" data-search="<%= (c.name + ' ' + c.mobile + ' ' + (c.companyName||'')).toLowerCase() %>" style="cursor: pointer;" onclick="location.href='/customers/<%= c._id %>'">
                                 <td class="font-bold"><%= c.name %></td>
                                 <td class="font-mono"><%= c.mobile %></td>
                                 <td class="text-muted"><%= c.companyName || '-' %></td>
                                 <td><span class="badge <%= c.type === 'Corporate' ? 'purple' : 'info' %>"><%= c.type %></span></td>
                                 <td class="font-mono"><%= c.totalServices || 0 %></td>
                                 <td class="font-mono"><%= formatINR(c.totalRevenue || 0) %></td>
-                                <td><span class="badge neutral"><%= c.sourceModule || '-' %></span></td>
+                                <td>
+                                    <span class="badge neutral"><%= c.sourceModule || '-' %></span>
+                                    <span style="color: var(--primary); font-size: 11px; margin-left: 6px;">View 360 →</span>
+                                </td>
                             </tr>
                         <% }) } %>
                     </tbody>

@@ -481,6 +481,21 @@
     });
     
     renderItems();
+    
+    // Pre-fill customer if coming from Customer 360 page
+    <% if (typeof prefillCustomer !== 'undefined' && prefillCustomer) { %>
+    (function() {
+        const pc = <%- JSON.stringify(prefillCustomer) %>;
+        const setV = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+        setV('q_client', pc.name);
+        setV('q_company', pc.companyName);
+        setV('q_mobile', pc.mobile);
+        setV('q_email', pc.email);
+        setV('q_address', pc.primaryAddress || pc.location);
+        setV('q_site', pc.location || pc.primaryAddress);
+        showToast('Customer details pre-filled: ' + pc.name, 'success');
+    })();
+    <% } %>
 </script>
 </body>
 </html>
