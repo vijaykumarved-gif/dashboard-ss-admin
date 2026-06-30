@@ -974,6 +974,9 @@ app.get('/api/quotations/:id/pdf', requireAuth, requireAdmin, async (req, res) =
         if (!q) return res.status(404).send('Not found');
 
         const doc = new PDFDocument({ size: 'A4', margin: 40 });
+        // Block auto page additions - prevents blank overflow pages
+        const _origAddPage = doc.addPage.bind(doc);
+        doc.addPage = function() { return doc; };
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `inline; filename="${q.quotationNumber}.pdf"`);
         doc.pipe(res);
@@ -1040,17 +1043,17 @@ app.get('/api/quotations/:id/pdf', requireAuth, requireAdmin, async (req, res) =
                 doc.rect(40, y, doc.page.width - 80, rowHeight).fill('#f8fafc');
                 doc.fillColor('#000000');
             }
-            doc.text(String(idx + 1), colX.sno, y + 6);
-            doc.font('Helvetica-Bold').fontSize(9).text(item.productName, colX.desc, y + 6, { width: 225 });
+            doc.text(String(idx + 1), colX.sno, y + 6, { lineBreak: false });
+            doc.font('Helvetica-Bold').fontSize(9).text(item.productName, colX.desc, y + 6, { width: 225, lineBreak: false, height: 11, ellipsis: true });
             if (item.specifications) {
-                doc.font('Helvetica').fillColor('#64748b').fontSize(7.5).text(item.specifications, colX.desc, y + 18, { width: 225 });
+                doc.font('Helvetica').fillColor('#64748b').fontSize(7.5).text(item.specifications, colX.desc, y + 18, { width: 225, lineBreak: false, height: 10, ellipsis: true });
                 doc.fillColor('#000000').fontSize(9);
             }
-            doc.font('Helvetica').fontSize(9).text(String(item.quantity), colX.qty, y + 6);
-            doc.text(item.unit || 'Pcs', colX.unit, y + 6);
-            doc.text(`Rs.${item.unitPrice.toLocaleString('en-IN')}`, colX.price, y + 6, { width: 55 });
-            doc.fillColor('#16a34a').fontSize(8).text(item.warranty || '1 Year', colX.warr, y + 6, { width: 65 });
-            doc.fillColor('#000000').font('Helvetica-Bold').fontSize(9).text(`Rs.${Math.round(item.total).toLocaleString('en-IN')}`, colX.total, y + 6, { width: 60 });
+            doc.font('Helvetica').fontSize(9).text(String(item.quantity), colX.qty, y + 6, { lineBreak: false });
+            doc.text(item.unit || 'Pcs', colX.unit, y + 6, { lineBreak: false });
+            doc.text(`Rs.${item.unitPrice.toLocaleString('en-IN')}`, colX.price, y + 6, { width: 55, lineBreak: false });
+            doc.fillColor('#16a34a').fontSize(8).text(item.warranty || '1 Year', colX.warr, y + 6, { width: 65, lineBreak: false, ellipsis: true });
+            doc.fillColor('#000000').font('Helvetica-Bold').fontSize(9).text(`Rs.${Math.round(item.total).toLocaleString('en-IN')}`, colX.total, y + 6, { width: 60, lineBreak: false });
             doc.font('Helvetica');
             y += rowHeight;
         });
@@ -1082,18 +1085,21 @@ app.get('/api/quotations/:id/pdf', requireAuth, requireAdmin, async (req, res) =
         doc.text(`Rs.${Math.round(q.grandTotal).toLocaleString('en-IN')}`, totalsX + 100, y + 8, { align: 'right', width: 75 });
         y += 36;
 
-        doc.fillColor('#000000').font('Helvetica-Bold').fontSize(10).text('Terms & Conditions:', 40, y);
+        doc.fillColor('#000000').font('Helvetica-Bold').fontSize(10).text('Terms & Conditions:', 40, y, { lineBreak: false });
         y += 16;
         doc.font('Helvetica').fontSize(9);
-        doc.text(`• Payment Terms: ${q.paymentTerms}`, 40, y); y += 12;
-        doc.text(`• Warranty: ${q.warranty}`, 40, y); y += 12;
-        doc.text(`• Validity: ${q.validityDays} days from quotation date`, 40, y); y += 12;
-        doc.text(`• Installation charges are inclusive of basic setup. Civil work extra.`, 40, y); y += 12;
-        doc.text(`• Prices are subject to change without prior notice.`, 40, y); y += 12;
+        doc.text(`• Payment Terms: ${q.paymentTerms}`, 40, y, { lineBreak: false, width: 500, height: 11 }); y += 12;
+        doc.text(`• Warranty: ${q.warranty}`, 40, y, { lineBreak: false, width: 500, height: 11 }); y += 12;
+        doc.text(`• Validity: ${q.validityDays} days from quotation date`, 40, y, { lineBreak: false, height: 11 }); y += 12;
+        doc.text(`• Installation charges are inclusive of basic setup. Civil work extra.`, 40, y, { lineBreak: false, height: 11 }); y += 12;
+        doc.text(`• Prices are subject to change without prior notice.`, 40, y, { lineBreak: false, height: 11 }); y += 12;
         if (q.notes) {
             y += 6;
-            doc.font('Helvetica-Bold').text('Notes:', 40, y); y += 14;
-            doc.font('Helvetica').text(q.notes, 40, y, { width: doc.page.width - 80 });
+            doc.font('Helvetica-Bold').text('Notes:', 40, y, { lineBreak: false }); y += 14;
+            // Cap notes height so it never overflows into a new page
+            const maxNotesY = doc.page.height - 70;
+            const notesHeight = Math.max(11, Math.min(60, maxNotesY - y));
+            doc.font('Helvetica').fontSize(9).text(String(q.notes).slice(0, 400), 40, y, { width: doc.page.width - 80, height: notesHeight, ellipsis: true });
         }
 
         const footerY = doc.page.height - 55;
@@ -3211,6 +3217,92 @@ function generateCorporateDiagnosticPDF(doc, entry) {
     );
     
     y += 80;
+    
+    // ============ SUMMARY TABLE (all PCs at a glance) ============
+    doc.fillColor('#0f172a').fontSize(12).font('Helvetica-Bold').text('Summary - All Systems', 40, y, { lineBreak: false });
+    y += 20;
+    
+    // Table header
+    const tcol = { sno: 40, name: 75, type: 200, status: 290, issues: 380 };
+    doc.rect(40, y, 515, 22).fill('#0f172a');
+    doc.fillColor('#ffffff').fontSize(8.5).font('Helvetica-Bold');
+    doc.text('#', tcol.sno + 5, y + 7, { lineBreak: false });
+    doc.text('PC Name', tcol.name, y + 7, { lineBreak: false });
+    doc.text('Type', tcol.type, y + 7, { lineBreak: false });
+    doc.text('Status', tcol.status, y + 7, { lineBreak: false });
+    doc.text('Issues / Action Needed', tcol.issues, y + 7, { lineBreak: false });
+    y += 22;
+    
+    // Count summary
+    let goodCount = 0, attentionCount = 0, criticalCount = 0;
+    
+    entry.pcs.forEach((pc, idx) => {
+        // Row background (alternating + new page check)
+        if (y + 18 > doc.page.height - 160) {
+            doc.addPage();
+            drawPdfHeader(doc, 'DIAGNOSTIC REPORT', entry.entryNumber + ' (cont.)');
+            y = 155;
+            // re-draw table header
+            doc.rect(40, y, 515, 22).fill('#0f172a');
+            doc.fillColor('#ffffff').fontSize(8.5).font('Helvetica-Bold');
+            doc.text('#', tcol.sno + 5, y + 7, { lineBreak: false });
+            doc.text('PC Name', tcol.name, y + 7, { lineBreak: false });
+            doc.text('Type', tcol.type, y + 7, { lineBreak: false });
+            doc.text('Status', tcol.status, y + 7, { lineBreak: false });
+            doc.text('Issues / Action Needed', tcol.issues, y + 7, { lineBreak: false });
+            y += 22;
+        }
+        
+        if (idx % 2 === 0) doc.rect(40, y, 515, 18).fill('#f8fafc');
+        
+        // Build issues string
+        const labels = { motherboard:'Motherboard', cpu:'CPU', ramStatus:'RAM', ramSlots:'RAM Slots', hddHealth:'Storage', drive:'Optical Drive', fan:'Fan', temperature:'Temp', battery:'Battery', monitor:'Monitor', webcam:'Webcam', connectors:'Connectors' };
+        const repairItems = [], missingItems = [];
+        Object.keys(labels).forEach(f => {
+            const v = pc[f];
+            if (v === 'Issue/Repair' || v === 'Overheating') repairItems.push(labels[f]);
+            else if (v === 'Missing') missingItems.push(labels[f]);
+        });
+        
+        let issuesText = '';
+        if (repairItems.length === 0 && missingItems.length === 0) {
+            issuesText = 'All OK - No action needed';
+        } else {
+            const parts = [];
+            if (repairItems.length) parts.push('Repair: ' + repairItems.join(', '));
+            if (missingItems.length) parts.push('Missing: ' + missingItems.join(', '));
+            issuesText = parts.join(' | ');
+        }
+        
+        const status = pc.overallStatus || 'Good';
+        if (status === 'Good') goodCount++;
+        else if (status === 'Needs Attention') attentionCount++;
+        else criticalCount++;
+        
+        const sCol = status === 'Good' ? '#15803d' : status === 'Needs Attention' ? '#b45309' : '#b91c1c';
+        
+        doc.fillColor('#0f172a').fontSize(8).font('Helvetica');
+        doc.text(String(idx + 1), tcol.sno + 5, y + 5, { lineBreak: false });
+        doc.font('Helvetica-Bold').text((pc.pcName || pc.pcSrNo || `PC-${idx+1}`).slice(0, 22), tcol.name, y + 5, { width: 120, lineBreak: false, ellipsis: true });
+        doc.font('Helvetica').fillColor('#64748b').text((pc.pcType || 'Desktop').slice(0, 14), tcol.type, y + 5, { width: 85, lineBreak: false });
+        doc.fillColor(sCol).font('Helvetica-Bold').text(status, tcol.status, y + 5, { width: 85, lineBreak: false });
+        doc.fillColor(issuesText.startsWith('All OK') ? '#15803d' : '#b91c1c').font('Helvetica').fontSize(7).text(issuesText.slice(0, 90), tcol.issues, y + 5, { width: 170, lineBreak: false, ellipsis: true });
+        
+        y += 18;
+    });
+    
+    // Summary count row
+    doc.rect(40, y, 515, 22).fill('#1e293b');
+    doc.fillColor('#ffffff').fontSize(8.5).font('Helvetica-Bold');
+    doc.text(`Total: ${entry.pcs.length} PCs`, 50, y + 7, { lineBreak: false });
+    doc.fillColor('#86efac').text(`Good: ${goodCount}`, 200, y + 7, { lineBreak: false });
+    doc.fillColor('#fcd34d').text(`Needs Attention: ${attentionCount}`, 290, y + 7, { lineBreak: false });
+    doc.fillColor('#fca5a5').text(`Critical: ${criticalCount}`, 440, y + 7, { lineBreak: false });
+    y += 32;
+    
+    // ============ DETAILED PC CARDS ============
+    doc.fillColor('#0f172a').fontSize(12).font('Helvetica-Bold').text('Detailed System Reports', 40, y, { lineBreak: false });
+    y += 24;
     
     // Per-PC mini cards (4 columns)
     const colW = 250, rowH = 220;
