@@ -59,6 +59,29 @@ const quotationSchema = new mongoose.Schema({
     // Link back to customer
     customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },
     
+    // === VENDOR PROCUREMENT (after approval) ===
+    vendorProcurement: [{
+        vendorName: { type: String },
+        vendorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor' },
+        productName: { type: String },
+        quantity: { type: Number, default: 1 },
+        vendorPrice: { type: Number, default: 0 }, // what we pay vendor per unit
+        deliveryCharges: { type: Number, default: 0 },
+        totalVendorCost: { type: Number, default: 0 }, // (qty*price)+delivery
+        paymentToVendor: { type: Number, default: 0 }, // paid to vendor so far
+        vendorPaymentStatus: { type: String, default: 'Pending' }, // Pending, Partial, Paid
+        deliveryStatus: { type: String, default: 'Ordered' }, // Ordered, In Transit, Received
+        expectedDelivery: { type: Date },
+        receivedDate: { type: Date },
+        notes: { type: String, default: '' }
+    }],
+    totalVendorCost: { type: Number, default: 0 }, // sum of all vendor costs
+    totalVendorPaid: { type: Number, default: 0 },
+    grossProfit: { type: Number, default: 0 }, // grandTotal - totalVendorCost
+    
+    // Remark for tracking
+    remark: { type: String, default: '' },
+    
     createdBy: { type: String, default: 'Admin' }
 }, { timestamps: true });
 

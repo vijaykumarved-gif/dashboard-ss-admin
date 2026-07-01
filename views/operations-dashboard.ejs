@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Operations Dashboard — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+    <style>
+        .dept-pill { padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: white; white-space: nowrap; transition: all 0.15s; }
+        .dept-pill.active { background: #0f172a; color: white; border-color: #0f172a; }
+        .op-row { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+        .op-row:hover { background: #f8fafc; }
+        .status-select { padding: 3px 6px; font-size: 11px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; }
+        .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+        .loading-spin { display: inline-block; width: 16px; height: 16px; border: 2px solid #cbd5e1; border-top-color: #0f172a; border-radius: 50%; animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'operations' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">🎛️ Operations Dashboard</h1>
+                <p class="page-subtitle">All departments in one place · Update here, reflects everywhere</p>
+            </div>
+        </div>
+        
+        <!-- STATS -->
+        <div class="stats-grid" id="statsGrid">
+            <div class="stat-card blue"><div class="stat-label">Total Records</div><div class="stat-value" id="st_total">-</div></div>
+            <div class="stat-card amber"><div class="stat-label">Pending / Open</div><div class="stat-value" id="st_pending" style="color: var(--warning);">-</div></div>
+            <div class="stat-card green"><div class="stat-label">Confirmed</div><div class="stat-value" id="st_confirmed" style="color: var(--success);">-</div></div>
+            <div class="stat-card red"><div class="stat-label">Not Done</div><div class="stat-value" id="st_notconfirmed" style="color: var(--danger);">-</div></div>
+            <div class="stat-card purple"><div class="stat-label">Total Value</div><div class="stat-value" id="st_value" style="font-size: 15px;">-</div></div>
+            <div class="stat-card green"><div class="stat-label">Collection</div><div class="stat-value" id="st_received" style="font-size: 15px; color: var(--success);">-</div></div>
+            <div class="stat-card red"><div class="stat-label">Pending Due</div><div class="stat-value" id="st_due" style="font-size: 15px; color: var(--danger);">-</div></div>
+        </div>
+        
+        <!-- DEPARTMENT FILTER PILLS -->
+        <div style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px;">
+            <div class="dept-pill active" data-dept="all" onclick="setDept('all')">🌐 All <span class="dept-count" data-dc="all"></span></div>
+            <div class="dept-pill" data-dept="hardware" onclick="setDept('hardware')">🔧 Hardware <span class="dept-count" data-dc="Hardware"></span></div>
+            <div class="dept-pill" data-dept="corporate" onclick="setDept('corporate')">🏢 Corporate <span class="dept-count" data-dc="Corporate"></span></div>
+            <div class="dept-pill" data-dept="booking" onclick="setDept('booking')">📅 Booking <span class="dept-count" data-dc="Booking"></span></div>
+            <div class="dept-pill" data-dept="quotation" onclick="setDept('quotation')">📋 Quotation <span class="dept-count" data-dc="Quotation"></span></div>
+            <div class="dept-pill" data-dept="amc" onclick="setDept('amc')">📝 AMC <span class="dept-count" data-dc="AMC"></span></div>
+            <div class="dept-pill" data-dept="lead" onclick="setDept('lead')">🎯 Leads <span class="dept-count" data-dc="Lead"></span></div>
+            <div class="dept-pill" data-dept="other" onclick="setDept('other')">💼 Other <span class="dept-count" data-dc="Other"></span></div>
+        </div>
+        
+        <!-- FILTER BAR -->
+        <div class="filter-bar">
+            <input type="text" id="searchBox" placeholder="🔍 Search name / mobile / company..." style="flex: 1; min-width: 200px;" oninput="debouncedLoad()">
+            <input type="date" id="fromDate" onchange="loadData()" title="From date">
+            <span style="color: var(--text-3);">→</span>
+            <input type="date" id="toDate" onchange="loadData()" title="To date">
+            <select id="statusFilter" onchange="loadData()" style="width: 150px;">
+                <option value="">All Status</option>
+                <option value="Pending">Pending</option>
+                <option value="New">New</option>
+                <option value="Draft">Draft</option>
+                <option value="Sent">Sent</option>
+                <option value="Confirmed">Confirmed</option>
+                <option value="Approved">Approved</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Completed">Completed</option>
+                <option value="Won">Won</option>
+                <option value="Paid">Paid</option>
+                <option value="Delivered">Delivered</option>
+                <option value="Converted">Converted</option>
+                <option value="Rejected">Rejected</option>
+                <option value="Lost">Lost</option>
+                <option value="Cancelled">Cancelled</option>
+            </select>
+            <button class="btn btn-sm btn-secondary" onclick="clearFilters()">Clear</button>
+            <button class="btn btn-sm btn-primary" onclick="loadData()">↻ Refresh</button>
+        </div>
+        
+        <!-- DATA TABLE -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">📊 All Operations <span id="resultCount" style="color: var(--text-3); font-weight: 400; font-size: 13px;"></span></div>
+                <div id="loadingIndicator"></div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Dept</th><th>Ref</th><th>Customer</th><th>Details</th>
+                            <th>Amount</th><th>Status</th><th>Remark</th><th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="opsTableBody">
+                        <tr><td colspan="8" style="text-align: center; padding: 40px; color: var(--text-3);">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+let currentDept = 'all';
+let loadTimer = null;
+let allItems = [];
+
+// Status options per department (for the inline dropdown)
+const STATUS_OPTIONS = {
+    Hardware: ['Pending', 'In Progress', 'Completed', 'Cancelled'],
+    Corporate: ['Scheduled', 'In Progress', 'Completed', 'Cancelled'],
+    Booking: ['Pending', 'Confirmed', 'In Progress', 'Completed', 'Cancelled', 'Missed'],
+    Quotation: ['Draft', 'Sent', 'Approved', 'Rejected', 'Converted'],
+    AMC: ['Active', 'Expired', 'Cancelled'],
+    Lead: ['New', 'Contacted', 'Quote Sent', 'Negotiation', 'Won', 'Lost'],
+    Other: ['Pending', 'Completed', 'Cancelled']
+};
+
+function setDept(d) {
+    currentDept = d;
+    document.querySelectorAll('.dept-pill').forEach(p => p.classList.toggle('active', p.dataset.dept === d));
+    loadData();
+}
+
+function debouncedLoad() {
+    clearTimeout(loadTimer);
+    loadTimer = setTimeout(loadData, 400);
+}
+
+function clearFilters() {
+    document.getElementById('searchBox').value = '';
+    document.getElementById('fromDate').value = '';
+    document.getElementById('toDate').value = '';
+    document.getElementById('statusFilter').value = '';
+    loadData();
+}
+
+async function loadData() {
+    const params = new URLSearchParams({
+        dept: currentDept,
+        search: document.getElementById('searchBox').value,
+        from: document.getElementById('fromDate').value,
+        to: document.getElementById('toDate').value,
+        status: document.getElementById('statusFilter').value
+    });
+    
+    document.getElementById('loadingIndicator').innerHTML = '<span class="loading-spin"></span>';
+    
+    try {
+        const res = await fetch('/api/operations?' + params.toString());
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Failed');
+        
+        allItems = data.items;
+        renderStats(data.stats);
+        renderDeptCounts(data.deptCounts, data.stats);
+        renderTable(data.items);
+        document.getElementById('resultCount').textContent = '(' + data.items.length + ' records)';
+    } catch (e) {
+        document.getElementById('opsTableBody').innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--danger);">Error: ' + e.message + '</td></tr>';
+    } finally {
+        document.getElementById('loadingIndicator').innerHTML = '';
+    }
+}
+
+function renderStats(s) {
+    document.getElementById('st_total').textContent = s.total;
+    document.getElementById('st_pending').textContent = s.pending;
+    document.getElementById('st_confirmed').textContent = s.confirmed;
+    document.getElementById('st_notconfirmed').textContent = s.notConfirmed;
+    document.getElementById('st_value').textContent = '₹' + s.totalValue.toLocaleString('en-IN');
+    document.getElementById('st_received').textContent = '₹' + s.totalReceived.toLocaleString('en-IN');
+    document.getElementById('st_due').textContent = '₹' + s.totalDue.toLocaleString('en-IN');
+}
+
+function renderDeptCounts(counts, stats) {
+    document.querySelectorAll('.dept-count').forEach(el => {
+        const dc = el.dataset.dc;
+        if (dc === 'all') el.textContent = '(' + stats.total + ')';
+        else el.textContent = counts[dc] ? '(' + counts[dc] + ')' : '';
+    });
+}
+
+function statusBadgeClass(status) {
+    if (['Confirmed','Approved','Won','Completed','Paid','Delivered','Converted','Active','Fully Paid'].includes(status)) return 'success';
+    if (['Rejected','Lost','Cancelled','Missed'].includes(status)) return 'danger';
+    if (['In Progress','Negotiation','Advance Paid','Partial'].includes(status)) return 'info';
+    return 'warning';
+}
+
+function renderTable(items) {
+    const body = document.getElementById('opsTableBody');
+    if (items.length === 0) {
+        body.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:40px; color:var(--text-3);">No records found for the selected filters</td></tr>';
+        return;
+    }
+    
+    body.innerHTML = items.map((it, idx) => {
+        const statusOpts = (STATUS_OPTIONS[it.dept] || [it.status]);
+        const optsHtml = statusOpts.map(o => `<option ${o === it.status ? 'selected' : ''}>${o}</option>`).join('');
+        const dueHtml = it.due > 0 ? `<div style="font-size:10px; color:var(--danger);">Due: ₹${it.due.toLocaleString('en-IN')}</div>` : '';
+        
+        return `
+        <tr class="op-row" data-idx="${idx}">
+            <td><span style="font-size:18px;">${it.icon}</span><div style="font-size:9px; color:var(--text-3);">${it.dept}</div></td>
+            <td class="font-mono" style="font-size:10px; font-weight:700;">${it.ref}</td>
+            <td>
+                <div class="font-bold" style="font-size:12px;">${it.customer || '-'}</div>
+                ${it.company ? `<div style="font-size:10px; color:var(--text-3);">${it.company}</div>` : ''}
+                ${it.mobile ? `<div style="font-size:10px; color:var(--text-3);">📞 ${it.mobile}</div>` : ''}
+            </td>
+            <td style="font-size:11px;">${it.title}
+                ${it.assignedAgent ? `<div style="font-size:10px; color:#3b82f6;">👤 ${it.assignedAgent}</div>` : ''}
+            </td>
+            <td>
+                ${it.amount > 0 ? `<div class="font-bold font-mono" style="font-size:12px;">₹${it.amount.toLocaleString('en-IN')}</div>` : '<span style="color:var(--text-3);">-</span>'}
+                ${dueHtml}
+            </td>
+            <td>
+                <select class="status-select" onchange="updateStatus('${it.dept}', '${it.id}', this.value, ${idx})">
+                    ${optsHtml}
+                </select>
+            </td>
+            <td>
+                <input type="text" class="remark-input" value="${(it.remark || '').replace(/"/g, '&quot;')}" placeholder="Add remark..."
+                    style="width:120px; font-size:11px; padding:3px 6px; border:1px solid var(--border); border-radius:6px;"
+                    onblur="updateRemark('${it.dept}', '${it.id}', this.value, ${idx})">
+            </td>
+            <td>
+                <a href="${it.link}" class="btn btn-xs btn-secondary">View</a>
+                ${it.hasInvoice && it.invoiceLink ? `<a href="${it.invoiceLink}" target="_blank" class="btn btn-xs btn-primary">📄</a>` : ''}
+                ${it.isQuotation && (it.status === 'Approved' || it.status === 'Converted') ? `<a href="/cctv/quotation/${it.id}/edit#vendor" class="btn btn-xs" style="background:#8b5cf6; color:white;">🏪 Vendor</a>` : ''}
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+async function updateStatus(dept, id, status, idx) {
+    try {
+        const res = await fetch('/api/operations/update', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dept, id, status })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('✓ ' + dept + ' status → ' + status, 'success');
+            if (allItems[idx]) allItems[idx].status = status;
+        } else {
+            showToast('Update failed: ' + (data.error || ''), 'error');
+        }
+    } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function updateRemark(dept, id, remark, idx) {
+    if (allItems[idx] && allItems[idx].remark === remark) return; // no change
+    try {
+        const res = await fetch('/api/operations/update', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dept, id, remark })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('✓ Remark saved', 'success');
+            if (allItems[idx]) allItems[idx].remark = remark;
+        }
+    } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// Initial load
+loadData();
+</script>
+</body>
+</html>

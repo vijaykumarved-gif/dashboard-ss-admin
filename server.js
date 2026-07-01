@@ -1070,6 +1070,83 @@ app.post('/api/quotations/:id/deliver', requireAuth, requireAdmin, async (req, r
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// === VENDOR PROCUREMENT (after quotation approval) ===
+
+// Add vendor procurement line to approved quotation
+app.post('/api/quotations/:id/vendor', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const q = await Quotation.findById(req.params.id);
+        if (!q) return res.status(404).json({ error: 'Not found' });
+        
+        const { vendorName, vendorId, productName, quantity, vendorPrice, deliveryCharges, expectedDelivery, notes } = req.body;
+        const qty = Number(quantity) || 1;
+        const price = Number(vendorPrice) || 0;
+        const delivery = Number(deliveryCharges) || 0;
+        const totalVendorCost = (qty * price) + delivery;
+        
+        q.vendorProcurement.push({
+            vendorName, vendorId: vendorId || undefined, productName,
+            quantity: qty, vendorPrice: price, deliveryCharges: delivery,
+            totalVendorCost, paymentToVendor: 0, vendorPaymentStatus: 'Pending',
+            deliveryStatus: 'Ordered', expectedDelivery: expectedDelivery || undefined, notes: notes || ''
+        });
+        
+        // Recompute totals
+        q.totalVendorCost = q.vendorProcurement.reduce((s, v) => s + (v.totalVendorCost || 0), 0);
+        q.totalVendorPaid = q.vendorProcurement.reduce((s, v) => s + (v.paymentToVendor || 0), 0);
+        q.grossProfit = (q.grandTotal || 0) - q.totalVendorCost;
+        
+        await q.save();
+        res.json({ success: true, quotation: q });
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+// Update vendor procurement line (payment/delivery status)
+app.put('/api/quotations/:id/vendor/:vIdx', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const q = await Quotation.findById(req.params.id);
+        if (!q) return res.status(404).json({ error: 'Not found' });
+        
+        const v = q.vendorProcurement[req.params.vIdx];
+        if (!v) return res.status(404).json({ error: 'Vendor line not found' });
+        
+        const { paymentToVendor, deliveryStatus, receivedDate, addPayment } = req.body;
+        if (addPayment !== undefined) v.paymentToVendor = (v.paymentToVendor || 0) + Number(addPayment);
+        else if (paymentToVendor !== undefined) v.paymentToVendor = Number(paymentToVendor);
+        
+        v.vendorPaymentStatus = v.paymentToVendor >= v.totalVendorCost ? 'Paid' : v.paymentToVendor > 0 ? 'Partial' : 'Pending';
+        if (deliveryStatus) v.deliveryStatus = deliveryStatus;
+        if (deliveryStatus === 'Received') v.receivedDate = new Date();
+        
+        q.totalVendorPaid = q.vendorProcurement.reduce((s, vp) => s + (vp.paymentToVendor || 0), 0);
+        
+        await q.save();
+        res.json({ success: true, quotation: q });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Delete vendor procurement line
+app.delete('/api/quotations/:id/vendor/:vIdx', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const q = await Quotation.findById(req.params.id);
+        if (!q) return res.status(404).json({ error: 'Not found' });
+        q.vendorProcurement.splice(req.params.vIdx, 1);
+        q.totalVendorCost = q.vendorProcurement.reduce((s, v) => s + (v.totalVendorCost || 0), 0);
+        q.totalVendorPaid = q.vendorProcurement.reduce((s, v) => s + (v.paymentToVendor || 0), 0);
+        q.grossProfit = (q.grandTotal || 0) - q.totalVendorCost;
+        await q.save();
+        res.json({ success: true, quotation: q });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Get vendors list for dropdown
+app.get('/api/vendors-list', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const vendors = await Vendor.find().select('vendorName mobile').sort({ vendorName: 1 }).lean();
+        res.json({ success: true, vendors });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 // All Quotations list (lifecycle dashboard)
 app.get('/quotations', requireAuth, requireAdmin, async (req, res) => {
     const filter = {};
@@ -3641,6 +3718,235 @@ app.put('/api/entries/:id', requireAuth, async (req, res) => {
 });
 
 // ======================== REPORTS MODULE (Day/Week/Month/Sales/Follow-up) ========================
+
+// ============================================================
+//   UNIFIED OPERATIONS DASHBOARD - all departments in one view
+// ============================================================
+app.get('/operations', requireAuth, requireAdmin, async (req, res) => {
+    res.render('operations-dashboard', { user: req.session.user });
+});
+
+// API: fetch all operations data (filtered)
+app.get('/api/operations', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const dept = req.query.dept || 'all'; // all, hardware, corporate, booking, cctv, quotation, amc, lead, other
+        const status = req.query.status || ''; // filter by status
+        const search = (req.query.search || '').trim();
+        const fromDate = req.query.from ? new Date(req.query.from) : null;
+        const toDate = req.query.to ? new Date(req.query.to + 'T23:59:59') : null;
+        
+        // Date filter helper
+        const dateFilter = {};
+        if (fromDate || toDate) {
+            dateFilter.createdAt = {};
+            if (fromDate) dateFilter.createdAt.$gte = fromDate;
+            if (toDate) dateFilter.createdAt.$lte = toDate;
+        }
+        
+        // Search filter helper (by name/mobile)
+        const searchRegex = search ? new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : null;
+        
+        let items = [];
+        
+        // Helper to add items from a module
+        const want = (d) => dept === 'all' || dept === d;
+        
+        // === HARDWARE ENTRIES ===
+        if (want('hardware')) {
+            const q = { ...dateFilter };
+            if (searchRegex) q.$or = [{ customerName: searchRegex }, { mobileNumber: searchRegex }];
+            const entries = await Entry.find(q).select('-beforePhoto -afterPhoto').sort({ createdAt: -1 }).limit(200).lean();
+            entries.forEach(e => items.push({
+                dept: 'Hardware', icon: '🔧', id: e._id,
+                ref: e.entryNumber || ('HW-' + String(e._id).slice(-5)),
+                customer: e.customerName, mobile: e.mobileNumber, company: '',
+                title: e.workType || e.deviceType || 'Hardware Service',
+                amount: e.revenue || 0, received: e.amountReceived || 0, due: e.amountDue || 0,
+                status: e.jobStatus || 'Pending', paymentStatus: e.paymentStatus || 'Pending',
+                date: e.createdAt, link: '/admin', remark: e.remarks || '',
+                hasInvoice: true, invoiceLink: ''
+            }));
+        }
+        
+        // === CORPORATE OFFICE ===
+        if (want('corporate')) {
+            const q = { ...dateFilter };
+            if (searchRegex) q.$or = [{ customerName: searchRegex }, { companyName: searchRegex }, { mobileNumber: searchRegex }];
+            const entries = await CorporateEntry.find(q).select('-pcs.beforePhoto -pcs.afterPhoto').sort({ createdAt: -1 }).limit(200).lean();
+            entries.forEach(e => items.push({
+                dept: 'Corporate', icon: '🏢', id: e._id,
+                ref: e.entryNumber,
+                customer: e.customerName, mobile: e.mobileNumber, company: e.companyName,
+                title: e.serviceType + ' (' + (e.pcs ? e.pcs.length : 0) + ' PCs)',
+                amount: e.grandTotal || 0, received: e.amountReceived || 0, due: e.amountDue || 0,
+                status: e.jobStatus || 'Completed', paymentStatus: e.paymentStatus || 'Pending',
+                date: e.visitDate || e.createdAt, link: '/corporate/' + e._id, remark: e.overallRemarks || '',
+                hasInvoice: true, invoiceLink: '/corporate/' + e._id + '/pdf?type=invoice'
+            }));
+        }
+        
+        // === BOOKINGS ===
+        if (want('booking')) {
+            const q = { ...dateFilter };
+            if (searchRegex) q.$or = [{ customerName: searchRegex }, { mobileNumber: searchRegex }, { companyName: searchRegex }];
+            const bookings = await Booking.find(q).sort({ scheduledDate: -1 }).limit(200).lean();
+            bookings.forEach(b => items.push({
+                dept: 'Booking', icon: '📅', id: b._id,
+                ref: 'BK-' + String(b._id).slice(-5),
+                customer: b.customerName, mobile: b.mobileNumber, company: b.companyName || '',
+                title: b.serviceType || 'Booking',
+                amount: 0, received: 0, due: 0,
+                status: b.status || 'Pending', paymentStatus: '-',
+                date: b.scheduledDate || b.createdAt, link: '/bookings', remark: b.description || '',
+                hasInvoice: false, invoiceLink: '', assignedAgent: b.assignedAgent || ''
+            }));
+        }
+        
+        // === CCTV / QUOTATIONS ===
+        if (want('quotation') || want('cctv')) {
+            const q = { ...dateFilter };
+            if (searchRegex) q.$or = [{ clientName: searchRegex }, { clientMobile: searchRegex }, { clientCompany: searchRegex }];
+            const quotes = await Quotation.find(q).select('-items').sort({ createdAt: -1 }).limit(200).lean();
+            quotes.forEach(qt => {
+                const totalPaid = (qt.advanceReceived || 0) + (qt.finalPaymentReceived || 0);
+                items.push({
+                    dept: 'Quotation', icon: '📋', id: qt._id,
+                    ref: qt.quotationNumber,
+                    customer: qt.clientName, mobile: qt.clientMobile, company: qt.clientCompany || '',
+                    title: qt.projectType,
+                    amount: qt.grandTotal || 0, received: totalPaid, due: (qt.grandTotal || 0) - totalPaid,
+                    status: qt.status || 'Draft', paymentStatus: qt.paymentStatus || 'Pending',
+                    date: qt.createdAt, link: '/cctv/quotation/' + qt._id + '/edit', remark: qt.remark || '',
+                    hasInvoice: true, invoiceLink: '/api/quotations/' + qt._id + '/pdf',
+                    vendorCost: qt.totalVendorCost || 0, grossProfit: qt.grossProfit || 0,
+                    isQuotation: true
+                });
+            });
+        }
+        
+        // === AMC ===
+        if (want('amc')) {
+            const q = { ...dateFilter };
+            if (searchRegex) q.$or = [{ officeName: searchRegex }, { contactMobile: searchRegex }];
+            const amcs = await AMCOffice.find(q).select('-pcs.beforePhoto -pcs.afterPhoto').sort({ createdAt: -1 }).limit(200).lean();
+            amcs.forEach(a => items.push({
+                dept: 'AMC', icon: '📝', id: a._id,
+                ref: 'AMC-' + String(a._id).slice(-5),
+                customer: a.contactPerson || a.officeName, mobile: a.contactMobile, company: a.officeName,
+                title: 'AMC Contract',
+                amount: a.contractValue || 0, received: 0, due: 0,
+                status: a.status || 'Active', paymentStatus: '-',
+                date: a.createdAt, link: '/amc', remark: a.notes || '',
+                hasInvoice: false, invoiceLink: ''
+            }));
+        }
+        
+        // === LEADS ===
+        if (want('lead')) {
+            const q = { ...dateFilter };
+            if (searchRegex) q.$or = [{ name: searchRegex }, { mobile: searchRegex }, { companyName: searchRegex }];
+            const leads = await Lead.find(q).sort({ createdAt: -1 }).limit(200).lean();
+            leads.forEach(l => items.push({
+                dept: 'Lead', icon: '🎯', id: l._id,
+                ref: 'LEAD-' + String(l._id).slice(-5),
+                customer: l.name, mobile: l.mobile, company: l.companyName || '',
+                title: l.requirement || l.title || 'Enquiry',
+                amount: l.estimatedValue || l.wonAmount || 0, received: l.finalAmountReceived || 0, due: 0,
+                status: l.status || 'New', paymentStatus: '-',
+                date: l.createdAt, link: '/leads/' + l._id, remark: l.notes || '',
+                hasInvoice: false, invoiceLink: '', assignedAgent: l.assignedTo || ''
+            }));
+        }
+        
+        // === OTHER BUSINESS ===
+        if (want('other')) {
+            const q = { ...dateFilter };
+            if (searchRegex) q.$or = [{ businessName: searchRegex }, { clientName: searchRegex }];
+            const others = await OtherBusiness.find(q).sort({ createdAt: -1 }).limit(200).lean();
+            others.forEach(o => items.push({
+                dept: 'Other', icon: '💼', id: o._id,
+                ref: 'OB-' + String(o._id).slice(-5),
+                customer: o.clientName || o.businessName, mobile: o.mobile || '', company: o.businessName || '',
+                title: o.category || 'Other Business',
+                amount: o.amount || 0, received: o.amount || 0, due: 0,
+                status: o.status || 'Completed', paymentStatus: '-',
+                date: o.date || o.createdAt, link: '/other-business', remark: o.notes || o.description || '',
+                hasInvoice: false, invoiceLink: ''
+            }));
+        }
+        
+        // Status filter (applied after collection)
+        if (status) {
+            items = items.filter(i => i.status === status);
+        }
+        
+        // Sort: latest first
+        items.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        // Aggregate stats
+        const stats = {
+            total: items.length,
+            totalValue: items.reduce((s, i) => s + (i.amount || 0), 0),
+            totalReceived: items.reduce((s, i) => s + (i.received || 0), 0),
+            totalDue: items.reduce((s, i) => s + (i.due || 0), 0),
+            pending: items.filter(i => ['Pending','New','Draft','Scheduled','Sent'].includes(i.status)).length,
+            confirmed: items.filter(i => ['Confirmed','Approved','Won','Completed','Paid','Delivered','Converted'].includes(i.status)).length,
+            notConfirmed: items.filter(i => ['Rejected','Lost','Cancelled','Missed'].includes(i.status)).length
+        };
+        
+        // Department-wise counts
+        const deptCounts = {};
+        items.forEach(i => { deptCounts[i.dept] = (deptCounts[i.dept] || 0) + 1; });
+        
+        res.json({ success: true, items: items.slice(0, 300), stats, deptCounts });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// API: update status/remark of any item from the dashboard (loop-back update)
+app.post('/api/operations/update', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { dept, id, status, remark, paymentStatus } = req.body;
+        let result = null;
+        
+        const modelMap = {
+            'Hardware': Entry, 'Corporate': CorporateEntry, 'Booking': Booking,
+            'Quotation': Quotation, 'AMC': AMCOffice, 'Lead': Lead, 'Other': OtherBusiness
+        };
+        const Model = modelMap[dept];
+        if (!Model) return res.status(400).json({ error: 'Unknown department' });
+        
+        const doc = await Model.findById(id);
+        if (!doc) return res.status(404).json({ error: 'Not found' });
+        
+        // Update status field (different field names per model)
+        if (status !== undefined && status !== '') {
+            if (dept === 'Hardware' || dept === 'Corporate') doc.jobStatus = status;
+            else doc.status = status;
+        }
+        if (remark !== undefined) {
+            // Map to the right remark field
+            if (dept === 'Corporate') doc.overallRemarks = remark;
+            else if (dept === 'Quotation') doc.remark = remark;
+            else if (dept === 'Lead' || dept === 'Hardware') doc.notes = remark;
+            else if (doc.notes !== undefined) doc.notes = remark;
+            else if (doc.description !== undefined) doc.description = remark;
+        }
+        if (paymentStatus !== undefined && paymentStatus !== '' && doc.paymentStatus !== undefined) {
+            doc.paymentStatus = paymentStatus;
+        }
+        
+        await doc.save();
+        result = { id: doc._id, status, remark };
+        
+        res.json({ success: true, result });
+    } catch (e) {
+        console.error(e);
+        res.status(400).json({ error: e.message });
+    }
+});
 
 app.get('/reports', requireAuth, requireAdmin, async (req, res) => {
     const period = req.query.period || 'today';
