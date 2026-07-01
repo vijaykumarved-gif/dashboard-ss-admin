@@ -320,7 +320,7 @@ function renderTable(items) {
                 <a href="${it.link}" class="btn btn-xs btn-secondary">View</a>
                 ${canPay ? `<button class="btn btn-xs btn-success" onclick="recordPayment('${it.dept}','${it.id}',${it.due})">💰 Pay</button>` : ''}
                 ${it.hasInvoice && it.invoiceLink ? `<a href="${it.invoiceLink}" target="_blank" class="btn btn-xs btn-primary">📄</a>` : ''}
-                ${it.isQuotation && (it.status === 'Approved' || it.status === 'Converted') ? `<a href="/cctv/quotation/${it.id}/edit#vendor" class="btn btn-xs" style="background:#8b5cf6; color:white;">🏪</a>` : ''}
+                ${it.isQuotation && (it.status === 'Approved' || it.status === 'Converted') ? `<a href="/cctv/quotation/${it.id}#vendor" class="btn btn-xs" style="background:#8b5cf6; color:white;">🏪</a>` : ''}
             </td>
         </tr>`;
     }).join('');

@@ -920,6 +920,15 @@ app.get('/cctv/quotation/:id/edit', requireAuth, requireAdmin, async (req, res) 
     res.render('quotation-builder', { user: req.session.user, products, quotation, prefillCustomer: null });
 });
 
+// Quotation Detail / Order Management page (view-only + actions: payment, dates, vendor, status)
+app.get('/cctv/quotation/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const quotation = await Quotation.findById(req.params.id).lean();
+        if (!quotation) return res.status(404).send('Quotation not found');
+        res.render('quotation-detail', { user: req.session.user, quotation });
+    } catch (e) { res.status(500).send(e.message); }
+});
+
 app.post('/api/quotations', requireAuth, requireAdmin, async (req, res) => {
     try {
         const data = req.body;
@@ -975,6 +984,14 @@ app.put('/api/quotations/:id', requireAuth, requireAdmin, async (req, res) => {
             data.grandTotal = subtotal + gstAmount + (data.installationCharges || 0) - (data.discount || 0);
         }
         const quotation = await Quotation.findByIdAndUpdate(req.params.id, data, { new: true });
+        // Recompute balance/profit since grandTotal may have changed (products added/removed)
+        if (quotation && data.grandTotal !== undefined) {
+            quotation.balanceDue = Math.max(0, quotation.grandTotal - (quotation.totalPaid || 0));
+            quotation.grossProfit = quotation.grandTotal - (quotation.totalVendorCost || 0);
+            if (quotation.totalPaid >= quotation.grandTotal && quotation.totalPaid > 0) quotation.paymentStatus = 'Fully Paid';
+            else if (quotation.totalPaid > 0) quotation.paymentStatus = 'Advance Paid';
+            await quotation.save();
+        }
         res.json({ success: true, quotation });
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -3861,7 +3878,7 @@ app.get('/api/operations', requireAuth, requireAdmin, async (req, res) => {
                     title: qt.projectType,
                     amount: qt.grandTotal || 0, received: totalPaid, due: (qt.grandTotal || 0) - totalPaid,
                     status: qt.status || 'Draft', paymentStatus: qt.paymentStatus || 'Pending',
-                    date: qt.createdAt, link: '/cctv/quotation/' + qt._id + '/edit', remark: qt.remark || '',
+                    date: qt.createdAt, link: '/cctv/quotation/' + qt._id, remark: qt.remark || '',
                     hasInvoice: true, invoiceLink: '/api/quotations/' + qt._id + '/pdf',
                     vendorCost: qt.totalVendorCost || 0, grossProfit: qt.grossProfit || 0,
                     isQuotation: true
