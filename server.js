@@ -925,8 +925,57 @@ app.get('/cctv/quotation/:id', requireAuth, requireAdmin, async (req, res) => {
     try {
         const quotation = await Quotation.findById(req.params.id).lean();
         if (!quotation) return res.status(404).send('Quotation not found');
-        res.render('quotation-detail', { user: req.session.user, quotation });
-    } catch (e) { res.status(500).send(e.message); }
+        
+        // === CUSTOMER-WIDE SUMMARY (match by mobile) ===
+        const mob = (quotation.clientMobile || '').replace(/\D/g, '').slice(-10);
+        let custSummary = null;
+        if (mob) {
+            const mobRegex = new RegExp(mob + '$');
+            const [allQuotes, corpEntries, hwEntries] = await Promise.all([
+                Quotation.find({ clientMobile: mobRegex }).select('quotationNumber grandTotal totalPaid balanceDue status paymentStatus totalVendorCost grossProfit createdAt projectType').sort({ createdAt: -1 }).lean(),
+                CorporateEntry.find({ mobileNumber: mobRegex }).select('entryNumber grandTotal amountReceived amountDue paymentStatus createdAt serviceType').sort({ createdAt: -1 }).lean(),
+                Entry.find({ mobileNumber: mobRegex }).select('entryNumber revenue amountReceived amountDue paymentStatus createdAt workType').sort({ createdAt: -1 }).lean()
+            ]);
+            
+            // Aggregate everything for this customer
+            let totalOrderValue = 0, totalPaid = 0, totalDue = 0, totalVendorCost = 0, totalProfit = 0;
+            let orderCount = 0;
+            
+            allQuotes.forEach(q => {
+                totalOrderValue += q.grandTotal || 0;
+                totalPaid += q.totalPaid || 0;
+                totalDue += (q.balanceDue !== undefined ? q.balanceDue : Math.max(0, (q.grandTotal || 0) - (q.totalPaid || 0)));
+                totalVendorCost += q.totalVendorCost || 0;
+                totalProfit += (q.grossProfit !== undefined ? q.grossProfit : (q.grandTotal || 0) - (q.totalVendorCost || 0));
+                orderCount++;
+            });
+            corpEntries.forEach(c => {
+                totalOrderValue += c.grandTotal || 0;
+                totalPaid += c.amountReceived || 0;
+                totalDue += c.amountDue || 0;
+                orderCount++;
+            });
+            hwEntries.forEach(e => {
+                totalOrderValue += e.revenue || 0;
+                totalPaid += e.amountReceived || 0;
+                totalDue += e.amountDue || 0;
+                orderCount++;
+            });
+            
+            custSummary = {
+                mobile: quotation.clientMobile,
+                name: quotation.clientName,
+                company: quotation.clientCompany,
+                orderCount,
+                totalOrderValue, totalPaid, totalDue,
+                totalVendorCost, totalProfit,
+                quotations: allQuotes,
+                corpEntries, hwEntries
+            };
+        }
+        
+        res.render('quotation-detail', { user: req.session.user, quotation, custSummary });
+    } catch (e) { console.error(e); res.status(500).send(e.message); }
 });
 
 app.post('/api/quotations', requireAuth, requireAdmin, async (req, res) => {

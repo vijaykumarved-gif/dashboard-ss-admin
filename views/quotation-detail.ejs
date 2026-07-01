@@ -33,6 +33,113 @@
             </div>
         </div>
         
+        <!-- ===== CUSTOMER-WIDE SUMMARY (matched by mobile) ===== -->
+        <% if (custSummary && custSummary.orderCount > 0) { 
+            const cs = custSummary;
+        %>
+        <div class="card" style="border: 2px solid #6366f1; margin-bottom: 14px; background: linear-gradient(135deg, #eef2ff, #ffffff);">
+            <div class="card-header" style="border-bottom: 1px solid #c7d2fe;">
+                <div>
+                    <div class="card-title" style="color: #4338ca;">👤 Customer Account Summary — <%= cs.name %></div>
+                    <div class="card-subtitle">📞 <%= cs.mobile %> · Complete history across all orders (matched by mobile)</div>
+                </div>
+                <a href="#" onclick="event.preventDefault();" style="font-size: 12px;"></a>
+            </div>
+            <div class="card-body">
+                <!-- Big stats -->
+                <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 14px;">
+                    <div style="background: white; padding: 12px 8px; border-radius: 10px; text-align: center; border: 1px solid #e0e7ff;">
+                        <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Total Orders</div>
+                        <div style="font-size: 22px; font-weight: 800; color: #4338ca;"><%= cs.orderCount %></div>
+                    </div>
+                    <div style="background: white; padding: 12px 8px; border-radius: 10px; text-align: center; border: 1px solid #e0e7ff;">
+                        <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Order Value</div>
+                        <div style="font-size: 16px; font-weight: 800; color: #1e40af;"><%= formatINR(cs.totalOrderValue) %></div>
+                    </div>
+                    <div style="background: white; padding: 12px 8px; border-radius: 10px; text-align: center; border: 1px solid #bbf7d0;">
+                        <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Total Paid</div>
+                        <div style="font-size: 16px; font-weight: 800; color: #16a34a;"><%= formatINR(cs.totalPaid) %></div>
+                    </div>
+                    <div style="background: white; padding: 12px 8px; border-radius: 10px; text-align: center; border: 1px solid <%= cs.totalDue > 0 ? '#fecaca' : '#bbf7d0' %>;">
+                        <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Pending Due</div>
+                        <div style="font-size: 16px; font-weight: 800; color: <%= cs.totalDue > 0 ? '#dc2626' : '#16a34a' %>;"><%= formatINR(cs.totalDue) %></div>
+                    </div>
+                    <div style="background: white; padding: 12px 8px; border-radius: 10px; text-align: center; border: 1px solid #fed7aa;">
+                        <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Vendor Cost</div>
+                        <div style="font-size: 16px; font-weight: 800; color: #ea580c;"><%= formatINR(cs.totalVendorCost) %></div>
+                    </div>
+                    <div style="background: white; padding: 12px 8px; border-radius: 10px; text-align: center; border: 1px solid #bbf7d0;">
+                        <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Total Profit</div>
+                        <div style="font-size: 16px; font-weight: 800; color: <%= cs.totalProfit >= 0 ? '#16a34a' : '#dc2626' %>;"><%= formatINR(cs.totalProfit) %></div>
+                    </div>
+                </div>
+                
+                <!-- Payment progress bar -->
+                <% const payPct = cs.totalOrderValue > 0 ? Math.min(100, Math.round((cs.totalPaid / cs.totalOrderValue) * 100)) : 0; %>
+                <div style="margin-bottom: 14px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); margin-bottom: 4px;">
+                        <span>Payment Collected: <%= payPct %>%</span>
+                        <span><%= formatINR(cs.totalPaid) %> of <%= formatINR(cs.totalOrderValue) %></span>
+                    </div>
+                    <div style="height: 10px; background: #e5e7eb; border-radius: 6px; overflow: hidden;">
+                        <div style="height: 100%; width: <%= payPct %>%; background: linear-gradient(90deg, #16a34a, #22c55e); border-radius: 6px;"></div>
+                    </div>
+                </div>
+                
+                <!-- Order-wise breakdown (expandable) -->
+                <details>
+                    <summary style="cursor: pointer; font-size: 13px; font-weight: 700; color: #4338ca; padding: 6px 0;">📋 View all <%= cs.orderCount %> orders payment-wise</summary>
+                    <div class="table-wrap" style="margin-top: 8px;">
+                        <table class="data-table">
+                            <thead><tr><th>Order</th><th>Type</th><th>Date</th><th>Value</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead>
+                            <tbody>
+                                <% cs.quotations.forEach(q => { 
+                                    const due = q.balanceDue !== undefined ? q.balanceDue : Math.max(0, (q.grandTotal||0)-(q.totalPaid||0));
+                                    const isCurrent = String(q._id) === String(quotation._id);
+                                %>
+                                    <tr style="<%= isCurrent ? 'background:#eef2ff;' : '' %>">
+                                        <td class="font-mono font-bold" style="font-size:11px;">
+                                            <a href="/cctv/quotation/<%= q._id %>" style="color: #4338ca; text-decoration: none;"><%= q.quotationNumber %></a>
+                                            <% if (isCurrent) { %><span style="font-size:9px; color:#6366f1;">(current)</span><% } %>
+                                        </td>
+                                        <td><span class="badge info" style="font-size:9px;">Quotation</span></td>
+                                        <td style="font-size:11px;"><%= formatDate(q.createdAt) %></td>
+                                        <td class="font-mono"><%= formatINR(q.grandTotal) %></td>
+                                        <td class="font-mono" style="color:#16a34a;"><%= formatINR(q.totalPaid || 0) %></td>
+                                        <td class="font-mono" style="color:<%= due > 0 ? '#dc2626' : '#16a34a' %>;"><%= formatINR(due) %></td>
+                                        <td><span class="badge <%= q.status === 'Approved' || q.status === 'Converted' ? 'success' : 'warning' %>" style="font-size:9px;"><%= q.status %></span></td>
+                                    </tr>
+                                <% }) %>
+                                <% cs.corpEntries.forEach(c => { %>
+                                    <tr>
+                                        <td class="font-mono font-bold" style="font-size:11px;"><a href="/corporate/<%= c._id %>" style="color:#4338ca; text-decoration:none;"><%= c.entryNumber %></a></td>
+                                        <td><span class="badge purple" style="font-size:9px;">Corporate</span></td>
+                                        <td style="font-size:11px;"><%= formatDate(c.createdAt) %></td>
+                                        <td class="font-mono"><%= formatINR(c.grandTotal) %></td>
+                                        <td class="font-mono" style="color:#16a34a;"><%= formatINR(c.amountReceived || 0) %></td>
+                                        <td class="font-mono" style="color:<%= (c.amountDue||0) > 0 ? '#dc2626' : '#16a34a' %>;"><%= formatINR(c.amountDue || 0) %></td>
+                                        <td><span class="badge <%= c.paymentStatus === 'Paid' ? 'success' : 'warning' %>" style="font-size:9px;"><%= c.paymentStatus %></span></td>
+                                    </tr>
+                                <% }) %>
+                                <% cs.hwEntries.forEach(e => { %>
+                                    <tr>
+                                        <td class="font-mono font-bold" style="font-size:11px;"><%= e.entryNumber || 'HW' %></td>
+                                        <td><span class="badge neutral" style="font-size:9px;">Hardware</span></td>
+                                        <td style="font-size:11px;"><%= formatDate(e.createdAt) %></td>
+                                        <td class="font-mono"><%= formatINR(e.revenue) %></td>
+                                        <td class="font-mono" style="color:#16a34a;"><%= formatINR(e.amountReceived || 0) %></td>
+                                        <td class="font-mono" style="color:<%= (e.amountDue||0) > 0 ? '#dc2626' : '#16a34a' %>;"><%= formatINR(e.amountDue || 0) %></td>
+                                        <td><span class="badge <%= e.paymentStatus === 'Paid' ? 'success' : 'warning' %>" style="font-size:9px;"><%= e.paymentStatus %></span></td>
+                                    </tr>
+                                <% }) %>
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+            </div>
+        </div>
+        <% } %>
+        
         <!-- STATUS ACTION BAR -->
         <div class="card" style="margin-bottom: 14px;">
             <div class="card-body" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
