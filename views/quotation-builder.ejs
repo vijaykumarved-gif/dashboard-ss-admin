@@ -234,6 +234,102 @@
             </div>
         </div>
         
+        <!-- ===== ORDER LIFECYCLE + PAYMENT HISTORY (after approval) ===== -->
+        <% if (quotation && (quotation.status === 'Approved' || quotation.status === 'Converted')) { 
+            const totalPaid = quotation.totalPaid || 0;
+            const balanceDue = Math.max(0, (quotation.grandTotal || 0) - totalPaid);
+            const fmtD = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+        %>
+        <div class="card" id="lifecycle" style="border: 2px solid #0ea5e9; margin-top: 16px;">
+            <div class="card-header" style="background: linear-gradient(135deg, #f0f9ff, #ffffff);">
+                <div>
+                    <div class="card-title" style="color: #0369a1;">📦 Order Summary & Payment History</div>
+                    <div class="card-subtitle">Order dates, delivery, installation & all payment transactions</div>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-sm btn-success" onclick="openPaymentModal()">💰 Record Payment</button>
+                    <button class="btn btn-sm btn-secondary" onclick="openLifecycleModal()">📅 Update Dates</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Payment summary -->
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px;">
+                    <div style="background: #eff6ff; padding: 14px; border-radius: 10px; text-align: center;">
+                        <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Total Order Value</div>
+                        <div style="font-size: 20px; font-weight: 800; color: #1e40af;"><%= formatINR(quotation.grandTotal) %></div>
+                    </div>
+                    <div style="background: #f0fdf4; padding: 14px; border-radius: 10px; text-align: center;">
+                        <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Total Received</div>
+                        <div style="font-size: 20px; font-weight: 800; color: #16a34a;" id="ls_paid"><%= formatINR(totalPaid) %></div>
+                    </div>
+                    <div style="background: <%= balanceDue > 0 ? '#fef2f2' : '#f0fdf4' %>; padding: 14px; border-radius: 10px; text-align: center;">
+                        <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Balance Due</div>
+                        <div style="font-size: 20px; font-weight: 800; color: <%= balanceDue > 0 ? '#dc2626' : '#16a34a' %>;" id="ls_due"><%= formatINR(balanceDue) %></div>
+                    </div>
+                </div>
+                
+                <!-- Order lifecycle timeline -->
+                <div style="background: var(--surface-2); border-radius: 10px; padding: 16px; margin-bottom: 16px;">
+                    <div style="font-weight: 700; font-size: 13px; margin-bottom: 12px;">📅 Order Lifecycle</div>
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 22px;">📋</div>
+                            <div style="font-size: 10px; color: var(--text-3);">Order Received</div>
+                            <div style="font-size: 12px; font-weight: 700;"><%= fmtD(quotation.orderReceivedDate) %></div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 22px;">🚚</div>
+                            <div style="font-size: 10px; color: var(--text-3);">Delivered</div>
+                            <div style="font-size: 12px; font-weight: 700;"><%= fmtD(quotation.actualDeliveryDate) %></div>
+                            <% if (quotation.expectedDeliveryDate && !quotation.actualDeliveryDate) { %>
+                                <div style="font-size: 9px; color: #d97706;">Exp: <%= fmtD(quotation.expectedDeliveryDate) %></div>
+                            <% } %>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 22px;">🔧</div>
+                            <div style="font-size: 10px; color: var(--text-3);">Installation</div>
+                            <div style="font-size: 12px; font-weight: 700;"><%= fmtD(quotation.installationDate) %></div>
+                            <div style="font-size: 9px; color: var(--text-3);"><%= quotation.installationStatus || 'Pending' %></div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 22px;">💵</div>
+                            <div style="font-size: 10px; color: var(--text-3);">Advance</div>
+                            <div style="font-size: 12px; font-weight: 700;"><%= formatINR(quotation.advanceReceived || 0) %></div>
+                            <% if (quotation.advanceDate) { %><div style="font-size: 9px; color: var(--text-3);"><%= fmtD(quotation.advanceDate) %></div><% } %>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Payment transactions table -->
+                <div style="font-weight: 700; font-size: 13px; margin-bottom: 8px;">💳 Payment Transactions (<%= (quotation.payments || []).length %>)</div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>#</th><th>Date</th><th>Amount</th><th>Type</th><th>Mode</th><th>Reference</th><th>Recorded By</th></tr>
+                        </thead>
+                        <tbody>
+                            <% if (!quotation.payments || quotation.payments.length === 0) { %>
+                                <tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--text-3);">No payments recorded yet</td></tr>
+                            <% } else { quotation.payments.slice().reverse().forEach((p, i) => { 
+                                const num = quotation.payments.length - i;
+                            %>
+                                <tr>
+                                    <td class="font-mono"><%= num %></td>
+                                    <td style="font-size: 12px;"><%= new Date(p.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) %></td>
+                                    <td class="font-mono font-bold" style="color: #16a34a;"><%= formatINR(p.amount) %></td>
+                                    <td><span class="badge <%= p.type === 'Advance' ? 'info' : 'success' %>" style="font-size: 9px;"><%= p.type %></span></td>
+                                    <td style="font-size: 12px;"><%= p.mode %></td>
+                                    <td style="font-size: 11px; color: var(--text-3);"><%= p.reference || '—' %></td>
+                                    <td style="font-size: 11px; color: var(--text-3);"><%= p.recordedBy || '—' %></td>
+                                </tr>
+                            <% }) } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <% } %>
+        
         <!-- ===== VENDOR PROCUREMENT (after approval) ===== -->
         <% if (quotation && (quotation.status === 'Approved' || quotation.status === 'Converted')) { %>
         <div class="card" id="vendor" style="border: 2px solid #8b5cf6; margin-top: 16px;">
@@ -309,6 +405,96 @@
         </div>
         <% } %>
     </main>
+</div>
+
+<!-- PAYMENT MODAL -->
+<div class="modal-overlay" id="paymentModal">
+    <div class="modal" style="max-width: 460px;">
+        <div class="modal-header">
+            <div class="modal-title">💰 Record Customer Payment</div>
+            <button class="modal-close" onclick="closeModal('paymentModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <% if (quotation) { %>
+            <div style="background: #f0f9ff; border-radius: 8px; padding: 12px; margin-bottom: 14px; text-align: center;">
+                <div style="font-size: 11px; color: var(--text-3);">Balance Due</div>
+                <div style="font-size: 22px; font-weight: 800; color: #dc2626;" id="pm_due"><%= formatINR(Math.max(0, (quotation.grandTotal || 0) - (quotation.totalPaid || 0))) %></div>
+            </div>
+            <% } %>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Amount Received (₹) *</label>
+                    <input type="number" id="pm_amount" placeholder="0" style="font-size: 18px; font-weight: 700;">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Payment Date</label>
+                    <input type="date" id="pm_date" value="<%= new Date().toISOString().split('T')[0] %>">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Mode</label>
+                    <select id="pm_mode">
+                        <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Type</label>
+                    <select id="pm_type">
+                        <option>Payment</option><option>Advance</option><option>Final</option>
+                    </select>
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Reference / Note</label>
+                    <input type="text" id="pm_ref" placeholder="UTR / Cheque no / note">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('paymentModal')">Cancel</button>
+            <button class="btn btn-success" onclick="savePayment()">Record Payment</button>
+        </div>
+    </div>
+</div>
+
+<!-- LIFECYCLE DATES MODAL -->
+<div class="modal-overlay" id="lifecycleModal">
+    <div class="modal" style="max-width: 460px;">
+        <div class="modal-header">
+            <div class="modal-title">📅 Update Order Dates</div>
+            <button class="modal-close" onclick="closeModal('lifecycleModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">📋 Order Received Date</label>
+                    <input type="date" id="lc_order" value="<%= quotation && quotation.orderReceivedDate ? new Date(quotation.orderReceivedDate).toISOString().split('T')[0] : '' %>">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">🚚 Expected Delivery</label>
+                    <input type="date" id="lc_expected" value="<%= quotation && quotation.expectedDeliveryDate ? new Date(quotation.expectedDeliveryDate).toISOString().split('T')[0] : '' %>">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">✅ Actual Delivery Date</label>
+                    <input type="date" id="lc_delivered" value="<%= quotation && quotation.actualDeliveryDate ? new Date(quotation.actualDeliveryDate).toISOString().split('T')[0] : '' %>">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">🔧 Installation Date</label>
+                    <input type="date" id="lc_install" value="<%= quotation && quotation.installationDate ? new Date(quotation.installationDate).toISOString().split('T')[0] : '' %>">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label class="form-label">Installation Status</label>
+                    <select id="lc_installStatus">
+                        <% ['Pending','Scheduled','Done'].forEach(s => { %>
+                            <option <%= quotation && quotation.installationStatus === s ? 'selected' : '' %>><%= s %></option>
+                        <% }) %>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('lifecycleModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveLifecycle()">Save Dates</button>
+        </div>
+    </div>
 </div>
 
 <!-- VENDOR ADD MODAL -->
@@ -622,6 +808,46 @@
         showToast('Customer details pre-filled: ' + pc.name, 'success');
     })();
     <% } %>
+    
+    // === PAYMENT RECORDING ===
+    function openPaymentModal() { openModal('paymentModal'); }
+    
+    async function savePayment() {
+        const amount = Number(document.getElementById('pm_amount').value) || 0;
+        if (amount <= 0) return showToast('Enter valid amount', 'error');
+        const data = {
+            amount,
+            date: document.getElementById('pm_date').value,
+            mode: document.getElementById('pm_mode').value,
+            type: document.getElementById('pm_type').value,
+            reference: document.getElementById('pm_ref').value
+        };
+        const res = await api(`/api/quotations/${QUOTATION_ID}/payment`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) {
+            showToast(`✓ Payment recorded! Balance: ₹${res.balanceDue.toLocaleString('en-IN')}`, 'success');
+            setTimeout(() => location.reload(), 700);
+        } else {
+            showToast(res.error || 'Failed', 'error');
+        }
+    }
+    
+    // === LIFECYCLE DATES ===
+    function openLifecycleModal() { openModal('lifecycleModal'); }
+    
+    async function saveLifecycle() {
+        const data = {
+            orderReceivedDate: document.getElementById('lc_order').value || null,
+            expectedDeliveryDate: document.getElementById('lc_expected').value || null,
+            actualDeliveryDate: document.getElementById('lc_delivered').value || null,
+            installationDate: document.getElementById('lc_install').value || null,
+            installationStatus: document.getElementById('lc_installStatus').value
+        };
+        const res = await api(`/api/quotations/${QUOTATION_ID}/lifecycle`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) {
+            showToast('✓ Order dates updated', 'success');
+            setTimeout(() => location.reload(), 700);
+        }
+    }
     
     // === VENDOR PROCUREMENT ===
     async function openVendorModal() {

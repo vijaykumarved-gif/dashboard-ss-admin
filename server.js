@@ -1009,11 +1009,20 @@ app.post('/api/quotations/:id/approve', requireAuth, requireAdmin, async (req, r
         
         // Optional advance payment at approval
         if (req.body.advance) {
-            q.advanceReceived = Number(req.body.advance) || 0;
+            const adv = Number(req.body.advance) || 0;
+            q.advanceReceived = adv;
             q.advanceDate = new Date();
             q.advanceMode = req.body.advanceMode || '';
-            q.paymentStatus = q.advanceReceived >= q.grandTotal ? 'Fully Paid' : 'Advance Paid';
+            // Log as payment transaction
+            q.payments.push({
+                amount: adv, date: new Date(), mode: req.body.advanceMode || 'Cash',
+                type: 'Advance', note: 'Advance at approval', recordedBy: req.session.user.username
+            });
+            q.totalPaid = q.payments.reduce((s, p) => s + p.amount, 0);
+            q.balanceDue = Math.max(0, (q.grandTotal || 0) - q.totalPaid);
+            q.paymentStatus = q.totalPaid >= q.grandTotal ? 'Fully Paid' : 'Advance Paid';
         }
+        q.orderReceivedDate = new Date(); // order confirmed = approval date
         q.deliveryStatus = 'In Progress';
         
         // Link/create customer
@@ -1044,19 +1053,55 @@ app.post('/api/quotations/:id/reject', requireAuth, requireAdmin, async (req, re
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-// Record payment against approved quotation
+// Record payment against approved quotation (logs transaction + tracks due)
 app.post('/api/quotations/:id/payment', requireAuth, requireAdmin, async (req, res) => {
     try {
         const q = await Quotation.findById(req.params.id);
         if (!q) return res.status(404).json({ error: 'Not found' });
         
         const amount = Number(req.body.amount) || 0;
-        q.finalPaymentReceived = (q.finalPaymentReceived || 0) + amount;
-        const totalPaid = (q.advanceReceived || 0) + q.finalPaymentReceived;
-        q.paymentStatus = totalPaid >= q.grandTotal ? 'Fully Paid' : 'Advance Paid';
+        if (amount <= 0) return res.status(400).json({ error: 'Enter valid amount' });
+        
+        // Log the payment transaction
+        q.payments.push({
+            amount,
+            date: req.body.date ? new Date(req.body.date) : new Date(),
+            mode: req.body.mode || 'Cash',
+            reference: req.body.reference || '',
+            type: req.body.type || 'Payment',
+            note: req.body.note || '',
+            recordedBy: req.session.user.username
+        });
+        
+        // Recompute totals
+        q.totalPaid = q.payments.reduce((s, p) => s + (p.amount || 0), 0);
+        // Keep advanceReceived in sync (first payment or explicitly marked advance)
+        q.advanceReceived = q.payments.filter(p => p.type === 'Advance').reduce((s, p) => s + p.amount, 0);
+        q.finalPaymentReceived = q.totalPaid - q.advanceReceived;
+        q.balanceDue = Math.max(0, (q.grandTotal || 0) - q.totalPaid);
+        q.paymentStatus = q.totalPaid >= (q.grandTotal || 0) ? 'Fully Paid' : q.totalPaid > 0 ? 'Advance Paid' : 'Pending';
         
         await q.save();
-        res.json({ success: true, quotation: q, totalPaid });
+        res.json({ success: true, quotation: q, totalPaid: q.totalPaid, balanceDue: q.balanceDue });
+    } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
+});
+
+// Update quotation lifecycle dates (order/delivery/installation)
+app.post('/api/quotations/:id/lifecycle', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const q = await Quotation.findById(req.params.id);
+        if (!q) return res.status(404).json({ error: 'Not found' });
+        
+        const { orderReceivedDate, expectedDeliveryDate, actualDeliveryDate, installationDate, installationStatus, deliveryStatus } = req.body;
+        if (orderReceivedDate !== undefined) q.orderReceivedDate = orderReceivedDate ? new Date(orderReceivedDate) : null;
+        if (expectedDeliveryDate !== undefined) q.expectedDeliveryDate = expectedDeliveryDate ? new Date(expectedDeliveryDate) : null;
+        if (actualDeliveryDate !== undefined) q.actualDeliveryDate = actualDeliveryDate ? new Date(actualDeliveryDate) : null;
+        if (installationDate !== undefined) q.installationDate = installationDate ? new Date(installationDate) : null;
+        if (installationStatus !== undefined) q.installationStatus = installationStatus;
+        if (deliveryStatus !== undefined) q.deliveryStatus = deliveryStatus;
+        
+        await q.save();
+        res.json({ success: true, quotation: q });
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -3898,7 +3943,40 @@ app.get('/api/operations', requireAuth, requireAdmin, async (req, res) => {
         const deptCounts = {};
         items.forEach(i => { deptCounts[i.dept] = (deptCounts[i.dept] || 0) + 1; });
         
-        res.json({ success: true, items: items.slice(0, 300), stats, deptCounts });
+        // === CUSTOMER GROUPING ===
+        // If groupBy=customer, collapse multiple entries of same customer into one group
+        if (req.query.groupBy === 'customer') {
+            const groups = {};
+            items.forEach(i => {
+                const key = (i.mobile || '').replace(/\D/g, '').slice(-10) || i.customer || 'unknown';
+                if (!groups[key]) {
+                    groups[key] = {
+                        customer: i.customer, mobile: i.mobile, company: i.company,
+                        items: [], totalValue: 0, totalReceived: 0, totalDue: 0,
+                        deptSet: new Set(), latestDate: i.date
+                    };
+                }
+                const g = groups[key];
+                g.items.push(i);
+                g.totalValue += i.amount || 0;
+                g.totalReceived += i.received || 0;
+                g.totalDue += i.due || 0;
+                g.deptSet.add(i.dept);
+                if (new Date(i.date) > new Date(g.latestDate)) g.latestDate = i.date;
+                // Prefer a company name if available
+                if (!g.company && i.company) g.company = i.company;
+            });
+            
+            const grouped = Object.values(groups).map(g => ({
+                ...g,
+                depts: Array.from(g.deptSet),
+                count: g.items.length
+            })).sort((a, b) => new Date(b.latestDate) - new Date(a.latestDate));
+            
+            return res.json({ success: true, grouped, stats, deptCounts, isGrouped: true });
+        }
+        
+        res.json({ success: true, items: items.slice(0, 300), stats, deptCounts, isGrouped: false });
     } catch (e) {
         console.error(e);
         res.status(500).json({ error: e.message });
@@ -3942,6 +4020,55 @@ app.post('/api/operations/update', requireAuth, requireAdmin, async (req, res) =
         result = { id: doc._id, status, remark };
         
         res.json({ success: true, result });
+    } catch (e) {
+        console.error(e);
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// API: record a payment against any item from the operations hub
+app.post('/api/operations/payment', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { dept, id, amount, mode, date, note } = req.body;
+        const amt = Number(amount) || 0;
+        if (amt <= 0) return res.status(400).json({ error: 'Enter valid amount' });
+        
+        if (dept === 'Quotation') {
+            const q = await Quotation.findById(id);
+            if (!q) return res.status(404).json({ error: 'Not found' });
+            q.payments.push({ amount: amt, date: date ? new Date(date) : new Date(), mode: mode || 'Cash', note: note || '', type: 'Payment', recordedBy: req.session.user.username });
+            q.totalPaid = q.payments.reduce((s, p) => s + p.amount, 0);
+            q.balanceDue = Math.max(0, (q.grandTotal || 0) - q.totalPaid);
+            q.paymentStatus = q.totalPaid >= q.grandTotal ? 'Fully Paid' : q.totalPaid > 0 ? 'Advance Paid' : 'Pending';
+            await q.save();
+            return res.json({ success: true, totalPaid: q.totalPaid, balanceDue: q.balanceDue });
+        }
+        
+        if (dept === 'Corporate') {
+            const c = await CorporateEntry.findById(id);
+            if (!c) return res.status(404).json({ error: 'Not found' });
+            c.amountReceived = (c.amountReceived || 0) + amt;
+            c.amountDue = Math.max(0, (c.grandTotal || 0) - c.amountReceived);
+            c.paymentStatus = c.amountReceived >= c.grandTotal ? 'Paid' : c.amountReceived > 0 ? 'Partial' : 'Pending';
+            if (!c.paymentMode) c.paymentMode = mode || 'Cash';
+            c.editLogs = c.editLogs || [];
+            c.editLogs.push({ editedBy: req.session.user.username, field: 'payment', oldValue: '', newValue: `+${amt} via ${mode}`, note: note || 'Payment via Ops Hub' });
+            if (c.paymentStatus === 'Paid') c.editLocked = true;
+            await c.save();
+            return res.json({ success: true, totalPaid: c.amountReceived, balanceDue: c.amountDue });
+        }
+        
+        if (dept === 'Hardware') {
+            const e = await Entry.findById(id);
+            if (!e) return res.status(404).json({ error: 'Not found' });
+            e.amountReceived = (e.amountReceived || 0) + amt;
+            e.amountDue = Math.max(0, (e.revenue || 0) - e.amountReceived);
+            e.paymentStatus = e.amountReceived >= (e.revenue || 0) ? 'Paid' : e.amountReceived > 0 ? 'Partial' : 'Pending';
+            await e.save();
+            return res.json({ success: true, totalPaid: e.amountReceived, balanceDue: e.amountDue });
+        }
+        
+        return res.status(400).json({ error: 'Payment not supported for ' + dept });
     } catch (e) {
         console.error(e);
         res.status(400).json({ error: e.message });

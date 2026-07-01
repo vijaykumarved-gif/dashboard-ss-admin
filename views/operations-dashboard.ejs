@@ -75,6 +75,7 @@
                 <option value="Lost">Lost</option>
                 <option value="Cancelled">Cancelled</option>
             </select>
+            <button class="btn btn-sm <%= '' %>" id="groupToggle" onclick="toggleGroup()" style="background: white; border: 1px solid var(--border);">👥 Group by Customer</button>
             <button class="btn btn-sm btn-secondary" onclick="clearFilters()">Clear</button>
             <button class="btn btn-sm btn-primary" onclick="loadData()">↻ Refresh</button>
         </div>
@@ -107,6 +108,7 @@
 let currentDept = 'all';
 let loadTimer = null;
 let allItems = [];
+let groupMode = false;
 
 // Status options per department (for the inline dropdown)
 const STATUS_OPTIONS = {
@@ -122,6 +124,19 @@ const STATUS_OPTIONS = {
 function setDept(d) {
     currentDept = d;
     document.querySelectorAll('.dept-pill').forEach(p => p.classList.toggle('active', p.dataset.dept === d));
+    loadData();
+}
+
+function toggleGroup() {
+    groupMode = !groupMode;
+    const btn = document.getElementById('groupToggle');
+    if (groupMode) {
+        btn.style.background = '#0f172a'; btn.style.color = 'white';
+        btn.textContent = '👥 Grouped ✓';
+    } else {
+        btn.style.background = 'white'; btn.style.color = '';
+        btn.textContent = '👥 Group by Customer';
+    }
     loadData();
 }
 
@@ -146,6 +161,7 @@ async function loadData() {
         to: document.getElementById('toDate').value,
         status: document.getElementById('statusFilter').value
     });
+    if (groupMode) params.set('groupBy', 'customer');
     
     document.getElementById('loadingIndicator').innerHTML = '<span class="loading-spin"></span>';
     
@@ -154,11 +170,17 @@ async function loadData() {
         const data = await res.json();
         if (!data.success) throw new Error(data.error || 'Failed');
         
-        allItems = data.items;
         renderStats(data.stats);
         renderDeptCounts(data.deptCounts, data.stats);
-        renderTable(data.items);
-        document.getElementById('resultCount').textContent = '(' + data.items.length + ' records)';
+        
+        if (data.isGrouped) {
+            renderGrouped(data.grouped);
+            document.getElementById('resultCount').textContent = '(' + data.grouped.length + ' customers)';
+        } else {
+            allItems = data.items;
+            renderTable(data.items);
+            document.getElementById('resultCount').textContent = '(' + data.items.length + ' records)';
+        }
     } catch (e) {
         document.getElementById('opsTableBody').innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--danger);">Error: ' + e.message + '</td></tr>';
     } finally {
@@ -191,6 +213,69 @@ function statusBadgeClass(status) {
     return 'warning';
 }
 
+// === GROUPED VIEW (one row per customer, expandable) ===
+function renderGrouped(groups) {
+    const body = document.getElementById('opsTableBody');
+    if (groups.length === 0) {
+        body.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:40px; color:var(--text-3);">No customers found</td></tr>';
+        return;
+    }
+    
+    body.innerHTML = groups.map((g, gi) => {
+        const deptBadges = g.depts.map(d => `<span class="badge neutral" style="font-size:8px; margin-right:2px;">${d}</span>`).join('');
+        const dueHtml = g.totalDue > 0 ? `<span style="color:var(--danger); font-size:11px;">Due: ₹${g.totalDue.toLocaleString('en-IN')}</span>` : '<span style="color:var(--success); font-size:11px;">✓ Clear</span>';
+        
+        // Sub-rows (hidden initially)
+        const subRows = g.items.map(it => `
+            <tr class="sub-row-${gi}" style="display:none; background:#f8fafc;">
+                <td style="padding-left:24px;"><span style="font-size:14px;">${it.icon}</span></td>
+                <td class="font-mono" style="font-size:10px;">${it.ref}</td>
+                <td style="font-size:11px; color:var(--text-3);">${new Date(it.date).toLocaleDateString('en-IN')}</td>
+                <td style="font-size:11px;">${it.title}</td>
+                <td>${it.amount > 0 ? '₹' + it.amount.toLocaleString('en-IN') : '-'}${it.due > 0 ? `<div style="font-size:9px;color:var(--danger);">Due ₹${it.due.toLocaleString('en-IN')}</div>` : ''}</td>
+                <td><span class="badge ${statusBadgeClass(it.status)}" style="font-size:9px;">${it.status}</span></td>
+                <td style="font-size:10px; color:var(--text-3);">${it.remark || '-'}</td>
+                <td>
+                    <a href="${it.link}" class="btn btn-xs btn-secondary">View</a>
+                    ${(it.amount > 0 && it.due > 0 && ['Quotation','Corporate','Hardware'].includes(it.dept)) ? `<button class="btn btn-xs btn-success" onclick="recordPayment('${it.dept}','${it.id}',${it.due})">💰</button>` : ''}
+                </td>
+            </tr>
+        `).join('');
+        
+        return `
+            <tr class="op-row" style="background:#fefce8; cursor:pointer;" onclick="toggleSubRows(${gi})">
+                <td><span style="font-size:16px;">👤</span><span id="arrow-${gi}" style="font-size:10px;">▶</span></td>
+                <td class="font-mono font-bold" style="font-size:10px;">${g.count} entries</td>
+                <td>
+                    <div class="font-bold" style="font-size:13px;">${g.customer || '-'}</div>
+                    ${g.company ? `<div style="font-size:10px; color:var(--text-3);">${g.company}</div>` : ''}
+                    ${g.mobile ? `<div style="font-size:10px; color:var(--text-3);">📞 ${g.mobile}</div>` : ''}
+                </td>
+                <td style="font-size:10px;">${deptBadges}</td>
+                <td>
+                    <div class="font-bold" style="font-size:13px;">₹${g.totalValue.toLocaleString('en-IN')}</div>
+                    <div style="font-size:10px; color:var(--success);">Recd: ₹${g.totalReceived.toLocaleString('en-IN')}</div>
+                </td>
+                <td>${dueHtml}</td>
+                <td style="font-size:10px; color:var(--text-3);">Latest: ${new Date(g.latestDate).toLocaleDateString('en-IN')}</td>
+                <td><button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); toggleSubRows(${gi})">Expand ▼</button></td>
+            </tr>
+            ${subRows}
+        `;
+    }).join('');
+}
+
+function toggleSubRows(gi) {
+    const rows = document.querySelectorAll('.sub-row-' + gi);
+    const arrow = document.getElementById('arrow-' + gi);
+    let show = false;
+    rows.forEach(r => {
+        if (r.style.display === 'none') { r.style.display = ''; show = true; }
+        else r.style.display = 'none';
+    });
+    if (arrow) arrow.textContent = show ? '▼' : '▶';
+}
+
 function renderTable(items) {
     const body = document.getElementById('opsTableBody');
     if (items.length === 0) {
@@ -202,6 +287,7 @@ function renderTable(items) {
         const statusOpts = (STATUS_OPTIONS[it.dept] || [it.status]);
         const optsHtml = statusOpts.map(o => `<option ${o === it.status ? 'selected' : ''}>${o}</option>`).join('');
         const dueHtml = it.due > 0 ? `<div style="font-size:10px; color:var(--danger);">Due: ₹${it.due.toLocaleString('en-IN')}</div>` : '';
+        const canPay = it.amount > 0 && it.due > 0 && ['Quotation','Corporate','Hardware'].includes(it.dept);
         
         return `
         <tr class="op-row" data-idx="${idx}">
@@ -217,6 +303,7 @@ function renderTable(items) {
             </td>
             <td>
                 ${it.amount > 0 ? `<div class="font-bold font-mono" style="font-size:12px;">₹${it.amount.toLocaleString('en-IN')}</div>` : '<span style="color:var(--text-3);">-</span>'}
+                ${it.received > 0 ? `<div style="font-size:10px; color:var(--success);">Recd: ₹${it.received.toLocaleString('en-IN')}</div>` : ''}
                 ${dueHtml}
             </td>
             <td>
@@ -231,11 +318,33 @@ function renderTable(items) {
             </td>
             <td>
                 <a href="${it.link}" class="btn btn-xs btn-secondary">View</a>
+                ${canPay ? `<button class="btn btn-xs btn-success" onclick="recordPayment('${it.dept}','${it.id}',${it.due})">💰 Pay</button>` : ''}
                 ${it.hasInvoice && it.invoiceLink ? `<a href="${it.invoiceLink}" target="_blank" class="btn btn-xs btn-primary">📄</a>` : ''}
-                ${it.isQuotation && (it.status === 'Approved' || it.status === 'Converted') ? `<a href="/cctv/quotation/${it.id}/edit#vendor" class="btn btn-xs" style="background:#8b5cf6; color:white;">🏪 Vendor</a>` : ''}
+                ${it.isQuotation && (it.status === 'Approved' || it.status === 'Converted') ? `<a href="/cctv/quotation/${it.id}/edit#vendor" class="btn btn-xs" style="background:#8b5cf6; color:white;">🏪</a>` : ''}
             </td>
         </tr>`;
     }).join('');
+}
+
+// === RECORD PAYMENT ===
+async function recordPayment(dept, id, due) {
+    const amount = prompt(`Payment received (₹). Balance due: ₹${due.toLocaleString('en-IN')}\n\nEnter amount:`, due);
+    if (!amount || Number(amount) <= 0) return;
+    const mode = prompt('Payment mode (Cash / UPI / Bank Transfer / Cheque):', 'Cash') || 'Cash';
+    
+    try {
+        const res = await fetch('/api/operations/payment', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dept, id, amount: Number(amount), mode })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`✓ Payment ₹${Number(amount).toLocaleString('en-IN')} recorded! Balance: ₹${data.balanceDue.toLocaleString('en-IN')}`, 'success');
+            setTimeout(loadData, 600);
+        } else {
+            showToast('Payment failed: ' + (data.error || ''), 'error');
+        }
+    } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 async function updateStatus(dept, id, status, idx) {
@@ -255,7 +364,7 @@ async function updateStatus(dept, id, status, idx) {
 }
 
 async function updateRemark(dept, id, remark, idx) {
-    if (allItems[idx] && allItems[idx].remark === remark) return; // no change
+    if (allItems[idx] && allItems[idx].remark === remark) return;
     try {
         const res = await fetch('/api/operations/update', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },

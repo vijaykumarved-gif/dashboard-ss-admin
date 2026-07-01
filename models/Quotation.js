@@ -56,6 +56,26 @@ const quotationSchema = new mongoose.Schema({
     deliveryStatus: { type: String, default: 'Not Started' }, // Not Started, In Progress, Delivered
     deliveredAt: { type: Date },
     
+    // === PAYMENT TRANSACTIONS (each customer payment logged) ===
+    payments: [{
+        amount: { type: Number, required: true },
+        date: { type: Date, default: Date.now },
+        mode: { type: String, default: 'Cash' }, // Cash, UPI, Bank Transfer, Cheque
+        reference: { type: String, default: '' },
+        type: { type: String, default: 'Payment' }, // Advance, Payment, Final
+        note: { type: String, default: '' },
+        recordedBy: { type: String, default: '' }
+    }],
+    totalPaid: { type: Number, default: 0 }, // sum of all payments
+    balanceDue: { type: Number, default: 0 }, // grandTotal - totalPaid
+    
+    // === ORDER LIFECYCLE DATES ===
+    orderReceivedDate: { type: Date }, // when order confirmed
+    expectedDeliveryDate: { type: Date },
+    actualDeliveryDate: { type: Date },
+    installationDate: { type: Date },
+    installationStatus: { type: String, default: 'Pending' }, // Pending, Scheduled, Done
+    
     // Link back to customer
     customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },
     
