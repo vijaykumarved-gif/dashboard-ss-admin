@@ -11,11 +11,16 @@
 </head>
 <body>
 <div class="app-layout">
-    <%- include('partials/sidebar', { user: user, activePage: 'quotations' }) %>
+    <% const _activePage = (quotation.status === 'Approved' || quotation.status === 'Converted') ? 'operations' : 'quotations'; %>
+    <%- include('partials/sidebar', { user: user, activePage: _activePage }) %>
     
     <main class="main-content">
         <div style="margin-bottom: 12px;">
-            <a href="/quotations" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back to Quotations</a>
+            <% if (quotation.status === 'Approved' || quotation.status === 'Converted') { %>
+                <a href="/operations" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back to Operations Hub</a>
+            <% } else { %>
+                <a href="/quotations" style="color: var(--text-3); text-decoration: none; font-size: 13px;">← Back to Quotations</a>
+            <% } %>
         </div>
         
         <!-- HEADER -->

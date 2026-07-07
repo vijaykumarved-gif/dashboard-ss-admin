@@ -1507,21 +1507,29 @@ app.get('/api/quotations/:id/pdf', requireAuth, requireAdmin, async (req, res) =
         const _origAddPage = doc.addPage.bind(doc);
         doc.addPage = function() { return doc; };
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `inline; filename="${q.quotationNumber}.pdf"`);
+        const isInv = q.status === 'Approved' || q.status === 'Converted';
+        const fileName = isInv ? (q.quotationNumber || '').replace('SEA-Q', 'SEA-INV') : q.quotationNumber;
+        res.setHeader('Content-Disposition', `inline; filename="${fileName}.pdf"`);
         doc.pipe(res);
+
+        // Document type based on status: approved/paid order = INVOICE, else QUOTATION
+        const isInvoice = q.status === 'Approved' || q.status === 'Converted';
+        const docTitle = isInvoice ? 'TAX INVOICE' : 'QUOTATION';
+        const billLabel = isInvoice ? 'Bill To:' : 'Quotation To:';
+        const numPrefix = isInvoice ? (q.quotationNumber || '').replace('SEA-Q', 'SEA-INV') : q.quotationNumber;
 
         doc.rect(0, 0, doc.page.width, 90).fill('#0f172a');
         doc.fillColor('#ffffff').fontSize(26).font('Helvetica-Bold').text('SEARVATOR', 40, 22);
         doc.fontSize(9).font('Helvetica').fillColor('#94a3b8').text('AI • Hardware • CCTV • Biometric Solutions', 40, 52);
         doc.fontSize(7).fillColor('#fcd34d').font('Helvetica-Bold').text('CIN: U62011GJ2026PTC172346', 40, 66);
-        doc.fontSize(9).fillColor('#cbd5e1').font('Helvetica').text('QUOTATION', 0, 28, { align: 'right', width: doc.page.width - 40 });
-        doc.fontSize(14).fillColor('#ffffff').font('Helvetica-Bold').text(q.quotationNumber, 0, 44, { align: 'right', width: doc.page.width - 40 });
+        doc.fontSize(9).fillColor('#cbd5e1').font('Helvetica').text(docTitle, 0, 28, { align: 'right', width: doc.page.width - 40 });
+        doc.fontSize(14).fillColor('#ffffff').font('Helvetica-Bold').text(numPrefix, 0, 44, { align: 'right', width: doc.page.width - 40 });
         doc.fontSize(7).fillColor('#94a3b8').font('Helvetica').text('+91 9106959092 | www.searvator.com', 0, 66, { align: 'right', width: doc.page.width - 40 });
 
         doc.fillColor('#000000').fontSize(10).font('Helvetica');
         let y = 110;
 
-        doc.font('Helvetica-Bold').fontSize(11).text('Quotation To:', 40, y);
+        doc.font('Helvetica-Bold').fontSize(11).text(billLabel, 40, y);
         doc.font('Helvetica').fontSize(10);
         y += 18;
         doc.text(q.clientName, 40, y); y += 14;
@@ -1535,11 +1543,21 @@ app.get('/api/quotations/:id/pdf', requireAuth, requireAdmin, async (req, res) =
         doc.font('Helvetica-Bold').fontSize(10).text('Date:', rightX, ry);
         doc.font('Helvetica').text(new Date(q.createdAt).toLocaleDateString('en-IN'), rightX + 70, ry);
         ry += 16;
-        doc.font('Helvetica-Bold').text('Valid Till:', rightX, ry);
-        const validTill = new Date(q.createdAt);
-        validTill.setDate(validTill.getDate() + (q.validityDays || 15));
-        doc.font('Helvetica').text(validTill.toLocaleDateString('en-IN'), rightX + 70, ry);
-        ry += 16;
+        if (!isInvoice) {
+            // Quotation: show validity
+            doc.font('Helvetica-Bold').text('Valid Till:', rightX, ry);
+            const validTill = new Date(q.createdAt);
+            validTill.setDate(validTill.getDate() + (q.validityDays || 15));
+            doc.font('Helvetica').text(validTill.toLocaleDateString('en-IN'), rightX + 70, ry);
+            ry += 16;
+        } else {
+            // Invoice: show status
+            doc.font('Helvetica-Bold').text('Status:', rightX, ry);
+            const balDue = Math.max(0, Math.round(q.grandTotal) - (q.totalPaid || 0));
+            doc.font('Helvetica-Bold').fillColor(balDue > 0 ? '#dc2626' : '#16a34a').text(balDue > 0 ? 'PAYMENT DUE' : 'PAID', rightX + 70, ry);
+            doc.fillColor('#000000').font('Helvetica');
+            ry += 16;
+        }
         doc.font('Helvetica-Bold').text('Project:', rightX, ry);
         doc.font('Helvetica').text(q.projectType, rightX + 70, ry);
         ry += 16;
