@@ -42,15 +42,33 @@
             </div>
         </div>
         
-        <!-- Status filter tabs -->
-        <div style="display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap;">
-            <a href="/quotations" class="btn btn-sm <%= !query.status ? 'btn-primary' : 'btn-secondary' %>">All (<%= stats.total %>)</a>
-            <a href="/quotations?status=Draft" class="btn btn-sm <%= query.status === 'Draft' ? 'btn-primary' : 'btn-secondary' %>">Draft (<%= stats.draft %>)</a>
-            <a href="/quotations?status=Sent" class="btn btn-sm <%= query.status === 'Sent' ? 'btn-primary' : 'btn-secondary' %>">Sent (<%= stats.sent %>)</a>
-            <a href="/quotations?status=Approved" class="btn btn-sm <%= query.status === 'Approved' ? 'btn-primary' : 'btn-secondary' %>">Approved (<%= stats.approved %>)</a>
-            <a href="/quotations?status=Rejected" class="btn btn-sm <%= query.status === 'Rejected' ? 'btn-primary' : 'btn-secondary' %>">Rejected (<%= stats.rejected %>)</a>
-            <a href="/quotations?status=Converted" class="btn btn-sm <%= query.status === 'Converted' ? 'btn-primary' : 'btn-secondary' %>">Delivered (<%= stats.converted %>)</a>
+        <!-- View tabs: Active (default) hides approved orders -->
+        <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+            <a href="/quotations?view=active" class="btn btn-sm <%= view === 'active' && !query.status ? 'btn-primary' : 'btn-secondary' %>">📝 Active Quotations (<%= stats.active %>)</a>
+            <a href="/quotations?view=approved" class="btn btn-sm <%= view === 'approved' ? 'btn-primary' : 'btn-secondary' %>">✅ Approved Orders (<%= stats.approved + stats.converted %>)</a>
+            <a href="/quotations?view=all" class="btn btn-sm <%= view === 'all' ? 'btn-primary' : 'btn-secondary' %>">All (<%= stats.total %>)</a>
         </div>
+        
+        <!-- Info note -->
+        <% if (view === 'active') { %>
+            <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 12px; color: #1e40af;">
+                💡 Ye sirf <strong>active quotations</strong> dikhata hai (Draft/Sent/Rejected). Approved orders <a href="/operations" style="color: #2563eb; font-weight: 700;">Operations Hub</a> me manage hote hain — payment, vendor, delivery sab wahan.
+            </div>
+        <% } else if (view === 'approved') { %>
+            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 12px; color: #166534;">
+                ✅ Ye <strong>approved orders</strong> hain. Inhe better manage karne ke liye <a href="/operations" style="color: #16a34a; font-weight: 700;">Operations Hub</a> use karo (grouped by customer, payment tracking).
+            </div>
+        <% } %>
+        
+        <!-- Sub-filters (only within current view) -->
+        <% if (view === 'active') { %>
+        <div style="display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap;">
+            <a href="/quotations?view=active" class="btn btn-xs <%= !query.status ? 'btn-primary' : 'btn-secondary' %>">All Active</a>
+            <a href="/quotations?status=Draft" class="btn btn-xs <%= query.status === 'Draft' ? 'btn-primary' : 'btn-secondary' %>">Draft (<%= stats.draft %>)</a>
+            <a href="/quotations?status=Sent" class="btn btn-xs <%= query.status === 'Sent' ? 'btn-primary' : 'btn-secondary' %>">Sent (<%= stats.sent %>)</a>
+            <a href="/quotations?status=Rejected" class="btn btn-xs <%= query.status === 'Rejected' ? 'btn-primary' : 'btn-secondary' %>">Rejected (<%= stats.rejected %>)</a>
+        </div>
+        <% } %>
         
         <div class="card">
             <div class="table-wrap">

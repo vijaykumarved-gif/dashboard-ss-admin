@@ -1464,11 +1464,23 @@ app.get('/api/vendors-list', requireAuth, requireAdmin, async (req, res) => {
 // All Quotations list (lifecycle dashboard)
 app.get('/quotations', requireAuth, requireAdmin, async (req, res) => {
     const filter = {};
-    if (req.query.status) filter.status = req.query.status;
+    // view mode: 'active' (default, hides approved) or 'approved' or 'all'
+    const view = req.query.view || 'active';
+    
+    if (req.query.status) {
+        // Explicit status filter overrides view
+        filter.status = req.query.status;
+    } else if (view === 'active') {
+        // Active = not yet approved/converted (still real "quotations")
+        filter.status = { $in: ['Draft', 'Sent', 'Rejected'] };
+    } else if (view === 'approved') {
+        filter.status = { $in: ['Approved', 'Converted'] };
+    }
+    // view === 'all' → no status filter
     
     const quotations = await Quotation.find(filter).select('-items').sort({ createdAt: -1 }).limit(200).lean();
     
-    const allQuotes = await Quotation.find().select('status grandTotal advanceReceived finalPaymentReceived').lean();
+    const allQuotes = await Quotation.find().select('status grandTotal advanceReceived finalPaymentReceived totalPaid').lean();
     const stats = {
         total: allQuotes.length,
         draft: allQuotes.filter(q => q.status === 'Draft').length,
@@ -1476,11 +1488,12 @@ app.get('/quotations', requireAuth, requireAdmin, async (req, res) => {
         approved: allQuotes.filter(q => q.status === 'Approved').length,
         rejected: allQuotes.filter(q => q.status === 'Rejected').length,
         converted: allQuotes.filter(q => q.status === 'Converted').length,
+        active: allQuotes.filter(q => ['Draft', 'Sent', 'Rejected'].includes(q.status)).length,
         approvedValue: allQuotes.filter(q => q.status === 'Approved' || q.status === 'Converted').reduce((s, q) => s + (q.grandTotal || 0), 0),
-        collected: allQuotes.reduce((s, q) => s + (q.advanceReceived || 0) + (q.finalPaymentReceived || 0), 0)
+        collected: allQuotes.reduce((s, q) => s + (q.totalPaid || (q.advanceReceived || 0) + (q.finalPaymentReceived || 0)), 0)
     };
     
-    res.render('quotations-list', { user: req.session.user, quotations, stats, query: req.query });
+    res.render('quotations-list', { user: req.session.user, quotations, stats, query: req.query, view });
 });
 
 // CCTV Quotation PDF
@@ -1554,23 +1567,42 @@ app.get('/api/quotations/:id/pdf', requireAuth, requireAdmin, async (req, res) =
         doc.fillColor('#000000').font('Helvetica').fontSize(9);
 
         (q.items || []).forEach((item, idx) => {
-            const rowHeight = item.specifications ? 32 : 20;
+            const specText = item.specifications || '';
+            const descWidth = 222;
+            // Measure how tall the spec text will be when wrapped (full text, no cut)
+            let specHeight = 0;
+            if (specText) {
+                doc.font('Helvetica').fontSize(7.5);
+                specHeight = doc.heightOfString(specText, { width: descWidth });
+            }
+            // Measure product name height too
+            doc.font('Helvetica-Bold').fontSize(9);
+            const nameHeight = doc.heightOfString(item.productName || '', { width: descWidth });
+            // Dynamic row height: name + spec + padding (min 22)
+            const rowHeight = Math.max(22, nameHeight + specHeight + 10);
+            
+            // Zebra background
             if (idx % 2 === 0) {
                 doc.rect(40, y, doc.page.width - 80, rowHeight).fill('#f8fafc');
-                doc.fillColor('#000000');
             }
+            doc.fillColor('#000000').font('Helvetica').fontSize(9);
             doc.text(String(idx + 1), colX.sno, y + 6, { lineBreak: false });
-            doc.font('Helvetica-Bold').fontSize(9).text(item.productName, colX.desc, y + 6, { width: 225, lineBreak: false, height: 11, ellipsis: true });
-            if (item.specifications) {
-                doc.font('Helvetica').fillColor('#64748b').fontSize(7.5).text(item.specifications, colX.desc, y + 18, { width: 225, lineBreak: false, height: 10, ellipsis: true });
-                doc.fillColor('#000000').fontSize(9);
+            // Product name (wraps if long)
+            doc.font('Helvetica-Bold').fontSize(9).fillColor('#0f172a').text(item.productName || '', colX.desc, y + 6, { width: descWidth });
+            // Full specifications (wraps, NOT cut)
+            if (specText) {
+                doc.font('Helvetica').fillColor('#64748b').fontSize(7.5).text(specText, colX.desc, y + 6 + nameHeight + 2, { width: descWidth });
             }
-            doc.font('Helvetica').fontSize(9).text(String(item.quantity), colX.qty, y + 6, { lineBreak: false });
+            // Other columns (aligned to top of row)
+            doc.fillColor('#000000').font('Helvetica').fontSize(9);
+            doc.text(String(item.quantity), colX.qty, y + 6, { lineBreak: false });
             doc.text(item.unit || 'Pcs', colX.unit, y + 6, { lineBreak: false });
-            doc.text(`Rs.${item.unitPrice.toLocaleString('en-IN')}`, colX.price, y + 6, { width: 55, lineBreak: false });
+            doc.text(`Rs.${(item.unitPrice||0).toLocaleString('en-IN')}`, colX.price, y + 6, { width: 55, lineBreak: false });
             doc.fillColor('#16a34a').fontSize(8).text(item.warranty || '1 Year', colX.warr, y + 6, { width: 65, lineBreak: false, ellipsis: true });
-            doc.fillColor('#000000').font('Helvetica-Bold').fontSize(9).text(`Rs.${Math.round(item.total).toLocaleString('en-IN')}`, colX.total, y + 6, { width: 60, lineBreak: false });
+            doc.fillColor('#000000').font('Helvetica-Bold').fontSize(9).text(`Rs.${Math.round(item.total||0).toLocaleString('en-IN')}`, colX.total, y + 6, { width: 60, lineBreak: false });
             doc.font('Helvetica');
+            // Separator line
+            doc.moveTo(40, y + rowHeight).lineTo(doc.page.width - 40, y + rowHeight).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
             y += rowHeight;
         });
 
@@ -1600,6 +1632,32 @@ app.get('/api/quotations/:id/pdf', requireAuth, requireAdmin, async (req, res) =
         doc.text('GRAND TOTAL:', totalsX, y + 8);
         doc.text(`Rs.${Math.round(q.grandTotal).toLocaleString('en-IN')}`, totalsX + 100, y + 8, { align: 'right', width: 75 });
         y += 36;
+
+        // ===== PAYMENT STATUS (paid + pending) =====
+        const totalPaid = q.totalPaid || 0;
+        const balanceDue = Math.max(0, Math.round(q.grandTotal) - totalPaid);
+        if (totalPaid > 0 || q.status === 'Approved' || q.status === 'Converted') {
+            // Amount Received (green)
+            doc.font('Helvetica-Bold').fontSize(10).fillColor('#16a34a');
+            doc.text('Amount Received:', totalsX, y);
+            doc.text(`Rs.${totalPaid.toLocaleString('en-IN')}`, totalsX + 100, y, { align: 'right', width: 75 });
+            y += 18;
+            // Balance Due (red box if pending)
+            if (balanceDue > 0) {
+                doc.rect(totalsX - 5, y, 185, 24).fill('#fef2f2').stroke('#fecaca');
+                doc.fillColor('#dc2626').font('Helvetica-Bold').fontSize(11);
+                doc.text('BALANCE DUE:', totalsX, y + 7);
+                doc.text(`Rs.${balanceDue.toLocaleString('en-IN')}`, totalsX + 100, y + 7, { align: 'right', width: 75 });
+                y += 30;
+            } else {
+                doc.rect(totalsX - 5, y, 185, 24).fill('#f0fdf4').stroke('#bbf7d0');
+                doc.fillColor('#16a34a').font('Helvetica-Bold').fontSize(11);
+                doc.text('FULLY PAID', totalsX, y + 7);
+                doc.text('Rs.0', totalsX + 100, y + 7, { align: 'right', width: 75 });
+                y += 30;
+            }
+            doc.fillColor('#000000');
+        }
 
         doc.fillColor('#000000').font('Helvetica-Bold').fontSize(10).text('Terms & Conditions:', 40, y, { lineBreak: false });
         y += 16;
@@ -4191,17 +4249,18 @@ app.get('/api/operations', requireAuth, requireAdmin, async (req, res) => {
             if (searchRegex) q.$or = [{ clientName: searchRegex }, { clientMobile: searchRegex }, { clientCompany: searchRegex }];
             const quotes = await Quotation.find(q).select('-items').sort({ createdAt: -1 }).limit(200).lean();
             quotes.forEach(qt => {
-                const totalPaid = (qt.advanceReceived || 0) + (qt.finalPaymentReceived || 0);
+                const totalPaid = qt.totalPaid || ((qt.advanceReceived || 0) + (qt.finalPaymentReceived || 0));
                 items.push({
                     dept: 'Quotation', icon: '📋', id: qt._id,
                     ref: qt.quotationNumber,
                     customer: qt.clientName, mobile: qt.clientMobile, company: qt.clientCompany || '',
                     title: qt.projectType,
-                    amount: qt.grandTotal || 0, received: totalPaid, due: (qt.grandTotal || 0) - totalPaid,
+                    amount: qt.grandTotal || 0, received: totalPaid, due: Math.max(0, (qt.grandTotal || 0) - totalPaid),
                     status: qt.status || 'Draft', paymentStatus: qt.paymentStatus || 'Pending',
                     date: qt.createdAt, link: '/cctv/quotation/' + qt._id, remark: qt.remark || '',
                     hasInvoice: true, invoiceLink: '/api/quotations/' + qt._id + '/pdf',
                     vendorCost: qt.totalVendorCost || 0, grossProfit: qt.grossProfit || 0,
+                    vendorPaid: qt.totalVendorPaid || 0, vendorDue: Math.max(0, (qt.totalVendorCost || 0) - (qt.totalVendorPaid || 0)),
                     isQuotation: true
                 });
             });
@@ -4272,6 +4331,7 @@ app.get('/api/operations', requireAuth, requireAdmin, async (req, res) => {
             totalValue: items.reduce((s, i) => s + (i.amount || 0), 0),
             totalReceived: items.reduce((s, i) => s + (i.received || 0), 0),
             totalDue: items.reduce((s, i) => s + (i.due || 0), 0),
+            totalVendorDue: items.reduce((s, i) => s + (i.vendorDue || 0), 0),
             pending: items.filter(i => ['Pending','New','Draft','Scheduled','Sent'].includes(i.status)).length,
             confirmed: items.filter(i => ['Confirmed','Approved','Won','Completed','Paid','Delivered','Converted'].includes(i.status)).length,
             notConfirmed: items.filter(i => ['Rejected','Lost','Cancelled','Missed'].includes(i.status)).length

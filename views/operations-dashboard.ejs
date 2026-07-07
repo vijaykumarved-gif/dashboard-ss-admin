@@ -37,6 +37,7 @@
             <div class="stat-card purple"><div class="stat-label">Total Value</div><div class="stat-value" id="st_value" style="font-size: 15px;">-</div></div>
             <div class="stat-card green"><div class="stat-label">Collection</div><div class="stat-value" id="st_received" style="font-size: 15px; color: var(--success);">-</div></div>
             <div class="stat-card red"><div class="stat-label">Pending Due</div><div class="stat-value" id="st_due" style="font-size: 15px; color: var(--danger);">-</div></div>
+            <div class="stat-card amber"><div class="stat-label">🏪 Vendor Due</div><div class="stat-value" id="st_vendordue" style="font-size: 15px; color: #ea580c;">-</div></div>
         </div>
         
         <!-- DEPARTMENT FILTER PILLS -->
@@ -196,6 +197,8 @@ function renderStats(s) {
     document.getElementById('st_value').textContent = '₹' + s.totalValue.toLocaleString('en-IN');
     document.getElementById('st_received').textContent = '₹' + s.totalReceived.toLocaleString('en-IN');
     document.getElementById('st_due').textContent = '₹' + s.totalDue.toLocaleString('en-IN');
+    const vd = document.getElementById('st_vendordue');
+    if (vd) vd.textContent = '₹' + (s.totalVendorDue || 0).toLocaleString('en-IN');
 }
 
 function renderDeptCounts(counts, stats) {
@@ -232,7 +235,7 @@ function renderGrouped(groups) {
                 <td class="font-mono" style="font-size:10px;">${it.ref}</td>
                 <td style="font-size:11px; color:var(--text-3);">${new Date(it.date).toLocaleDateString('en-IN')}</td>
                 <td style="font-size:11px;">${it.title}</td>
-                <td>${it.amount > 0 ? '₹' + it.amount.toLocaleString('en-IN') : '-'}${it.due > 0 ? `<div style="font-size:9px;color:var(--danger);">Due ₹${it.due.toLocaleString('en-IN')}</div>` : ''}</td>
+                <td>${it.amount > 0 ? '₹' + it.amount.toLocaleString('en-IN') : '-'}${it.due > 0 ? `<div style="font-size:9px;color:var(--danger);">Due ₹${it.due.toLocaleString('en-IN')}</div>` : ''}${it.vendorDue > 0 ? `<div style="font-size:9px;color:#ea580c;">Vendor Due ₹${it.vendorDue.toLocaleString('en-IN')}</div>` : ''}</td>
                 <td><span class="badge ${statusBadgeClass(it.status)}" style="font-size:9px;">${it.status}</span></td>
                 <td style="font-size:10px; color:var(--text-3);">${it.remark || '-'}</td>
                 <td>
@@ -305,6 +308,10 @@ function renderTable(items) {
                 ${it.amount > 0 ? `<div class="font-bold font-mono" style="font-size:12px;">₹${it.amount.toLocaleString('en-IN')}</div>` : '<span style="color:var(--text-3);">-</span>'}
                 ${it.received > 0 ? `<div style="font-size:10px; color:var(--success);">Recd: ₹${it.received.toLocaleString('en-IN')}</div>` : ''}
                 ${dueHtml}
+                ${(it.vendorCost > 0) ? `<div style="margin-top:4px; padding-top:4px; border-top:1px dashed var(--border);">
+                    <div style="font-size:9px; color:var(--text-3);">🏪 Vendor: ₹${it.vendorCost.toLocaleString('en-IN')}</div>
+                    ${it.vendorDue > 0 ? `<div style="font-size:10px; color:#ea580c; font-weight:700;">Vendor Due: ₹${it.vendorDue.toLocaleString('en-IN')}</div>` : `<div style="font-size:9px; color:var(--success);">✓ Vendor paid</div>`}
+                </div>` : ''}
             </td>
             <td>
                 <select class="status-select" onchange="updateStatus('${it.dept}', '${it.id}', this.value, ${idx})">
