@@ -92,18 +92,27 @@ function isMobileOrPWA(req) {
 }
 
 app.get('/', (req, res) => res.redirect('/login'));
-app.get('/login', (req, res) => res.render('login'));
-app.post('/login', (req, res) => {
-    const { username, password } = req.body;
-    if (username === 'admin' && password === 'admin123') {
-        req.session.user = { username, role: 'admin' };
-        res.redirect('/admin');
-    } else if (username === 'vijay' || username === 'rahul') {
-        req.session.user = { username, role: 'agent' };
-        res.redirect('/agent');
-    } else {
-        res.send('Invalid Credentials');
+app.get('/login', (req, res) => {
+    if (req.session && req.session.user) {
+        return res.redirect(req.session.user.role === 'admin' ? '/admin' : '/agent');
     }
+    res.render('login', { error: null });
+});
+app.post('/login', (req, res) => {
+    const username = (req.body.username || '').trim().toLowerCase();
+    const password = req.body.password || '';
+    
+    if (username === 'admin' && password === 'admin123') {
+        req.session.user = { username: 'admin', role: 'admin' };
+        return res.redirect('/admin');
+    }
+    // Agents: require a password (not blank)
+    if ((username === 'vijay' || username === 'rahul') && password.length >= 4) {
+        req.session.user = { username, role: 'agent' };
+        return res.redirect('/agent');
+    }
+    // Invalid → re-render login with error
+    res.render('login', { error: 'Invalid username or password. Please try again.' });
 });
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/login'); });
 
@@ -178,6 +187,21 @@ app.post('/api/entry', requireAuth, async (req, res) => {
         if (req.body.entryId) {
             await Entry.findByIdAndUpdate(req.body.entryId, { ...req.body, jobStatus: 'Completed' });
         } else {
+            // DUPLICATE CHECK: same mobile + revenue completed in last 5 min (double submit)
+            const mobile = (req.body.mobileNumber || '').trim();
+            if (mobile) {
+                const mobRegex = new RegExp(mobile.replace(/\D/g, '').slice(-10) + '$');
+                const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+                const dup = await Entry.findOne({
+                    mobileNumber: mobRegex,
+                    revenue: Number(req.body.revenue) || 0,
+                    jobStatus: 'Completed',
+                    createdAt: { $gte: fiveMinAgo }
+                }).lean();
+                if (dup) {
+                    return res.redirect('/agent'); // silently ignore duplicate submit
+                }
+            }
             const newEntry = new Entry(req.body);
             newEntry.agentName = req.session.user.username;
             newEntry.jobStatus = 'Completed';
@@ -189,11 +213,30 @@ app.post('/api/entry', requireAuth, async (req, res) => {
 
 // ============ HARDWARE ORDERS ============
 app.post('/api/order/new', requireAuth, async (req, res) => {
-    const newOrder = new Order(req.body);
-    newOrder.createdBy = req.session.user.username;
-    if (req.session.user.role === 'admin') newOrder.assignedAgent = req.body.assignedAgent || 'Pending';
-    await newOrder.save();
-    res.redirect(req.session.user.role === 'admin' ? '/admin' : '/agent');
+    try {
+        const mobile = (req.body.mobileNumber || '').trim();
+        const name = (req.body.customerName || '').trim();
+        const desc = (req.body.description || '').trim();
+        if (!name || !mobile) {
+            return res.status(400).send('Customer name and mobile are required. <a href="javascript:history.back()">← Back</a>');
+        }
+        // DUPLICATE CHECK: same mobile + same requirement in last 10 min (double submit / accidental repeat)
+        const mobRegex = new RegExp(mobile.replace(/\D/g, '').slice(-10) + '$');
+        const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
+        const dup = await Order.findOne({
+            mobileNumber: mobRegex,
+            description: desc,
+            createdAt: { $gte: tenMinAgo }
+        }).lean();
+        if (dup) {
+            return res.status(409).send(`DUPLICATE blocked: Same request for "${name}" (${mobile}) was just added. <a href="javascript:history.back()">← Back</a>`);
+        }
+        const newOrder = new Order(req.body);
+        newOrder.createdBy = req.session.user.username;
+        if (req.session.user.role === 'admin') newOrder.assignedAgent = req.body.assignedAgent || 'Pending';
+        await newOrder.save();
+        res.redirect(req.session.user.role === 'admin' ? '/admin' : '/agent');
+    } catch (err) { res.status(500).send(err.message); }
 });
 
 app.post('/api/admin/order/process/:id', requireAuth, async (req, res) => {
@@ -217,15 +260,81 @@ app.post('/api/order/whatsapp-sent/:id', requireAuth, async (req, res) => {
 
 // ============ HARDWARE SERVICE APIS ============
 app.post('/api/admin/assign', requireAuth, async (req, res) => {
-    const newEntry = new Entry({
-        customerName: req.body.customerName,
-        mobileNumber: req.body.mobileNumber,
-        location: req.body.location,
-        agentName: req.body.agentName,
-        jobStatus: 'Assigned'
-    });
-    await newEntry.save();
-    res.redirect('/admin');
+    try {
+        const mobile = (req.body.mobileNumber || '').trim();
+        const name = (req.body.customerName || '').trim();
+        if (!name || !mobile) {
+            return res.status(400).send('Customer name and mobile are required');
+        }
+        // DUPLICATE CHECK: same mobile already has a Pending/Assigned lead (not yet completed)
+        const mobRegex = new RegExp(mobile.replace(/\D/g, '').slice(-10) + '$');
+        const existing = await Entry.findOne({
+            mobileNumber: mobRegex,
+            jobStatus: 'Assigned'
+        }).lean();
+        if (existing) {
+            return res.status(409).send(`DUPLICATE: "${name}" (${mobile}) ka ek pending lead pehle se hai (assigned to ${existing.agentName}). Naya banane ke bajaye usi ko update karo. <a href="/admin">← Wapas jao</a>`);
+        }
+        const newEntry = new Entry({
+            customerName: name,
+            mobileNumber: mobile,
+            location: req.body.location,
+            agentName: req.body.agentName,
+            jobStatus: 'Assigned'
+        });
+        await newEntry.save();
+        res.redirect('/admin');
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// ============ DUPLICATE CLEANUP ============
+// Find duplicate hardware entries (same mobile + name, grouped)
+app.get('/api/admin/duplicates', requireAuth, async (req, res) => {
+    if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+    try {
+        const entries = await Entry.find()
+            .select('customerName mobileNumber location jobStatus revenue createdAt whatsappSent agentName')
+            .sort({ createdAt: -1 }).lean();
+        
+        // Group by normalized mobile (last 10 digits)
+        const groups = {};
+        entries.forEach(e => {
+            const mob = (e.mobileNumber || '').replace(/\D/g, '').slice(-10);
+            if (!mob) return;
+            if (!groups[mob]) groups[mob] = [];
+            groups[mob].push(e);
+        });
+        
+        // Only keep groups with 2+ entries (duplicates)
+        const dupGroups = Object.entries(groups)
+            .filter(([mob, list]) => list.length > 1)
+            .map(([mob, list]) => ({
+                mobile: mob,
+                customerName: list[0].customerName,
+                count: list.length,
+                entries: list.map(e => ({
+                    id: e._id, name: e.customerName, location: e.location,
+                    status: e.jobStatus, revenue: e.revenue, date: e.createdAt,
+                    waSent: e.whatsappSent, agent: e.agentName
+                }))
+            }))
+            .sort((a, b) => b.count - a.count);
+        
+        res.json({ success: true, groups: dupGroups, totalDuplicates: dupGroups.reduce((s, g) => s + (g.count - 1), 0) });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Delete selected duplicate entries by IDs
+app.post('/api/admin/duplicates/delete', requireAuth, async (req, res) => {
+    if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+    try {
+        const { ids } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: 'No entries selected' });
+        }
+        const result = await Entry.deleteMany({ _id: { $in: ids } });
+        res.json({ success: true, deleted: result.deletedCount });
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/admin/targets', requireAuth, async (req, res) => {
@@ -981,8 +1090,7 @@ app.get('/cctv/quotation/:id', requireAuth, requireAdmin, async (req, res) => {
 app.post('/api/quotations', requireAuth, requireAdmin, async (req, res) => {
     try {
         const data = req.body;
-        const count = await Quotation.countDocuments();
-        data.quotationNumber = `SEA-Q-${String(count + 1).padStart(4, '0')}`;
+        data.quotationNumber = await genSequentialNumber(Quotation, 'SEA-Q', 'quotationNumber');
         data.createdBy = req.session.user.username;
 
         let subtotal = 0, gstAmount = 0;
@@ -1119,6 +1227,71 @@ app.post('/api/quotations/:id/reject', requireAuth, requireAdmin, async (req, re
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// ===== JOB COSTING & COMMISSION HELPER (Phase 1) =====
+// Recomputes conveyance, commissions, net profit, and payout lock status
+function computeJobCosting(q) {
+    const revenue = q.grandTotal || 0;
+    const vendorCost = q.totalVendorCost || 0;
+    
+    // Conveyance = km * rate
+    q.conveyanceAllowance = (q.conveyanceKm || 0) * (q.conveyanceRate || 0);
+    
+    // Commission base: 'profit' (Revenue - Vendor) or 'gross' (Revenue)
+    const base = q.commissionBase === 'gross' ? revenue : Math.max(0, revenue - vendorCost);
+    q.leadCommissionAmount = Math.round(base * (q.leadCommissionPct || 0) / 100);
+    q.engineerCommissionAmount = Math.round(base * (q.engineerCommissionPct || 0) / 100);
+    
+    // Net profit = Revenue - (Vendor + Conveyance + LeadComm + EngComm)
+    q.netProfit = revenue - (vendorCost + q.conveyanceAllowance + q.leadCommissionAmount + q.engineerCommissionAmount);
+    
+    // Payout lock: unlock only when payment fully received
+    const fullyPaid = (q.totalPaid || 0) >= revenue && revenue > 0;
+    q.jobCostingLocked = !fullyPaid;
+    if (q.payoutStatus !== 'Paid') {
+        q.payoutStatus = fullyPaid ? 'Unlocked' : 'Locked';
+    }
+    return q;
+}
+
+// Update commission/costing settings for a quotation
+app.post('/api/quotations/:id/costing', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const q = await Quotation.findById(req.params.id);
+        if (!q) return res.status(404).json({ error: 'Not found' });
+        
+        const { orderCategory, leadPartner, assignedEngineer, conveyanceKm, conveyanceRate,
+                commissionBase, leadCommissionPct, engineerCommissionPct } = req.body;
+        
+        if (orderCategory !== undefined) q.orderCategory = orderCategory;
+        if (leadPartner !== undefined) q.leadPartner = leadPartner.trim();
+        if (assignedEngineer !== undefined) q.assignedEngineer = assignedEngineer.trim();
+        if (conveyanceKm !== undefined) q.conveyanceKm = Math.max(0, Number(conveyanceKm) || 0);
+        if (conveyanceRate !== undefined) q.conveyanceRate = Math.max(0, Number(conveyanceRate) || 0);
+        if (commissionBase !== undefined) q.commissionBase = commissionBase === 'gross' ? 'gross' : 'profit';
+        if (leadCommissionPct !== undefined) q.leadCommissionPct = Math.max(0, Math.min(100, Number(leadCommissionPct) || 0));
+        if (engineerCommissionPct !== undefined) q.engineerCommissionPct = Math.max(0, Math.min(100, Number(engineerCommissionPct) || 0));
+        
+        computeJobCosting(q);
+        await q.save();
+        res.json({ success: true, quotation: q });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Mark commission as paid out (only when unlocked)
+app.post('/api/quotations/:id/payout', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const q = await Quotation.findById(req.params.id);
+        if (!q) return res.status(404).json({ error: 'Not found' });
+        computeJobCosting(q);
+        if (q.jobCostingLocked) {
+            return res.status(400).json({ error: 'Payout locked. Client payment not fully received yet.' });
+        }
+        q.payoutStatus = 'Paid';
+        await q.save();
+        res.json({ success: true, quotation: q });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 // Record payment against approved quotation (logs transaction + tracks due)
 app.post('/api/quotations/:id/payment', requireAuth, requireAdmin, async (req, res) => {
     try {
@@ -1126,7 +1299,14 @@ app.post('/api/quotations/:id/payment', requireAuth, requireAdmin, async (req, r
         if (!q) return res.status(404).json({ error: 'Not found' });
         
         const amount = Number(req.body.amount) || 0;
-        if (amount <= 0) return res.status(400).json({ error: 'Enter valid amount' });
+        if (amount <= 0) return res.status(400).json({ error: 'Enter valid amount greater than 0' });
+        
+        // VALIDATION: cannot pay more than the balance due
+        const currentPaid = q.payments.reduce((s, p) => s + (p.amount || 0), 0);
+        const dueNow = Math.max(0, (q.grandTotal || 0) - currentPaid);
+        if (amount > dueNow) {
+            return res.status(400).json({ error: `Payment cannot exceed balance due. Due is Rs.${dueNow.toLocaleString('en-IN')}, you entered Rs.${amount.toLocaleString('en-IN')}` });
+        }
         
         // Log the payment transaction
         q.payments.push({
@@ -1146,6 +1326,9 @@ app.post('/api/quotations/:id/payment', requireAuth, requireAdmin, async (req, r
         q.finalPaymentReceived = q.totalPaid - q.advanceReceived;
         q.balanceDue = Math.max(0, (q.grandTotal || 0) - q.totalPaid);
         q.paymentStatus = q.totalPaid >= (q.grandTotal || 0) ? 'Fully Paid' : q.totalPaid > 0 ? 'Advance Paid' : 'Pending';
+        
+        // Recompute job costing (payout auto-unlocks when fully paid)
+        computeJobCosting(q);
         
         await q.save();
         res.json({ success: true, quotation: q, totalPaid: q.totalPaid, balanceDue: q.balanceDue });
@@ -1206,6 +1389,7 @@ app.post('/api/quotations/:id/vendor', requireAuth, requireAdmin, async (req, re
         q.totalVendorCost = q.vendorProcurement.reduce((s, v) => s + (v.totalVendorCost || 0), 0);
         q.totalVendorPaid = q.vendorProcurement.reduce((s, v) => s + (v.paymentToVendor || 0), 0);
         q.grossProfit = (q.grandTotal || 0) - q.totalVendorCost;
+        computeJobCosting(q);
         
         await q.save();
         res.json({ success: true, quotation: q });
@@ -1222,8 +1406,26 @@ app.put('/api/quotations/:id/vendor/:vIdx', requireAuth, requireAdmin, async (re
         if (!v) return res.status(404).json({ error: 'Vendor line not found' });
         
         const { paymentToVendor, deliveryStatus, receivedDate, addPayment } = req.body;
-        if (addPayment !== undefined) v.paymentToVendor = (v.paymentToVendor || 0) + Number(addPayment);
-        else if (paymentToVendor !== undefined) v.paymentToVendor = Number(paymentToVendor);
+        const alreadyPaid = v.paymentToVendor || 0;
+        const totalCost = v.totalVendorCost || 0;
+        const dueNow = Math.max(0, totalCost - alreadyPaid);
+        
+        if (addPayment !== undefined) {
+            const amt = Number(addPayment) || 0;
+            if (amt <= 0) return res.status(400).json({ error: 'Enter a valid amount greater than 0' });
+            // VALIDATION: cannot pay more than what's due
+            if (amt > dueNow) {
+                return res.status(400).json({ error: `Payment cannot exceed due amount. Due is Rs.${dueNow.toLocaleString('en-IN')}, you tried Rs.${amt.toLocaleString('en-IN')}` });
+            }
+            v.paymentToVendor = alreadyPaid + amt;
+        } else if (paymentToVendor !== undefined) {
+            const amt = Number(paymentToVendor) || 0;
+            // VALIDATION: total paid cannot exceed total cost
+            if (amt > totalCost) {
+                return res.status(400).json({ error: `Total payment cannot exceed vendor cost of Rs.${totalCost.toLocaleString('en-IN')}` });
+            }
+            v.paymentToVendor = Math.max(0, amt);
+        }
         
         v.vendorPaymentStatus = v.paymentToVendor >= v.totalVendorCost ? 'Paid' : v.paymentToVendor > 0 ? 'Partial' : 'Pending';
         if (deliveryStatus) v.deliveryStatus = deliveryStatus;
@@ -1245,6 +1447,7 @@ app.delete('/api/quotations/:id/vendor/:vIdx', requireAuth, requireAdmin, async 
         q.totalVendorCost = q.vendorProcurement.reduce((s, v) => s + (v.totalVendorCost || 0), 0);
         q.totalVendorPaid = q.vendorProcurement.reduce((s, v) => s + (v.paymentToVendor || 0), 0);
         q.grossProfit = (q.grandTotal || 0) - q.totalVendorCost;
+        computeJobCosting(q);
         await q.save();
         res.json({ success: true, quotation: q });
     } catch (e) { res.status(400).json({ error: e.message }); }
@@ -2682,8 +2885,25 @@ app.get('/leads/:id', requireAuth, async (req, res) => {
 app.post('/api/leads', requireAuth, async (req, res) => {
     try {
         const data = req.body;
-        const count = await Lead.countDocuments();
-        data.leadNumber = `SEA-L-${String(count + 1).padStart(4, '0')}`;
+        // VALIDATION: customer name + mobile required
+        const name = (data.customerName || data.name || '').trim();
+        const mobile = (data.mobile || data.mobileNumber || '').trim();
+        if (!name) {
+            return res.status(400).json({ error: 'Customer name is required' });
+        }
+        // DUPLICATE CHECK: same mobile open lead in last 2 min
+        if (mobile) {
+            const mobRegex = new RegExp(mobile.replace(/\D/g, '').slice(-10) + '$');
+            const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000);
+            const dup = await Lead.findOne({
+                $or: [{ mobile: mobRegex }, { mobileNumber: mobRegex }],
+                createdAt: { $gte: twoMinAgo }
+            }).lean();
+            if (dup) {
+                return res.status(409).json({ error: `Duplicate blocked: A lead for ${name} was just created (${dup.leadNumber}).` });
+            }
+        }
+        data.leadNumber = await genSequentialNumber(Lead, 'SEA-L', 'leadNumber');
         
         // Auto-log creation
         data.progress = [{
@@ -3087,6 +3307,24 @@ app.post('/api/leads/:id/convert', requireAuth, async (req, res) => {
 
 // ======================== CORPORATE ENTRY MODULE ========================
 
+// Safe sequential number generator (race-condition resistant)
+// Finds the highest existing number for a prefix and returns next
+async function genSequentialNumber(Model, prefix, fieldName) {
+    const field = fieldName || (Model.modelName === 'Booking' ? 'bookingNumber' : 'entryNumber');
+    // Find the latest doc with this prefix
+    const latest = await Model.findOne({ [field]: new RegExp('^' + prefix) })
+        .sort({ createdAt: -1 }).select(field).lean();
+    let maxNum = 0;
+    if (latest && latest[field]) {
+        const m = latest[field].match(/(\d+)$/);
+        if (m) maxNum = parseInt(m[1], 10);
+    }
+    // Also check total count as fallback (in case of gaps)
+    const count = await Model.countDocuments({ [field]: new RegExp('^' + prefix) });
+    const next = Math.max(maxNum, count) + 1;
+    return `${prefix}-${String(next).padStart(4, '0')}`;
+}
+
 // Helper: compute totals from PCs
 function computeCorporateTotals(entry) {
     let subtotal = 0;
@@ -3170,9 +3408,25 @@ app.get('/corporate/:id', requireAuth, async (req, res) => {
 // Create
 app.post('/api/corporate', requireAuth, async (req, res) => {
     try {
-        const count = await CorporateEntry.countDocuments();
         const data = req.body;
-        data.entryNumber = `SEA-CORP-${String(count + 1).padStart(4, '0')}`;
+        // VALIDATION: name + mobile required
+        const name = (data.customerName || '').trim();
+        const mobile = (data.mobileNumber || '').trim();
+        if (!name || !mobile) {
+            return res.status(400).json({ error: 'Customer name and mobile number are required' });
+        }
+        // DUPLICATE CHECK: same mobile + same grandTotal in last 2 min (double submit)
+        const mobRegex = new RegExp(mobile.replace(/\D/g, '').slice(-10) + '$');
+        const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000);
+        const dup = await CorporateEntry.findOne({
+            mobileNumber: mobRegex,
+            createdAt: { $gte: twoMinAgo }
+        }).lean();
+        if (dup) {
+            return res.status(409).json({ error: `Duplicate blocked: An entry for ${name} (${mobile}) was just created (${dup.entryNumber}).` });
+        }
+        
+        data.entryNumber = await genSequentialNumber(CorporateEntry, 'SEA-CORP');
         data.createdBy = req.session.user.username;
         data.agentName = data.agentName || req.session.user.username;
         
@@ -3721,9 +3975,27 @@ app.get('/bookings', requireAuth, async (req, res) => {
 
 app.post('/api/bookings', requireAuth, async (req, res) => {
     try {
-        const count = await Booking.countDocuments();
         const data = req.body;
-        data.bookingNumber = `SEA-BK-${String(count + 1).padStart(4, '0')}`;
+        // VALIDATION: customer name required
+        const name = (data.customerName || '').trim();
+        if (!name) {
+            return res.status(400).json({ error: 'Customer name is required' });
+        }
+        // DUPLICATE CHECK: same customer + mobile in last 2 min
+        const mobile = (data.mobileNumber || data.customerMobile || '').trim();
+        if (mobile) {
+            const mobRegex = new RegExp(mobile.replace(/\D/g, '').slice(-10) + '$');
+            const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000);
+            const dup = await Booking.findOne({
+                $or: [{ mobileNumber: mobRegex }, { customerMobile: mobRegex }],
+                createdAt: { $gte: twoMinAgo }
+            }).lean();
+            if (dup) {
+                return res.status(409).json({ error: `Duplicate blocked: A booking for ${name} was just created (${dup.bookingNumber}).` });
+            }
+        }
+        
+        data.bookingNumber = await genSequentialNumber(Booking, 'SEA-BK');
         data.bookedBy = req.session.user.username;
         const booking = new Booking(data);
         await booking.save();
@@ -4102,6 +4374,9 @@ app.post('/api/operations/payment', requireAuth, requireAdmin, async (req, res) 
         if (dept === 'Quotation') {
             const q = await Quotation.findById(id);
             if (!q) return res.status(404).json({ error: 'Not found' });
+            const paid = q.payments.reduce((s, p) => s + (p.amount || 0), 0);
+            const due = Math.max(0, (q.grandTotal || 0) - paid);
+            if (amt > due) return res.status(400).json({ error: `Payment cannot exceed due of Rs.${due.toLocaleString('en-IN')}` });
             q.payments.push({ amount: amt, date: date ? new Date(date) : new Date(), mode: mode || 'Cash', note: note || '', type: 'Payment', recordedBy: req.session.user.username });
             q.totalPaid = q.payments.reduce((s, p) => s + p.amount, 0);
             q.balanceDue = Math.max(0, (q.grandTotal || 0) - q.totalPaid);
@@ -4113,6 +4388,8 @@ app.post('/api/operations/payment', requireAuth, requireAdmin, async (req, res) 
         if (dept === 'Corporate') {
             const c = await CorporateEntry.findById(id);
             if (!c) return res.status(404).json({ error: 'Not found' });
+            const due = Math.max(0, (c.grandTotal || 0) - (c.amountReceived || 0));
+            if (amt > due) return res.status(400).json({ error: `Payment cannot exceed due of Rs.${due.toLocaleString('en-IN')}` });
             c.amountReceived = (c.amountReceived || 0) + amt;
             c.amountDue = Math.max(0, (c.grandTotal || 0) - c.amountReceived);
             c.paymentStatus = c.amountReceived >= c.grandTotal ? 'Paid' : c.amountReceived > 0 ? 'Partial' : 'Pending';
@@ -4127,6 +4404,8 @@ app.post('/api/operations/payment', requireAuth, requireAdmin, async (req, res) 
         if (dept === 'Hardware') {
             const e = await Entry.findById(id);
             if (!e) return res.status(404).json({ error: 'Not found' });
+            const due = Math.max(0, (e.revenue || 0) - (e.amountReceived || 0));
+            if (amt > due) return res.status(400).json({ error: `Payment cannot exceed due of Rs.${due.toLocaleString('en-IN')}` });
             e.amountReceived = (e.amountReceived || 0) + amt;
             e.amountDue = Math.max(0, (e.revenue || 0) - e.amountReceived);
             e.paymentStatus = e.amountReceived >= (e.revenue || 0) ? 'Paid' : e.amountReceived > 0 ? 'Partial' : 'Pending';
@@ -4139,6 +4418,162 @@ app.post('/api/operations/payment', requireAuth, requireAdmin, async (req, res) 
         console.error(e);
         res.status(400).json({ error: e.message });
     }
+});
+
+// ===== EXECUTIVE PROFITABILITY DASHBOARD (Phase 3) =====
+app.get('/executive-dashboard', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        // Time filter
+        const period = req.query.period || 'all';
+        const now = new Date();
+        let fromDate = null;
+        if (period === 'month') { fromDate = new Date(now.getFullYear(), now.getMonth(), 1); }
+        else if (period === 'quarter') { fromDate = new Date(now.getFullYear(), Math.floor(now.getMonth()/3)*3, 1); }
+        else if (period === 'year') { fromDate = new Date(now.getFullYear(), 0, 1); }
+        
+        const matchQuery = { status: { $in: ['Approved', 'Converted'] } };
+        if (fromDate) matchQuery.createdAt = { $gte: fromDate };
+        
+        const quotes = await Quotation.find(matchQuery)
+            .select('quotationNumber clientName grandTotal totalPaid totalVendorCost orderCategory leadPartner assignedEngineer leadCommissionAmount engineerCommissionAmount conveyanceAllowance netProfit payoutStatus createdAt')
+            .lean();
+        
+        // ===== OVERALL TOTALS =====
+        let totalSales = 0, totalCollected = 0, totalVendorCost = 0, totalConveyance = 0;
+        let totalLeadComm = 0, totalEngComm = 0, totalNetProfit = 0;
+        
+        // ===== CATEGORY-WISE =====
+        const categories = {}; // cat -> { sales, vendorCost, netProfit, count, collected }
+        function ensureCat(c) {
+            if (!categories[c]) categories[c] = { name: c, sales: 0, vendorCost: 0, netProfit: 0, count: 0, collected: 0 };
+            return categories[c];
+        }
+        
+        // ===== TOP EARNERS =====
+        const engineers = {}; // name -> earned commission
+        const leadPartners = {};
+        
+        quotes.forEach(q => {
+            const sales = q.grandTotal || 0;
+            const vendorCost = q.totalVendorCost || 0;
+            const conveyance = q.conveyanceAllowance || 0;
+            const leadComm = q.leadCommissionAmount || 0;
+            const engComm = q.engineerCommissionAmount || 0;
+            const netProfit = q.netProfit !== undefined ? q.netProfit : (sales - vendorCost - conveyance - leadComm - engComm);
+            
+            totalSales += sales;
+            totalCollected += (q.totalPaid || 0);
+            totalVendorCost += vendorCost;
+            totalConveyance += conveyance;
+            totalLeadComm += leadComm;
+            totalEngComm += engComm;
+            totalNetProfit += netProfit;
+            
+            // Category
+            const cat = q.orderCategory || 'CCTV';
+            const c = ensureCat(cat);
+            c.sales += sales; c.vendorCost += vendorCost; c.netProfit += netProfit; c.count += 1; c.collected += (q.totalPaid || 0);
+            
+            // Top earners (only count commission where payment is done or partially)
+            if (q.assignedEngineer && engComm > 0) {
+                engineers[q.assignedEngineer] = (engineers[q.assignedEngineer] || 0) + engComm;
+            }
+            if (q.leadPartner && leadComm > 0) {
+                leadPartners[q.leadPartner] = (leadPartners[q.leadPartner] || 0) + leadComm;
+            }
+        });
+        
+        const categoryList = Object.values(categories).sort((a, b) => b.netProfit - a.netProfit);
+        const topEngineers = Object.entries(engineers).map(([name, amt]) => ({ name, amount: amt })).sort((a, b) => b.amount - a.amount).slice(0, 5);
+        const topLeadPartners = Object.entries(leadPartners).map(([name, amt]) => ({ name, amount: amt })).sort((a, b) => b.amount - a.amount).slice(0, 5);
+        
+        const profitMargin = totalSales > 0 ? ((totalNetProfit / totalSales) * 100).toFixed(1) : 0;
+        const collectionRate = totalSales > 0 ? ((totalCollected / totalSales) * 100).toFixed(1) : 0;
+        
+        res.render('executive-dashboard', {
+            user: req.session.user,
+            period,
+            totals: {
+                totalSales, totalCollected, totalVendorCost, totalConveyance,
+                totalLeadComm, totalEngComm, totalNetProfit, totalCommission: totalLeadComm + totalEngComm,
+                profitMargin, collectionRate, orderCount: quotes.length
+            },
+            categoryList,
+            topEngineers,
+            topLeadPartners
+        });
+    } catch (e) { console.error(e); res.status(500).send(e.message); }
+});
+
+// ===== COMMISSION LEDGER (Phase 2) =====
+// Derives per-person commission wallet from quotations (single source of truth, no duplicates)
+app.get('/commission-ledger', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        // Only quotations that have commissions assigned
+        const quotes = await Quotation.find({
+            $or: [
+                { leadPartner: { $nin: ['', null] } },
+                { assignedEngineer: { $nin: ['', null] } }
+            ]
+        }).select('quotationNumber clientName grandTotal totalPaid totalVendorCost leadPartner assignedEngineer leadCommissionAmount engineerCommissionAmount payoutStatus orderCategory createdAt commissionBase leadCommissionPct engineerCommissionPct').sort({ createdAt: -1 }).lean();
+        
+        // Build per-person wallet
+        const people = {}; // name -> { name, roles:Set, pending, earned, paid, orders:[] }
+        
+        function ensure(name) {
+            if (!people[name]) people[name] = { name, roles: new Set(), pending: 0, earned: 0, paid: 0, totalCommission: 0, orders: [] };
+            return people[name];
+        }
+        
+        quotes.forEach(q => {
+            const fullyPaid = (q.totalPaid || 0) >= (q.grandTotal || 0) && (q.grandTotal || 0) > 0;
+            const isPaidOut = q.payoutStatus === 'Paid';
+            
+            // Lead partner commission
+            if (q.leadPartner && (q.leadCommissionAmount || 0) > 0) {
+                const p = ensure(q.leadPartner);
+                p.roles.add('Lead');
+                const amt = q.leadCommissionAmount;
+                p.totalCommission += amt;
+                let state;
+                if (isPaidOut) { p.paid += amt; state = 'Paid'; }
+                else if (fullyPaid) { p.earned += amt; state = 'Earned'; }
+                else { p.pending += amt; state = 'Pending'; }
+                p.orders.push({ id: q._id, num: q.quotationNumber, client: q.clientName, role: 'Lead', category: q.orderCategory, amount: amt, state, date: q.createdAt, orderValue: q.grandTotal });
+            }
+            
+            // Engineer commission
+            if (q.assignedEngineer && (q.engineerCommissionAmount || 0) > 0) {
+                const p = ensure(q.assignedEngineer);
+                p.roles.add('Engineer');
+                const amt = q.engineerCommissionAmount;
+                p.totalCommission += amt;
+                let state;
+                if (isPaidOut) { p.paid += amt; state = 'Paid'; }
+                else if (fullyPaid) { p.earned += amt; state = 'Earned'; }
+                else { p.pending += amt; state = 'Pending'; }
+                p.orders.push({ id: q._id, num: q.quotationNumber, client: q.clientName, role: 'Engineer', category: q.orderCategory, amount: amt, state, date: q.createdAt, orderValue: q.grandTotal });
+            }
+        });
+        
+        // Convert to array + finalize
+        const ledger = Object.values(people).map(p => ({
+            ...p,
+            roles: Array.from(p.roles).join(' + '),
+            balanceOwed: p.earned // earned but not yet paid out
+        })).sort((a, b) => (b.pending + b.earned + b.paid) - (a.pending + a.earned + a.paid));
+        
+        // Grand totals
+        const totals = {
+            people: ledger.length,
+            totalPending: ledger.reduce((s, p) => s + p.pending, 0),
+            totalEarned: ledger.reduce((s, p) => s + p.earned, 0),
+            totalPaid: ledger.reduce((s, p) => s + p.paid, 0),
+            totalCommission: ledger.reduce((s, p) => s + p.totalCommission, 0)
+        };
+        
+        res.render('commission-ledger', { user: req.session.user, ledger, totals });
+    } catch (e) { console.error(e); res.status(500).send(e.message); }
 });
 
 app.get('/reports', requireAuth, requireAdmin, async (req, res) => {

@@ -349,7 +349,12 @@
                                         </select>
                                     </td>
                                     <td>
-                                        <button class="btn btn-xs btn-success" onclick="payVendor(<%= vi %>, <%= v.totalVendorCost - v.paymentToVendor %>)">💰</button>
+                                        <% const vDue = (v.totalVendorCost || 0) - (v.paymentToVendor || 0); %>
+                                        <% if (vDue > 0) { %>
+                                            <button class="btn btn-xs btn-success" onclick="payVendor(<%= vi %>, '<%= (v.vendorName || '').replace(/'/g, '') %>', <%= v.totalVendorCost || 0 %>, <%= v.paymentToVendor || 0 %>)">💰 Pay</button>
+                                        <% } else { %>
+                                            <span class="badge success" style="font-size:9px;">✓ Paid</span>
+                                        <% } %>
                                         <button class="btn btn-xs btn-danger" onclick="deleteVendor(<%= vi %>)">×</button>
                                     </td>
                                 </tr>
@@ -358,6 +363,96 @@
                     </table>
                     <% if (!quotation.vendorProcurement || quotation.vendorProcurement.length === 0) { %>
                         <div style="padding: 24px; text-align: center; color: var(--text-3); font-size: 13px;">No vendor items yet. Click <strong>+ Add Vendor Item</strong> to track procurement.</div>
+                    <% } %>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ===== JOB COSTING SHEET & COMMISSION ===== -->
+        <% 
+            const revenue = quotation.grandTotal || 0;
+            const vendorCost = quotation.totalVendorCost || 0;
+            const conveyance = quotation.conveyanceAllowance || 0;
+            const leadComm = quotation.leadCommissionAmount || 0;
+            const engComm = quotation.engineerCommissionAmount || 0;
+            const netProfit = quotation.netProfit !== undefined ? quotation.netProfit : (revenue - vendorCost - conveyance - leadComm - engComm);
+            const commBase = quotation.commissionBase === 'gross' ? revenue : Math.max(0, revenue - vendorCost);
+            const fullyPaid = (quotation.totalPaid || 0) >= revenue && revenue > 0;
+            const payoutStatus = quotation.payoutStatus || 'Locked';
+        %>
+        <div class="card" style="border: 2px solid #059669; margin-top: 14px;">
+            <div class="card-header" style="background: linear-gradient(135deg, #ecfdf5, #ffffff);">
+                <div>
+                    <div class="card-title" style="color: #047857;">🧮 Job Costing Sheet & Commission</div>
+                    <div class="card-subtitle">Net profit after vendor, conveyance & commissions</div>
+                </div>
+                <button class="btn btn-sm btn-secondary" onclick="openModal('costingModal')">⚙️ Set Details</button>
+            </div>
+            <div class="card-body">
+                <!-- Category + People -->
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px;">
+                    <div style="background: var(--surface-2); padding: 10px 12px; border-radius: 8px;">
+                        <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Category</div>
+                        <div style="font-weight: 700; font-size: 14px;"><%= quotation.orderCategory || 'CCTV' %></div>
+                    </div>
+                    <div style="background: var(--surface-2); padding: 10px 12px; border-radius: 8px;">
+                        <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Lead Partner</div>
+                        <div style="font-weight: 700; font-size: 14px;"><%= quotation.leadPartner || '—' %></div>
+                    </div>
+                    <div style="background: var(--surface-2); padding: 10px 12px; border-radius: 8px;">
+                        <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Engineer</div>
+                        <div style="font-weight: 700; font-size: 14px;"><%= quotation.assignedEngineer || '—' %></div>
+                    </div>
+                </div>
+                
+                <!-- Costing breakdown -->
+                <div style="background: #f9fafb; border-radius: 10px; padding: 16px; margin-bottom: 14px;">
+                    <div style="display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px;">
+                        <span>💰 Gross Revenue</span>
+                        <span class="font-mono font-bold" style="color: #16a34a;"><%= formatINR(revenue) %></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; border-top: 1px dashed #e5e7eb;">
+                        <span>🏪 (−) Vendor Cost</span>
+                        <span class="font-mono" style="color: #dc2626;">− <%= formatINR(vendorCost) %></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px;">
+                        <span>🛵 (−) Conveyance (<%= quotation.conveyanceKm || 0 %>km × ₹<%= quotation.conveyanceRate || 0 %>)</span>
+                        <span class="font-mono" style="color: #dc2626;">− <%= formatINR(conveyance) %></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px;">
+                        <span>🤝 (−) Lead Commission (<%= quotation.leadCommissionPct || 0 %>%)</span>
+                        <span class="font-mono" style="color: #dc2626;">− <%= formatINR(leadComm) %></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px;">
+                        <span>🔧 (−) Engineer Commission (<%= quotation.engineerCommissionPct || 0 %>%)</span>
+                        <span class="font-mono" style="color: #dc2626;">− <%= formatINR(engComm) %></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 12px 0 4px; font-size: 17px; font-weight: 800; border-top: 2px solid #059669; margin-top: 6px;">
+                        <span>✅ NET PROFIT</span>
+                        <span class="font-mono" style="color: <%= netProfit >= 0 ? '#059669' : '#dc2626' %>;"><%= formatINR(netProfit) %></span>
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-3); margin-top: 4px;">
+                        Commission on <strong><%= quotation.commissionBase === 'gross' ? 'Gross Revenue' : 'Profit (Revenue − Vendor)' %></strong> = <%= formatINR(commBase) %>
+                    </div>
+                </div>
+                
+                <!-- Payout status -->
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-radius: 10px; background: <%= payoutStatus === 'Paid' ? '#f0fdf4' : fullyPaid ? '#eff6ff' : '#fef2f2' %>;">
+                    <div>
+                        <div style="font-size: 13px; font-weight: 700; color: <%= payoutStatus === 'Paid' ? '#16a34a' : fullyPaid ? '#2563eb' : '#dc2626' %>;">
+                            <% if (payoutStatus === 'Paid') { %>✓ Commission Paid Out
+                            <% } else if (fullyPaid) { %>🔓 Payout Unlocked — ready to pay
+                            <% } else { %>🔒 Payout Locked
+                            <% } %>
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-3);">
+                            <% if (!fullyPaid) { %>Client payment pending — commission tabhi milega jab full payment aaye
+                            <% } else { %>Lead: <%= formatINR(leadComm) %> · Engineer: <%= formatINR(engComm) %> = <%= formatINR(leadComm + engComm) %> total
+                            <% } %>
+                        </div>
+                    </div>
+                    <% if (fullyPaid && payoutStatus !== 'Paid') { %>
+                        <button class="btn btn-sm btn-success" onclick="markPayout()">💸 Mark Paid Out</button>
                     <% } %>
                 </div>
             </div>
@@ -437,11 +532,155 @@
     </div>
 </div>
 
+<!-- VENDOR PAYMENT MODAL (proper, not browser popup) -->
+<div class="modal-overlay" id="vendorPayModal">
+    <div class="modal" style="max-width: 420px;">
+        <div class="modal-header">
+            <div class="modal-title">💰 Pay Vendor</div>
+            <button class="modal-close" onclick="closeModal('vendorPayModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div id="vpInfo" style="background: #faf5ff; border-radius: 8px; padding: 12px; margin-bottom: 14px;">
+                <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                    <span style="color: var(--text-3);">Vendor:</span><span class="font-bold" id="vp_vendor">-</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                    <span style="color: var(--text-3);">Total Cost:</span><span class="font-mono" id="vp_total">-</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                    <span style="color: var(--text-3);">Already Paid:</span><span class="font-mono" style="color: #16a34a;" id="vp_paid">-</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 14px; font-weight: 700; padding-top: 6px; border-top: 1px solid #e9d5ff;">
+                    <span>Balance Due:</span><span class="font-mono" style="color: #dc2626;" id="vp_due">-</span>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Payment Amount (₹) *</label>
+                <input type="number" id="vp_amount" placeholder="0" style="font-size: 18px; font-weight: 700;" oninput="validateVendorPay()">
+                <div id="vp_error" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: none;"></div>
+            </div>
+            <div style="display: flex; gap: 6px; margin-top: 8px;">
+                <button class="btn btn-xs btn-secondary" onclick="setVendorPayFull()" type="button">Pay Full Due</button>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('vendorPayModal')">Cancel</button>
+            <button class="btn btn-success" id="vp_submit" onclick="submitVendorPay()">Record Payment</button>
+        </div>
+    </div>
+</div>
+
+<!-- JOB COSTING SETTINGS MODAL -->
+<div class="modal-overlay" id="costingModal">
+    <div class="modal" style="max-width: 520px;">
+        <div class="modal-header">
+            <div class="modal-title">⚙️ Job Costing & Commission Settings</div>
+            <button class="modal-close" onclick="closeModal('costingModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Order Category</label>
+                    <select id="cs_category">
+                        <% ['Hardware','Software','CCTV','Biometric'].forEach(c => { %>
+                            <option <%= (quotation.orderCategory||'CCTV') === c ? 'selected' : '' %>><%= c %></option>
+                        <% }) %>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Commission Base</label>
+                    <select id="cs_base" onchange="previewCosting()">
+                        <option value="profit" <%= (quotation.commissionBase||'profit') === 'profit' ? 'selected' : '' %>>Profit (Revenue − Vendor) ✅</option>
+                        <option value="gross" <%= quotation.commissionBase === 'gross' ? 'selected' : '' %>>Gross Revenue</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Lead Partner (jisne lead di)</label>
+                    <input type="text" id="cs_lead" value="<%= quotation.leadPartner || '' %>" placeholder="Name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Assigned Engineer</label>
+                    <input type="text" id="cs_engineer" value="<%= quotation.assignedEngineer || '' %>" placeholder="Name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Conveyance KM</label>
+                    <input type="number" id="cs_km" value="<%= quotation.conveyanceKm || 0 %>" oninput="previewCosting()">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Per KM Rate (₹)</label>
+                    <input type="number" id="cs_rate" value="<%= quotation.conveyanceRate || 10 %>" oninput="previewCosting()">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Lead Commission %</label>
+                    <input type="number" id="cs_leadpct" value="<%= quotation.leadCommissionPct || 10 %>" oninput="previewCosting()">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Engineer Commission %</label>
+                    <input type="number" id="cs_engpct" value="<%= quotation.engineerCommissionPct || 30 %>" oninput="previewCosting()">
+                </div>
+            </div>
+            <!-- Live preview -->
+            <div id="cs_preview" style="background: #ecfdf5; border-radius: 8px; padding: 12px; margin-top: 12px; font-size: 13px;">
+                <div style="display:flex; justify-content:space-between;"><span>Lead Commission:</span><span class="font-mono" id="cs_pv_lead">₹0</span></div>
+                <div style="display:flex; justify-content:space-between;"><span>Engineer Commission:</span><span class="font-mono" id="cs_pv_eng">₹0</span></div>
+                <div style="display:flex; justify-content:space-between; font-weight:800; border-top:1px solid #a7f3d0; margin-top:6px; padding-top:6px;"><span>Net Profit:</span><span class="font-mono" id="cs_pv_net">₹0</span></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('costingModal')">Cancel</button>
+            <button class="btn btn-success" onclick="saveCosting()">Save</button>
+        </div>
+    </div>
+</div>
+
 <script src="/js/common.js"></script>
 <script>
     const QID = '<%= quotation._id %>';
     const CLIENT_MOBILE = '<%= quotation.clientMobile %>';
     const QNUM = '<%= quotation.quotationNumber %>';
+    const CS_REVENUE = <%= quotation.grandTotal || 0 %>;
+    const CS_VENDOR = <%= quotation.totalVendorCost || 0 %>;
+    
+    // === JOB COSTING ===
+    function previewCosting() {
+        const base = document.getElementById('cs_base').value === 'gross' ? CS_REVENUE : Math.max(0, CS_REVENUE - CS_VENDOR);
+        const km = Number(document.getElementById('cs_km').value) || 0;
+        const rate = Number(document.getElementById('cs_rate').value) || 0;
+        const leadPct = Number(document.getElementById('cs_leadpct').value) || 0;
+        const engPct = Number(document.getElementById('cs_engpct').value) || 0;
+        const conveyance = km * rate;
+        const leadComm = Math.round(base * leadPct / 100);
+        const engComm = Math.round(base * engPct / 100);
+        const net = CS_REVENUE - CS_VENDOR - conveyance - leadComm - engComm;
+        document.getElementById('cs_pv_lead').textContent = '₹' + leadComm.toLocaleString('en-IN');
+        document.getElementById('cs_pv_eng').textContent = '₹' + engComm.toLocaleString('en-IN');
+        document.getElementById('cs_pv_net').textContent = '₹' + net.toLocaleString('en-IN');
+        document.getElementById('cs_pv_net').style.color = net >= 0 ? '#059669' : '#dc2626';
+    }
+    document.addEventListener('DOMContentLoaded', () => { if (document.getElementById('cs_base')) previewCosting(); });
+    
+    async function saveCosting() {
+        const data = {
+            orderCategory: document.getElementById('cs_category').value,
+            commissionBase: document.getElementById('cs_base').value,
+            leadPartner: document.getElementById('cs_lead').value,
+            assignedEngineer: document.getElementById('cs_engineer').value,
+            conveyanceKm: Number(document.getElementById('cs_km').value) || 0,
+            conveyanceRate: Number(document.getElementById('cs_rate').value) || 0,
+            leadCommissionPct: Number(document.getElementById('cs_leadpct').value) || 0,
+            engineerCommissionPct: Number(document.getElementById('cs_engpct').value) || 0
+        };
+        const res = await api(`/api/quotations/${QID}/costing`, { method: 'POST', body: JSON.stringify(data) });
+        if (res.success) { showToast('✓ Job costing saved', 'success'); setTimeout(() => location.reload(), 600); }
+        else showToast(res.error || 'Failed', 'error');
+    }
+    
+    async function markPayout() {
+        if (!confirm('Commission paid out mark karein? (Lead + Engineer ko paisa de diya)')) return;
+        const res = await api(`/api/quotations/${QID}/payout`, { method: 'POST', body: '{}' });
+        if (res.success) { showToast('✓ Payout marked as paid', 'success'); setTimeout(() => location.reload(), 600); }
+        else showToast(res.error || 'Failed', 'error');
+    }
     
     function sendWA() {
         const mob = CLIENT_MOBILE.replace(/\D/g, '').slice(-10);
@@ -508,12 +747,50 @@
         const res = await api(`/api/quotations/${QID}/vendor`, { method: 'POST', body: JSON.stringify(data) });
         if (res.success) { showToast('Vendor item added', 'success'); setTimeout(() => location.reload(), 500); }
     }
-    async function payVendor(vi, maxDue) {
-        const amount = prompt('Payment to vendor (₹). Due: ₹' + maxDue.toLocaleString('en-IN'), maxDue);
-        if (!amount || Number(amount) <= 0) return;
-        const res = await api(`/api/quotations/${QID}/vendor/${vi}`, { method: 'PUT', body: JSON.stringify({ addPayment: Number(amount) }) });
-        if (res.success) { showToast('Vendor payment recorded', 'success'); setTimeout(() => location.reload(), 500); }
+    // === VENDOR PAYMENT (proper modal, not browser popup) ===
+    let vpCurrentIdx = null, vpCurrentDue = 0;
+    
+    function payVendor(vi, vendorName, totalCost, alreadyPaid) {
+        vpCurrentIdx = vi;
+        const due = Math.max(0, totalCost - alreadyPaid);
+        vpCurrentDue = due;
+        document.getElementById('vp_vendor').textContent = vendorName || '-';
+        document.getElementById('vp_total').textContent = '₹' + totalCost.toLocaleString('en-IN');
+        document.getElementById('vp_paid').textContent = '₹' + alreadyPaid.toLocaleString('en-IN');
+        document.getElementById('vp_due').textContent = '₹' + due.toLocaleString('en-IN');
+        document.getElementById('vp_amount').value = '';
+        document.getElementById('vp_error').style.display = 'none';
+        document.getElementById('vp_submit').disabled = false;
+        openModal('vendorPayModal');
     }
+    
+    function setVendorPayFull() {
+        document.getElementById('vp_amount').value = vpCurrentDue;
+        validateVendorPay();
+    }
+    
+    function validateVendorPay() {
+        const amt = Number(document.getElementById('vp_amount').value) || 0;
+        const err = document.getElementById('vp_error');
+        const btn = document.getElementById('vp_submit');
+        if (amt <= 0) {
+            err.style.display = 'none'; btn.disabled = true; return false;
+        }
+        if (amt > vpCurrentDue) {
+            err.textContent = `⚠️ Cannot pay more than due (₹${vpCurrentDue.toLocaleString('en-IN')})`;
+            err.style.display = 'block'; btn.disabled = true; return false;
+        }
+        err.style.display = 'none'; btn.disabled = false; return true;
+    }
+    
+    async function submitVendorPay() {
+        if (!validateVendorPay()) return;
+        const amount = Number(document.getElementById('vp_amount').value);
+        const res = await api(`/api/quotations/${QID}/vendor/${vpCurrentIdx}`, { method: 'PUT', body: JSON.stringify({ addPayment: amount }) });
+        if (res.success) { showToast('✓ Vendor payment recorded', 'success'); setTimeout(() => location.reload(), 600); }
+        else showToast(res.error || 'Failed', 'error');
+    }
+    
     async function updateVendorDelivery(vi, status) {
         const res = await api(`/api/quotations/${QID}/vendor/${vi}`, { method: 'PUT', body: JSON.stringify({ deliveryStatus: status }) });
         if (res.success) showToast('Delivery: ' + status, 'success');

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Commission Ledger — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'commission' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">💰 Commission Ledger</h1>
+                <p class="page-subtitle">Lead partners & engineers ka wallet · commission tabhi credit hota hai jab client payment aaye</p>
+            </div>
+        </div>
+        
+        <!-- Summary stats -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;">
+            <div class="stat-card amber">
+                <div class="stat-label">🔒 Pending (payment awaited)</div>
+                <div class="stat-value" style="color: var(--warning);"><%= formatINR(totals.totalPending) %></div>
+                <div class="stat-meta">Locked till client pays</div>
+            </div>
+            <div class="stat-card blue">
+                <div class="stat-label">🔓 Earned (ready to pay)</div>
+                <div class="stat-value" style="color: #2563eb;"><%= formatINR(totals.totalEarned) %></div>
+                <div class="stat-meta">Payment received, payout due</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">✅ Paid Out</div>
+                <div class="stat-value" style="color: var(--success);"><%= formatINR(totals.totalPaid) %></div>
+                <div class="stat-meta">Already disbursed</div>
+            </div>
+            <div class="stat-card" style="border-left: 3px solid #6366f1;">
+                <div class="stat-label">👥 People</div>
+                <div class="stat-value" style="color: #4338ca;"><%= totals.people %></div>
+                <div class="stat-meta">Total commission: <%= formatINR(totals.totalCommission) %></div>
+            </div>
+        </div>
+        
+        <% if (ledger.length === 0) { %>
+            <div class="card">
+                <div class="card-body" style="text-align: center; padding: 50px; color: var(--text-3);">
+                    <div style="font-size: 40px;">💰</div>
+                    <div style="font-weight: 700; margin-top: 10px;">No commissions yet</div>
+                    <p style="font-size: 13px;">Kisi approved quotation ke Job Costing Sheet me Lead Partner ya Engineer set karo, phir yahan wallet dikhega.</p>
+                </div>
+            </div>
+        <% } else { %>
+            <!-- Per-person wallets -->
+            <% ledger.forEach((p, idx) => { %>
+                <div class="card" style="margin-bottom: 14px;">
+                    <div class="card-header" style="cursor: pointer;" onclick="togglePerson(<%= idx %>)">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div style="width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px;">
+                                <%= p.name.charAt(0).toUpperCase() %>
+                            </div>
+                            <div>
+                                <div class="card-title" style="margin: 0;"><%= p.name %></div>
+                                <div class="card-subtitle"><%= p.roles %> · <%= p.orders.length %> orders</div>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 20px; align-items: center;">
+                            <div style="text-align: right;">
+                                <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Balance Owed</div>
+                                <div style="font-size: 18px; font-weight: 800; color: <%= p.balanceOwed > 0 ? '#2563eb' : '#16a34a' %>;"><%= formatINR(p.balanceOwed) %></div>
+                            </div>
+                            <span style="color: var(--text-3); font-size: 18px;" id="arrow-<%= idx %>">▼</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Wallet summary bar -->
+                    <div class="card-body" style="padding-top: 0;">
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+                            <div style="background: #fffbeb; padding: 10px; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 10px; color: var(--text-3);">🔒 Pending</div>
+                                <div style="font-weight: 800; color: #d97706;"><%= formatINR(p.pending) %></div>
+                            </div>
+                            <div style="background: #eff6ff; padding: 10px; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 10px; color: var(--text-3);">🔓 Earned</div>
+                                <div style="font-weight: 800; color: #2563eb;"><%= formatINR(p.earned) %></div>
+                            </div>
+                            <div style="background: #f0fdf4; padding: 10px; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 10px; color: var(--text-3);">✅ Paid</div>
+                                <div style="font-weight: 800; color: #16a34a;"><%= formatINR(p.paid) %></div>
+                            </div>
+                            <div style="background: #f5f3ff; padding: 10px; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 10px; color: var(--text-3);">Σ Total</div>
+                                <div style="font-weight: 800; color: #6d28d9;"><%= formatINR(p.totalCommission) %></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Order breakdown (collapsible) -->
+                    <div id="person-<%= idx %>" style="display: none;">
+                        <div class="table-wrap">
+                            <table class="data-table">
+                                <thead><tr><th>Order</th><th>Client</th><th>Role</th><th>Category</th><th>Order Value</th><th>Commission</th><th>Status</th></tr></thead>
+                                <tbody>
+                                    <% p.orders.forEach(o => { %>
+                                        <tr>
+                                            <td class="font-mono font-bold" style="font-size: 11px;">
+                                                <a href="/cctv/quotation/<%= o.id %>" style="color: var(--primary); text-decoration: none;"><%= o.num %></a>
+                                            </td>
+                                            <td style="font-size: 12px;"><%= o.client %></td>
+                                            <td><span class="badge <%= o.role === 'Lead' ? 'info' : 'purple' %>" style="font-size: 9px;"><%= o.role %></span></td>
+                                            <td style="font-size: 11px;"><%= o.category || '-' %></td>
+                                            <td class="font-mono" style="font-size: 12px;"><%= formatINR(o.orderValue) %></td>
+                                            <td class="font-mono font-bold" style="color: #6d28d9;"><%= formatINR(o.amount) %></td>
+                                            <td>
+                                                <% if (o.state === 'Paid') { %>
+                                                    <span class="badge success" style="font-size: 9px;">✅ Paid</span>
+                                                <% } else if (o.state === 'Earned') { %>
+                                                    <span class="badge info" style="font-size: 9px;">🔓 Ready</span>
+                                                <% } else { %>
+                                                    <span class="badge warning" style="font-size: 9px;">🔒 Pending</span>
+                                                <% } %>
+                                            </td>
+                                        </tr>
+                                    <% }) %>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            <% }) %>
+        <% } %>
+        
+        <!-- Info note -->
+        <div class="card" style="background: #f8fafc; margin-top: 8px;">
+            <div class="card-body" style="font-size: 12px; color: var(--text-3);">
+                <strong>Kaise kaam karta hai:</strong> Commission har order ke Job Costing Sheet se aata hai. 
+                <span style="color: #d97706;">🔒 Pending</span> = client ne full payment nahi kiya (locked). 
+                <span style="color: #2563eb;">🔓 Earned</span> = payment aa gaya, ab pay kar sakte ho. 
+                <span style="color: #16a34a;">✅ Paid</span> = order ke Manage page pe "Mark Paid Out" kar diya.
+                Payout order ke <strong>Job Costing Sheet</strong> se hota hai (wahan "Mark Paid Out" button).
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    function togglePerson(idx) {
+        const el = document.getElementById('person-' + idx);
+        const arrow = document.getElementById('arrow-' + idx);
+        if (el.style.display === 'none') {
+            el.style.display = 'block';
+            arrow.textContent = '▲';
+        } else {
+            el.style.display = 'none';
+            arrow.textContent = '▼';
+        }
+    }
+</script>
+</body>
+</html>

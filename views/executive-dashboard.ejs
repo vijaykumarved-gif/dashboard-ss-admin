@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Executive Dashboard — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'executive' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">📊 Executive Profitability Dashboard</h1>
+                <p class="page-subtitle">Total sales vs net profit · category-wise · top earners — real-time</p>
+            </div>
+            <div style="display: flex; gap: 6px;">
+                <% ['all','month','quarter','year'].forEach(pd => { %>
+                    <a href="/executive-dashboard?period=<%= pd %>" 
+                       class="btn btn-sm <%= period === pd ? 'btn-primary' : 'btn-secondary' %>">
+                        <%= pd === 'all' ? 'All Time' : pd === 'month' ? 'This Month' : pd === 'quarter' ? 'This Quarter' : 'This Year' %>
+                    </a>
+                <% }) %>
+            </div>
+        </div>
+        
+        <!-- ===== HERO: Sales vs Net Profit ===== -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;">
+            <div class="card" style="background: linear-gradient(135deg, #1e3a8a, #2563eb); color: white; border: none;">
+                <div class="card-body">
+                    <div style="font-size: 12px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em;">💰 Total Sales</div>
+                    <div style="font-size: 34px; font-weight: 800; margin: 6px 0;"><%= formatINR(totals.totalSales) %></div>
+                    <div style="font-size: 12px; opacity: 0.85;"><%= totals.orderCount %> approved orders · <%= totals.collectionRate %>% collected</div>
+                </div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #065f46, #059669); color: white; border: none;">
+                <div class="card-body">
+                    <div style="font-size: 12px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em;">✅ Net Profit</div>
+                    <div style="font-size: 34px; font-weight: 800; margin: 6px 0;"><%= formatINR(totals.totalNetProfit) %></div>
+                    <div style="font-size: 12px; opacity: 0.85;"><%= totals.profitMargin %>% profit margin</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ===== COST BREAKDOWN BAR ===== -->
+        <div class="card" style="margin-bottom: 16px;">
+            <div class="card-header"><div class="card-title">💸 Where the money goes</div></div>
+            <div class="card-body">
+                <% 
+                    const s = totals.totalSales || 1;
+                    const segs = [
+                        { label: 'Net Profit', val: totals.totalNetProfit, color: '#059669' },
+                        { label: 'Vendor Cost', val: totals.totalVendorCost, color: '#dc2626' },
+                        { label: 'Lead Comm', val: totals.totalLeadComm, color: '#2563eb' },
+                        { label: 'Engineer Comm', val: totals.totalEngComm, color: '#7c3aed' },
+                        { label: 'Conveyance', val: totals.totalConveyance, color: '#d97706' }
+                    ];
+                %>
+                <div style="display: flex; height: 32px; border-radius: 8px; overflow: hidden; margin-bottom: 12px;">
+                    <% segs.forEach(seg => { const pct = Math.max(0, (seg.val / s) * 100); if (pct > 0) { %>
+                        <div style="width: <%= pct %>%; background: <%= seg.color %>; min-width: <%= pct > 3 ? 'auto' : '0' %>;" title="<%= seg.label %>: <%= formatINR(seg.val) %>"></div>
+                    <% } }) %>
+                </div>
+                <div style="display: flex; flex-wrap: wrap; gap: 14px;">
+                    <% segs.forEach(seg => { %>
+                        <div style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
+                            <span style="width: 12px; height: 12px; border-radius: 3px; background: <%= seg.color %>; display: inline-block;"></span>
+                            <span style="color: var(--text-3);"><%= seg.label %>:</span>
+                            <span class="font-mono font-bold"><%= formatINR(seg.val) %></span>
+                        </div>
+                    <% }) %>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ===== CATEGORY-WISE PROFIT ===== -->
+        <div class="card" style="margin-bottom: 16px;">
+            <div class="card-header">
+                <div class="card-title">🗂️ Category-wise Profit</div>
+                <div class="card-subtitle">Kaunsa segment zyada profit de raha hai</div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Category</th><th>Orders</th><th>Sales</th><th>Vendor Cost</th><th>Net Profit</th><th>Margin</th></tr></thead>
+                    <tbody>
+                        <% if (categoryList.length === 0) { %>
+                            <tr><td colspan="6" style="text-align: center; padding: 30px; color: var(--text-3);">No data yet</td></tr>
+                        <% } else { categoryList.forEach(c => { 
+                            const margin = c.sales > 0 ? ((c.netProfit / c.sales) * 100).toFixed(1) : 0;
+                            const catIcon = c.name === 'CCTV' ? '📹' : c.name === 'Hardware' ? '💻' : c.name === 'Software' ? '⚙️' : c.name === 'Biometric' ? '👆' : '📦';
+                        %>
+                            <tr>
+                                <td class="font-bold"><%= catIcon %> <%= c.name %></td>
+                                <td class="font-mono"><%= c.count %></td>
+                                <td class="font-mono"><%= formatINR(c.sales) %></td>
+                                <td class="font-mono" style="color: #dc2626;"><%= formatINR(c.vendorCost) %></td>
+                                <td class="font-mono font-bold" style="color: <%= c.netProfit >= 0 ? '#059669' : '#dc2626' %>;"><%= formatINR(c.netProfit) %></td>
+                                <td>
+                                    <span class="badge <%= margin > 20 ? 'success' : margin > 0 ? 'warning' : 'danger' %>" style="font-size: 10px;"><%= margin %>%</span>
+                                </td>
+                            </tr>
+                        <% }) } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- ===== TOP EARNERS ===== -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+            <!-- Top Engineers -->
+            <div class="card">
+                <div class="card-header"><div class="card-title">🔧 Top Engineers</div></div>
+                <div class="card-body">
+                    <% if (topEngineers.length === 0) { %>
+                        <div style="text-align: center; padding: 20px; color: var(--text-3); font-size: 13px;">No engineer commissions yet</div>
+                    <% } else { const maxEng = topEngineers[0].amount || 1; topEngineers.forEach((e, i) => { %>
+                        <div style="margin-bottom: 12px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                                <span style="font-weight: 700;"><%= ['🥇','🥈','🥉','4.','5.'][i] %> <%= e.name %></span>
+                                <span class="font-mono font-bold" style="color: #7c3aed;"><%= formatINR(e.amount) %></span>
+                            </div>
+                            <div style="height: 6px; background: #ede9fe; border-radius: 4px; overflow: hidden;">
+                                <div style="height: 100%; width: <%= (e.amount / maxEng) * 100 %>%; background: #7c3aed;"></div>
+                            </div>
+                        </div>
+                    <% }) } %>
+                </div>
+            </div>
+            
+            <!-- Top Lead Partners -->
+            <div class="card">
+                <div class="card-header"><div class="card-title">🤝 Top Lead Partners</div></div>
+                <div class="card-body">
+                    <% if (topLeadPartners.length === 0) { %>
+                        <div style="text-align: center; padding: 20px; color: var(--text-3); font-size: 13px;">No lead commissions yet</div>
+                    <% } else { const maxLead = topLeadPartners[0].amount || 1; topLeadPartners.forEach((l, i) => { %>
+                        <div style="margin-bottom: 12px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                                <span style="font-weight: 700;"><%= ['🥇','🥈','🥉','4.','5.'][i] %> <%= l.name %></span>
+                                <span class="font-mono font-bold" style="color: #2563eb;"><%= formatINR(l.amount) %></span>
+                            </div>
+                            <div style="height: 6px; background: #dbeafe; border-radius: 4px; overflow: hidden;">
+                                <div style="height: 100%; width: <%= (l.amount / maxLead) * 100 %>%; background: #2563eb;"></div>
+                            </div>
+                        </div>
+                    <% }) } %>
+                </div>
+            </div>
+        </div>
+        
+        <div style="height: 20px;"></div>
+    </main>
+</div>
+
+<script src="/js/common.js"></script>
+</body>
+</html>

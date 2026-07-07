@@ -100,9 +100,12 @@
                 <h1 class="page-title">Hardware & Repair</h1>
                 <p class="page-subtitle">Service operations, vendor pricing, agent dispatch & follow-ups</p>
             </div>
-            <a href="/admin/export?agent=<%= query.agent || '' %>&date=<%= query.date || '' %>" class="btn btn-success">
-                ⬇️ Download Excel
-            </a>
+            <div style="display: flex; gap: 8px;">
+                <button onclick="findDuplicates()" class="btn btn-secondary">🧹 Find Duplicates</button>
+                <a href="/admin/export?agent=<%= query.agent || '' %>&date=<%= query.date || '' %>" class="btn btn-success">
+                    ⬇️ Download Excel
+                </a>
+            </div>
         </div>
         
         <!-- ===== KPI STATS ===== -->
@@ -338,8 +341,23 @@
                     <div class="card-subtitle"><%= entries.length %> entries</div>
                 </div>
             </div>
+            <div class="card-body" style="padding-bottom: 0;">
+                <!-- Search + quick filters -->
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px;">
+                    <input type="text" id="ledgerSearch" placeholder="🔍 Search customer / mobile / location..." 
+                        style="flex: 1; min-width: 220px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px;"
+                        oninput="filterLedger()">
+                    <select id="ledgerStatusFilter" onchange="filterLedger()" style="padding: 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px;">
+                        <option value="">All Status</option>
+                        <option value="pending">Pending only</option>
+                        <option value="completed">Completed only</option>
+                        <option value="wapending">WA Pending</option>
+                    </select>
+                    <span id="ledgerCount" style="font-size: 12px; color: var(--text-3);"></span>
+                </div>
+            </div>
             <div class="table-wrap">
-                <table class="data-table">
+                <table class="data-table" id="ledgerTable">
                     <thead>
                         <tr>
                             <th>Date & Time</th>
@@ -358,8 +376,14 @@
                         <% } else { entries.forEach(function(entry) {
                             const followDateStr = entry.followUpDate ? entry.followUpDate.toISOString().split('T')[0] : null;
                             const isToday = followDateStr === tDate && entry.callStatus !== 'Done';
+                            const isPending = entry.jobStatus === 'Assigned';
+                            const isWaPending = !entry.whatsappSent && entry.jobStatus !== 'Assigned';
+                            const searchStr = ((entry.customerName || '') + ' ' + (entry.mobileNumber || '') + ' ' + (entry.location || '')).toLowerCase();
                         %>
-                        <tr>
+                        <tr class="ledger-row" 
+                            data-search="<%= searchStr %>" 
+                            data-status="<%= isPending ? 'pending' : 'completed' %>"
+                            data-wa="<%= isWaPending ? 'wapending' : '' %>">
                             <td>
                                 <div class="font-bold"><%= entry.createdAt.toLocaleDateString() %></div>
                                 <div class="text-muted" style="font-size: 11px;">🕒 <%= entry.createdAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) %></div>
@@ -434,10 +458,129 @@
     </main>
 </div>
 
+<script>
+    function filterLedger() {
+        const q = (document.getElementById('ledgerSearch').value || '').toLowerCase().trim();
+        const statusF = document.getElementById('ledgerStatusFilter').value;
+        const rows = document.querySelectorAll('.ledger-row');
+        let visible = 0;
+        rows.forEach(row => {
+            const matchSearch = !q || (row.dataset.search || '').includes(q);
+            let matchStatus = true;
+            if (statusF === 'pending') matchStatus = row.dataset.status === 'pending';
+            else if (statusF === 'completed') matchStatus = row.dataset.status === 'completed';
+            else if (statusF === 'wapending') matchStatus = row.dataset.wa === 'wapending';
+            const show = matchSearch && matchStatus;
+            row.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+        const countEl = document.getElementById('ledgerCount');
+        if (countEl) countEl.textContent = visible + ' shown';
+    }
+    // init count
+    document.addEventListener('DOMContentLoaded', filterLedger);
+
+    // === DUPLICATE CLEANUP ===
+    async function findDuplicates() {
+        openModal('dupModal');
+        document.getElementById('dupBody').innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-3);">🔍 Scanning for duplicates...</div>';
+        document.getElementById('dupSummary').textContent = 'Scanning...';
+        document.getElementById('dupDeleteBtn').style.display = 'none';
+        try {
+            const res = await fetch('/api/admin/duplicates');
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error || 'Failed');
+            
+            if (data.groups.length === 0) {
+                document.getElementById('dupSummary').textContent = 'All clean!';
+                document.getElementById('dupBody').innerHTML = '<div style="text-align:center; padding:40px;"><div style="font-size:40px;">✅</div><div style="font-weight:700; margin-top:8px;">No duplicates found!</div><div style="color:var(--text-3); font-size:13px;">Har customer ki entries unique hain.</div></div>';
+                return;
+            }
+            
+            document.getElementById('dupSummary').textContent = `${data.groups.length} customers with duplicates · ${data.totalDuplicates} extra entries`;
+            document.getElementById('dupDeleteBtn').style.display = 'inline-flex';
+            
+            let html = '<div style="font-size:12px; color:var(--text-3); margin-bottom:12px;">💡 Har group me sabse latest/best entry KEEP karo (checkbox unchecked), baaki duplicates SELECT karke delete karo. WA SENT aur revenue wali entries usually keep karni chahiye.</div>';
+            
+            data.groups.forEach(g => {
+                html += `<div style="border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:12px;">`;
+                html += `<div style="font-weight:700; margin-bottom:8px;">👤 ${g.customerName} <span style="color:var(--text-3); font-weight:400; font-size:12px;">· ${g.mobile} · ${g.count} entries</span></div>`;
+                
+                g.entries.forEach((e, i) => {
+                    const d = new Date(e.date);
+                    const dateStr = d.toLocaleDateString('en-IN') + ' ' + d.toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'});
+                    const statusBadge = e.status === 'Completed' ? `<span style="color:#16a34a;">₹${e.revenue||0}</span>` : '<span style="color:#d97706;">Pending</span>';
+                    const waBadge = e.waSent ? '✓ WA' : '';
+                    // First one (latest) suggested to keep - unchecked; rest checked for deletion
+                    const checked = i === 0 ? '' : 'checked';
+                    html += `
+                        <label style="display:flex; align-items:center; gap:10px; padding:8px; border-radius:6px; background:${i===0?'#f0fdf4':'#fef2f2'}; margin-bottom:6px; cursor:pointer;">
+                            <input type="checkbox" class="dup-check" value="${e.id}" ${checked}>
+                            <div style="flex:1; font-size:12px;">
+                                <div>${dateStr} ${i===0?'<strong style="color:#16a34a;">(latest - keep)</strong>':''}</div>
+                                <div style="color:var(--text-3);">${e.location||'-'} · ${statusBadge} · ${waBadge} · ${e.agent||''}</div>
+                            </div>
+                        </label>`;
+                });
+                html += `</div>`;
+            });
+            
+            document.getElementById('dupBody').innerHTML = html;
+        } catch (e) {
+            document.getElementById('dupBody').innerHTML = `<div style="text-align:center; padding:30px; color:var(--danger);">Error: ${e.message}</div>`;
+        }
+    }
+    
+    async function deleteDuplicates() {
+        const checked = Array.from(document.querySelectorAll('.dup-check:checked')).map(c => c.value);
+        if (checked.length === 0) {
+            showToast('Koi entry select nahi ki', 'error');
+            return;
+        }
+        if (!confirm(`${checked.length} duplicate entries delete karni hain? Ye permanent hai.`)) return;
+        try {
+            const res = await fetch('/api/admin/duplicates/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: checked })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(`✓ ${data.deleted} duplicates deleted`, 'success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showToast(data.error || 'Failed', 'error');
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    }
+</script>
+
 <!-- Photo Modal -->
 <div class="photo-modal" id="photoModal">
     <button class="photo-modal-close" onclick="closePhotoModal()">×</button>
     <img id="photoModalImg" src="" alt="">
+</div>
+
+<!-- Duplicate Cleanup Modal -->
+<div class="modal-overlay" id="dupModal">
+    <div class="modal" style="max-width: 720px; max-height: 85vh; overflow-y: auto;">
+        <div class="modal-header">
+            <div>
+                <div class="modal-title">🧹 Duplicate Entries Cleanup</div>
+                <div class="card-subtitle" id="dupSummary">Scanning...</div>
+            </div>
+            <button class="modal-close" onclick="closeModal('dupModal')">×</button>
+        </div>
+        <div class="modal-body" id="dupBody">
+            <div style="text-align: center; padding: 30px; color: var(--text-3);">Loading...</div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('dupModal')">Close</button>
+            <button class="btn btn-danger" id="dupDeleteBtn" onclick="deleteDuplicates()" style="display:none;">🗑️ Delete Selected</button>
+        </div>
+    </div>
 </div>
 
 <script src="/js/common.js"></script>

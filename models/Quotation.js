@@ -99,6 +99,30 @@ const quotationSchema = new mongoose.Schema({
     totalVendorPaid: { type: Number, default: 0 },
     grossProfit: { type: Number, default: 0 }, // grandTotal - totalVendorCost
     
+    // ===== JOB COSTING & COMMISSION (Phase 1) =====
+    orderCategory: { type: String, default: 'CCTV' }, // Hardware, Software, CCTV, Biometric
+    
+    // Lead source & engineer (mandatory for commission)
+    leadPartner: { type: String, default: '' },      // jisne lead di (lead generator)
+    assignedEngineer: { type: String, default: '' }, // kaam karne wala engineer
+    
+    // Conveyance (petrol/travel)
+    conveyanceKm: { type: Number, default: 0 },
+    conveyanceRate: { type: Number, default: 10 },   // per km rate (₹)
+    conveyanceAllowance: { type: Number, default: 0 }, // km * rate
+    
+    // Commission settings
+    commissionBase: { type: String, default: 'profit' }, // 'profit' (Revenue-Vendor) or 'gross' (total)
+    leadCommissionPct: { type: Number, default: 10 },
+    engineerCommissionPct: { type: Number, default: 30 },
+    leadCommissionAmount: { type: Number, default: 0 },
+    engineerCommissionAmount: { type: Number, default: 0 },
+    
+    // Job costing result
+    netProfit: { type: Number, default: 0 }, // Revenue - (Vendor + Conveyance + LeadComm + EngComm)
+    jobCostingLocked: { type: Boolean, default: false }, // true when payment fully received
+    payoutStatus: { type: String, default: 'Locked' }, // Locked (payment pending) / Unlocked (ready to pay) / Paid
+    
     // Remark for tracking
     remark: { type: String, default: '' },
     
