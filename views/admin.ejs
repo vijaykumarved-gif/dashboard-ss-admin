@@ -182,13 +182,21 @@
                     <div>Status / Action</div>
                 </div>
                 
-                <% orders.forEach(order => { %>
-                <div class="queue-row">
+                <% 
+                // SMART: detect duplicate requests (same mobile + same requirement)
+                const seenReq = new Set();
+                orders.forEach(order => { 
+                    const dupKey = ((order.mobileNumber || '') + '|' + (order.description || '')).toLowerCase();
+                    const isDup = seenReq.has(dupKey);
+                    seenReq.add(dupKey);
+                %>
+                <div class="queue-row" style="<%= isDup ? 'background:#fff7ed; border-left:3px solid #f97316;' : '' %>">
                     <!-- Customer -->
                     <div>
                         <div class="font-bold"><%= order.customerName %></div>
                         <div class="text-muted" style="font-size: 11px;"><%= order.mobileNumber %></div>
                         <div class="timer-badge">⏳ <span class="live-timer" data-time="<%= order.createdAt.toISOString() %>"></span></div>
+                        <% if (isDup) { %><span class="badge warning" style="margin-top:4px; display:inline-block; font-size:9px;">⚠️ Duplicate request</span><% } %>
                     </div>
                     
                     <!-- Requirement -->
@@ -221,6 +229,9 @@
                         const sc = order.status === 'Completed' ? 'success' : order.status === 'In Progress' ? 'info' : 'warning';
                         %>
                         <span class="badge <%= sc %>" style="display: inline-block; margin-bottom: 8px;"><%= order.status %></span>
+                        <% if (order.status !== 'Completed') { %>
+                            <button onclick="deleteOrder('<%= order._id %>', '<%= (order.customerName || '').replace(/'/g, '') %>')" class="btn btn-xs btn-danger" style="display:block; margin-bottom:6px;">🗑️ Remove</button>
+                        <% } %>
                         
                         <% if (order.status === 'Completed') { %>
                             <div style="margin-top: 6px;">
@@ -344,6 +355,11 @@
             <div class="card-body" style="padding-bottom: 0;">
                 <!-- Search + quick filters -->
                 <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px;">
+                    <div style="display: flex; gap: 4px;" id="ledgerDateBtns">
+                        <button type="button" class="btn btn-xs btn-primary" data-range="today" onclick="setLedgerRange('today', this)">📅 Today</button>
+                        <button type="button" class="btn btn-xs btn-secondary" data-range="7d" onclick="setLedgerRange('7d', this)">7 Days</button>
+                        <button type="button" class="btn btn-xs btn-secondary" data-range="all" onclick="setLedgerRange('all', this)">All</button>
+                    </div>
                     <input type="text" id="ledgerSearch" placeholder="🔍 Search customer / mobile / location..." 
                         style="flex: 1; min-width: 220px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px;"
                         oninput="filterLedger()">
@@ -383,7 +399,8 @@
                         <tr class="ledger-row" 
                             data-search="<%= searchStr %>" 
                             data-status="<%= isPending ? 'pending' : 'completed' %>"
-                            data-wa="<%= isWaPending ? 'wapending' : '' %>">
+                            data-wa="<%= isWaPending ? 'wapending' : '' %>"
+                            data-date="<%= entry.createdAt.toISOString().split('T')[0] %>">
                             <td>
                                 <div class="font-bold"><%= entry.createdAt.toLocaleDateString() %></div>
                                 <div class="text-muted" style="font-size: 11px;">🕒 <%= entry.createdAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) %></div>
@@ -459,6 +476,22 @@
 </div>
 
 <script>
+    // === LEDGER DATE RANGE (default: Today, smart fallback to All) ===
+    let ledgerRange = 'today';
+    function setLedgerRange(range, btn) {
+        ledgerRange = range;
+        document.querySelectorAll('#ledgerDateBtns button').forEach(b => { b.classList.remove('btn-primary'); b.classList.add('btn-secondary'); });
+        if (btn) { btn.classList.remove('btn-secondary'); btn.classList.add('btn-primary'); }
+        filterLedger();
+    }
+    function dateMatches(dateStr) {
+        if (ledgerRange === 'all' || !dateStr) return true;
+        const today = new Date(); today.setHours(0,0,0,0);
+        const d = new Date(dateStr + 'T00:00:00');
+        if (ledgerRange === 'today') return d.getTime() === today.getTime();
+        if (ledgerRange === '7d') { const wk = new Date(today); wk.setDate(wk.getDate() - 7); return d >= wk; }
+        return true;
+    }
     function filterLedger() {
         const q = (document.getElementById('ledgerSearch').value || '').toLowerCase().trim();
         const statusF = document.getElementById('ledgerStatusFilter').value;
@@ -466,19 +499,41 @@
         let visible = 0;
         rows.forEach(row => {
             const matchSearch = !q || (row.dataset.search || '').includes(q);
+            const matchDate = dateMatches(row.dataset.date);
             let matchStatus = true;
             if (statusF === 'pending') matchStatus = row.dataset.status === 'pending';
             else if (statusF === 'completed') matchStatus = row.dataset.status === 'completed';
             else if (statusF === 'wapending') matchStatus = row.dataset.wa === 'wapending';
-            const show = matchSearch && matchStatus;
+            const show = matchSearch && matchStatus && matchDate;
             row.style.display = show ? '' : 'none';
             if (show) visible++;
         });
         const countEl = document.getElementById('ledgerCount');
-        if (countEl) countEl.textContent = visible + ' shown';
+        if (countEl) {
+            const label = ledgerRange === 'today' ? 'today' : ledgerRange === '7d' ? 'last 7 days' : 'all';
+            countEl.textContent = visible + ' shown (' + label + ')';
+        }
+        return visible;
     }
-    // init count
-    document.addEventListener('DOMContentLoaded', filterLedger);
+    // init: default Today; agar aaj koi entry nahi to smart fallback to All
+    document.addEventListener('DOMContentLoaded', () => {
+        const shown = filterLedger();
+        if (shown === 0 && ledgerRange === 'today') {
+            const allBtn = document.querySelector('#ledgerDateBtns button[data-range="all"]');
+            setLedgerRange('all', allBtn);
+        }
+    });
+
+    // === DELETE PART/SERVICE REQUEST ===
+    async function deleteOrder(id, name) {
+        if (!confirm('"' + name + '" ki ye request remove karni hai?')) return;
+        try {
+            const res = await fetch('/api/order/delete/' + id, { method: 'POST' });
+            const data = await res.json();
+            if (data.success) { showToast('✓ Request removed', 'success'); setTimeout(() => location.reload(), 600); }
+            else showToast(data.error || 'Failed', 'error');
+        } catch (e) { showToast('Error: ' + e.message, 'error'); }
+    }
 
     // === DUPLICATE CLEANUP ===
     async function findDuplicates() {

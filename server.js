@@ -94,7 +94,7 @@ function isMobileOrPWA(req) {
 app.get('/', (req, res) => res.redirect('/login'));
 app.get('/login', (req, res) => {
     if (req.session && req.session.user) {
-        return res.redirect(req.session.user.role === 'admin' ? '/admin' : '/agent');
+        return res.redirect(req.session.user.role === 'admin' ? '/dashboard' : '/agent');
     }
     res.render('login', { error: null });
 });
@@ -104,7 +104,7 @@ app.post('/login', (req, res) => {
     
     if (username === 'admin' && password === 'admin123') {
         req.session.user = { username: 'admin', role: 'admin' };
-        return res.redirect('/admin');
+        return res.redirect('/dashboard');
     }
     // Agents: require a password (not blank)
     if ((username === 'vijay' || username === 'rahul') && password.length >= 4) {
@@ -256,6 +256,15 @@ app.post('/api/order/status/:id', requireAuth, async (req, res) => {
 app.post('/api/order/whatsapp-sent/:id', requireAuth, async (req, res) => {
     await Order.findByIdAndUpdate(req.params.id, { whatsappSent: true });
     res.json({ success: true });
+});
+
+// Delete a part/service request (admin only) — for removing duplicates/junk
+app.post('/api/order/delete/:id', requireAuth, async (req, res) => {
+    if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+    try {
+        await Order.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // ============ HARDWARE SERVICE APIS ============
@@ -1392,6 +1401,15 @@ app.post('/api/quotations/:id/vendor', requireAuth, requireAdmin, async (req, re
         computeJobCosting(q);
         
         await q.save();
+        
+        // SMART: auto-add vendor to Vendor Management if not exists
+        if (vendorName && vendorName.trim()) {
+            const exists = await Vendor.findOne({ vendorName: new RegExp('^' + vendorName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') }).lean();
+            if (!exists) {
+                try { await Vendor.create({ vendorName: vendorName.trim(), category: 'Auto-added from orders', notes: 'Auto-created when used in ' + q.quotationNumber }); } catch (e) {}
+            }
+        }
+        
         res.json({ success: true, quotation: q });
     } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
 });
@@ -2341,17 +2359,233 @@ app.get('/amc/visit/:officeId/:visitId/report', requireAuth, async (req, res) =>
 
 // ======================== VENDOR MANAGEMENT ========================
 
+// ===== BUSINESS OWNER DASHBOARD — all businesses in one view =====
+app.get('/dashboard', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const period = req.query.period || 'month'; // today | 7d | month | all
+        const now = new Date();
+        let fromDate = null;
+        if (period === 'today') { fromDate = new Date(now); fromDate.setHours(0,0,0,0); }
+        else if (period === '7d') { fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 7); fromDate.setHours(0,0,0,0); }
+        else if (period === 'month') { fromDate = new Date(now.getFullYear(), now.getMonth(), 1); }
+        
+        const df = fromDate ? { createdAt: { $gte: fromDate } } : {};
+        
+        const [hwEntriesRaw, corpEntriesRaw, quotesRaw, otherBizRaw, amcOffices, swInvoicesRaw] = await Promise.all([
+            Entry.find({ jobStatus: 'Completed', ...df }).select('customerName mobileNumber revenue amountReceived amountDue travelExpense createdAt').lean(),
+            CorporateEntry.find(df).select('customerName mobileNumber grandTotal amountReceived amountDue createdAt').lean(),
+            Quotation.find({ status: { $in: ['Approved', 'Converted'] }, ...df }).select('quotationNumber clientName grandTotal totalPaid totalVendorCost totalVendorPaid netProfit conveyanceAllowance leadCommissionAmount engineerCommissionAmount createdAt').lean(),
+            OtherBusiness.find(df).select('revenue expenses createdAt').lean(),
+            AMCOffice.find().select('officeName payments expenses').lean(),
+            SoftwareInvoice.find({ status: { $ne: 'Cancelled' }, ...df }).select('grandTotal amountReceived createdAt').lean()
+        ]);
+        
+        // ═══════ 🧠 SMART DATA CLEANING (auto, before processing) ═══════
+        const dummyRx = /\b(dummy|test|demo|sample|asdf|xxx)\b/i;
+        const cleaning = { dummyHidden: 0, zeroHidden: 0, dupCollapsed: 0, notes: [] };
+        
+        // 1. Hide dummy/test entries from metrics
+        const isDummy = (name) => dummyRx.test((name || '').trim());
+        let hwEntries = hwEntriesRaw.filter(e => { if (isDummy(e.customerName)) { cleaning.dummyHidden++; return false; } return true; });
+        const corpEntries = corpEntriesRaw.filter(c => { if (isDummy(c.customerName)) { cleaning.dummyHidden++; return false; } return true; });
+        const quotes = quotesRaw.filter(q => { if (isDummy(q.clientName)) { cleaning.dummyHidden++; return false; } return true; });
+        const otherBiz = otherBizRaw; const swInvoices = swInvoicesRaw;
+        
+        // 2. Hide zero-value completed hardware entries (junk)
+        hwEntries = hwEntries.filter(e => { if ((e.revenue || 0) <= 0 && (e.amountReceived || 0) <= 0) { cleaning.zeroHidden++; return false; } return true; });
+        
+        // 3. Collapse exact duplicates (same mobile + same revenue + same day) — count once
+        const seenHw = new Set();
+        hwEntries = hwEntries.filter(e => {
+            const key = ((e.mobileNumber||'').replace(/\D/g,'').slice(-10)) + '|' + (e.revenue||0) + '|' + new Date(e.createdAt).toISOString().split('T')[0];
+            if (seenHw.has(key)) { cleaning.dupCollapsed++; return false; }
+            seenHw.add(key); return true;
+        });
+        
+        if (cleaning.dummyHidden) cleaning.notes.push(`${cleaning.dummyHidden} dummy/test entries metrics se hide ki`);
+        if (cleaning.zeroHidden) cleaning.notes.push(`${cleaning.zeroHidden} zero-value junk entries ignore ki`);
+        if (cleaning.dupCollapsed) cleaning.notes.push(`${cleaning.dupCollapsed} duplicate entries ek baar hi gini`);
+        if (!cleaning.notes.length) cleaning.notes.push('Data bilkul clean hai — kuch hatana nahi pada ✓');
+        
+        const inPeriod = (d) => !fromDate || (d && new Date(d) >= fromDate);
+        
+        // ===== PER-BUSINESS AGGREGATION =====
+        const businesses = [];
+        
+        // 1. Hardware & Repair
+        {
+            let rev = 0, recd = 0, due = 0, exp = 0;
+            hwEntries.forEach(e => { rev += e.revenue || 0; recd += e.amountReceived || e.revenue || 0; due += e.amountDue || 0; exp += e.travelExpense || 0; });
+            businesses.push({ key: 'hardware', name: 'Hardware & Repair', icon: '🔧', link: '/admin', revenue: rev, received: recd, due, expense: exp, profit: rev - exp, count: hwEntries.length });
+        }
+        // 2. Office Corporate
+        {
+            let rev = 0, recd = 0, due = 0;
+            corpEntries.forEach(c => { rev += c.grandTotal || 0; recd += c.amountReceived || 0; due += c.amountDue || 0; });
+            businesses.push({ key: 'corporate', name: 'Office Corporate', icon: '🏢', link: '/corporate', revenue: rev, received: recd, due, expense: 0, profit: rev, count: corpEntries.length });
+        }
+        // 3. CCTV / Orders (Quotations)
+        {
+            let rev = 0, recd = 0, due = 0, vend = 0, net = 0;
+            quotes.forEach(q => {
+                rev += q.grandTotal || 0; recd += q.totalPaid || 0;
+                due += Math.max(0, (q.grandTotal || 0) - (q.totalPaid || 0));
+                vend += q.totalVendorCost || 0;
+                net += q.netProfit !== undefined && q.netProfit !== 0 ? q.netProfit : ((q.grandTotal || 0) - (q.totalVendorCost || 0) - (q.conveyanceAllowance || 0) - (q.leadCommissionAmount || 0) - (q.engineerCommissionAmount || 0));
+            });
+            businesses.push({ key: 'orders', name: 'CCTV & Orders', icon: '📋', link: '/quotations?view=approved', revenue: rev, received: recd, due, expense: vend, profit: net, count: quotes.length });
+        }
+        // 4. Other Business
+        {
+            let rev = 0, exp = 0;
+            otherBiz.forEach(o => { rev += o.revenue || 0; exp += o.expenses || 0; });
+            businesses.push({ key: 'other', name: 'Other Business', icon: '💼', link: '/other-business', revenue: rev, received: rev, due: 0, expense: exp, profit: rev - exp, count: otherBiz.length });
+        }
+        // 5. AMC (payments/expenses filtered by their own dates)
+        {
+            let recd = 0, exp = 0, cnt = 0;
+            amcOffices.forEach(o => {
+                (o.payments || []).forEach(p => { if (inPeriod(p.paidDate)) { recd += p.amount || 0; cnt++; } });
+                (o.expenses || []).forEach(e => { if (inPeriod(e.date)) exp += e.amount || 0; });
+            });
+            businesses.push({ key: 'amc', name: 'AMC Contracts', icon: '📝', link: '/amc', revenue: recd, received: recd, due: 0, expense: exp, profit: recd - exp, count: cnt });
+        }
+        // 6. Software
+        {
+            let rev = 0, recd = 0;
+            swInvoices.forEach(s => { rev += s.grandTotal || 0; recd += s.amountReceived || 0; });
+            businesses.push({ key: 'software', name: 'Software & AI', icon: '⚙️', link: '/software', revenue: rev, received: recd, due: Math.max(0, rev - recd), expense: 0, profit: rev, count: swInvoices.length });
+        }
+        
+        // ===== RANK: best performer by received =====
+        businesses.sort((a, b) => b.received - a.received);
+        const totalRevenue = businesses.reduce((s, b) => s + b.revenue, 0);
+        const totalReceived = businesses.reduce((s, b) => s + b.received, 0);
+        const totalDue = businesses.reduce((s, b) => s + b.due, 0);
+        const totalExpense = businesses.reduce((s, b) => s + b.expense, 0);
+        const totalProfit = businesses.reduce((s, b) => s + b.profit, 0);
+        businesses.forEach(b => { b.share = totalReceived > 0 ? Math.round((b.received / totalReceived) * 100) : 0; });
+        
+        // ═══════ 🔍 SELF-CHECK: kya sahi kya galat (auto audit) ═══════
+        const insights = []; // { type: 'good'|'warn'|'bad', text }
+        quotes.forEach(q => {
+            if ((q.totalPaid || 0) > (q.grandTotal || 0)) insights.push({ type: 'bad', text: `${q.quotationNumber}: customer se ORDER VALUE se zyada payment record hai (₹${(q.totalPaid||0).toLocaleString('en-IN')} > ₹${(q.grandTotal||0).toLocaleString('en-IN')}) — check karo` });
+            if ((q.totalVendorPaid || 0) > (q.totalVendorCost || 0)) insights.push({ type: 'bad', text: `${q.quotationNumber}: vendor ko cost se ZYADA paid hai — check karo` });
+            const np = q.netProfit !== undefined ? q.netProfit : 0;
+            if (np < 0) insights.push({ type: 'warn', text: `${q.quotationNumber}: is order me LOSS hai (₹${Math.abs(np).toLocaleString('en-IN')}) — pricing dekho` });
+        });
+        businesses.forEach(b => {
+            if (b.profit < 0) insights.push({ type: 'warn', text: `${b.name} loss me chal raha hai (−₹${Math.abs(b.profit).toLocaleString('en-IN')})` });
+            if (b.revenue > 0 && b.due / b.revenue > 0.6) insights.push({ type: 'warn', text: `${b.name}: ${Math.round(b.due/b.revenue*100)}% paisa abhi bhi due hai — collection tez karo` });
+        });
+        if (totalDue > totalReceived && totalDue > 0) insights.push({ type: 'warn', text: `Overall pending due (₹${totalDue.toLocaleString('en-IN')}) received se zyada hai — recovery pe focus karo` });
+        if (!insights.length) insights.push({ type: 'good', text: 'Sab hisaab sahi hai — koi mismatch ya loss nahi mila ✓' });
+        
+        // ═══════ 📈 COMPARE vs PREVIOUS PERIOD (growth) ═══════
+        let growth = null;
+        if (fromDate) {
+            const spanMs = now.getTime() - fromDate.getTime();
+            const prevFrom = new Date(fromDate.getTime() - spanMs);
+            const prevDf = { createdAt: { $gte: prevFrom, $lt: fromDate } };
+            const [pHw, pCorp, pQ, pOther, pSw] = await Promise.all([
+                Entry.find({ jobStatus: 'Completed', ...prevDf }).select('customerName revenue amountReceived').lean(),
+                CorporateEntry.find(prevDf).select('customerName grandTotal amountReceived').lean(),
+                Quotation.find({ status: { $in: ['Approved','Converted'] }, ...prevDf }).select('clientName grandTotal totalPaid').lean(),
+                OtherBusiness.find(prevDf).select('revenue').lean(),
+                SoftwareInvoice.find({ status: { $ne: 'Cancelled' }, ...prevDf }).select('grandTotal amountReceived').lean()
+            ]);
+            let prevRevenue = 0, prevReceived = 0;
+            pHw.filter(e => !isDummy(e.customerName)).forEach(e => { prevRevenue += e.revenue||0; prevReceived += e.amountReceived||e.revenue||0; });
+            pCorp.filter(c => !isDummy(c.customerName)).forEach(c => { prevRevenue += c.grandTotal||0; prevReceived += c.amountReceived||0; });
+            pQ.filter(q => !isDummy(q.clientName)).forEach(q => { prevRevenue += q.grandTotal||0; prevReceived += q.totalPaid||0; });
+            pOther.forEach(o => { prevRevenue += o.revenue||0; prevReceived += o.revenue||0; });
+            pSw.forEach(s => { prevRevenue += s.grandTotal||0; prevReceived += s.amountReceived||0; });
+            amcOffices.forEach(o => (o.payments||[]).forEach(p => { const d = new Date(p.paidDate); if (d >= prevFrom && d < fromDate) { prevRevenue += p.amount||0; prevReceived += p.amount||0; } }));
+            
+            const pct = (cur, prev) => prev > 0 ? Math.round(((cur - prev) / prev) * 100) : (cur > 0 ? 100 : 0);
+            growth = {
+                revenue: pct(totalRevenue, prevRevenue), received: pct(totalReceived, prevReceived),
+                prevRevenue, prevReceived,
+                label: period === 'today' ? 'vs kal' : period === '7d' ? 'vs pichle 7 din' : 'vs pichla mahina'
+            };
+            if (growth.revenue >= 20) insights.unshift({ type: 'good', text: `Business badh raha hai — revenue ${growth.revenue}% up ${growth.label} 🎉` });
+            else if (growth.revenue <= -20 && prevRevenue > 0) insights.unshift({ type: 'warn', text: `Revenue ${Math.abs(growth.revenue)}% NEECHE hai ${growth.label} — dhyan do` });
+        }
+        
+        // ===== 7-DAY TREND (revenue booked per day, all businesses) =====
+        const trend = [];
+        for (let i = 6; i >= 0; i--) {
+            const day = new Date(now); day.setDate(day.getDate() - i); day.setHours(0,0,0,0);
+            const next = new Date(day); next.setDate(next.getDate() + 1);
+            const inDay = (d) => d && new Date(d) >= day && new Date(d) < next;
+            let amt = 0;
+            hwEntries.forEach(e => { if (inDay(e.createdAt)) amt += e.revenue || 0; });
+            corpEntries.forEach(c => { if (inDay(c.createdAt)) amt += c.grandTotal || 0; });
+            quotes.forEach(q => { if (inDay(q.createdAt)) amt += q.grandTotal || 0; });
+            otherBiz.forEach(o => { if (inDay(o.createdAt)) amt += o.revenue || 0; });
+            swInvoices.forEach(s => { if (inDay(s.createdAt)) amt += s.grandTotal || 0; });
+            amcOffices.forEach(o => (o.payments || []).forEach(p => { if (inDay(p.paidDate)) amt += p.amount || 0; }));
+            trend.push({ label: day.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), amount: amt, isToday: i === 0 });
+        }
+        const trendMax = Math.max(1, ...trend.map(t => t.amount));
+        
+        res.render('business-dashboard', {
+            user: req.session.user, period, businesses,
+            totals: { totalRevenue, totalReceived, totalDue, totalExpense, totalProfit },
+            trend, trendMax, cleaning, insights, growth
+        });
+    } catch (e) { console.error(e); res.status(500).send(e.message); }
+});
+
 app.get('/vendors', requireAuth, requireAdmin, async (req, res) => {
+    // ===== SMART SYNC: pull vendor usage from all quotation procurement =====
+    const quotesWithVendors = await Quotation.find({ 'vendorProcurement.0': { $exists: true } })
+        .select('quotationNumber clientName vendorProcurement createdAt').lean();
+    
+    // Aggregate procurement by vendor name (case-insensitive)
+    const procByVendor = {}; // key: lowercase name -> { name, purchased, paid, orders:Set, lastUsed }
+    quotesWithVendors.forEach(q => {
+        (q.vendorProcurement || []).forEach(vp => {
+            const rawName = (vp.vendorName || '').trim();
+            if (!rawName) return;
+            const key = rawName.toLowerCase();
+            if (!procByVendor[key]) procByVendor[key] = { name: rawName, purchased: 0, paid: 0, orderCount: 0, lastUsed: null };
+            procByVendor[key].purchased += vp.totalVendorCost || 0;
+            procByVendor[key].paid += vp.paymentToVendor || 0;
+            procByVendor[key].orderCount += 1;
+            const d = q.createdAt;
+            if (!procByVendor[key].lastUsed || d > procByVendor[key].lastUsed) procByVendor[key].lastUsed = d;
+        });
+    });
+    
+    // AUTO-ADD: create Vendor docs for procurement vendors that don't exist yet
+    const existingVendors = await Vendor.find().select('vendorName').lean();
+    const existingNames = new Set(existingVendors.map(v => (v.vendorName || '').trim().toLowerCase()));
+    const toCreate = Object.values(procByVendor).filter(p => !existingNames.has(p.name.toLowerCase()));
+    for (const p of toCreate) {
+        try {
+            await Vendor.create({ vendorName: p.name, category: 'Auto-added from orders', notes: 'Auto-created from quotation procurement' });
+        } catch (e) { /* ignore race */ }
+    }
+    
     const vendors = await Vendor.find().select('-bills.billDocument').sort({ createdAt: -1 }).limit(100).lean();
     
-    // Aggregate stats
+    // Merge: bills totals + procurement totals per vendor
     let totalPurchased = 0, totalPaid = 0, totalPending = 0;
     vendors.forEach(v => {
         const billsTotal = (v.bills || []).reduce((s, b) => s + (b.grandTotal || 0), 0);
-        const payments = (v.payments || []).reduce((s, p) => s + (p.amount || 0), 0);
-        totalPurchased += billsTotal;
-        totalPaid += payments;
-        totalPending += Math.max(0, billsTotal - payments);
+        const billPayments = (v.payments || []).reduce((s, p) => s + (p.amount || 0), 0);
+        const proc = procByVendor[(v.vendorName || '').trim().toLowerCase()] || { purchased: 0, paid: 0, orderCount: 0 };
+        
+        // Combined totals (bills + order procurement)
+        v._purchased = billsTotal + proc.purchased;
+        v._paid = billPayments + proc.paid;
+        v._pending = Math.max(0, v._purchased - v._paid);
+        v._orderCount = proc.orderCount;
+        
+        totalPurchased += v._purchased;
+        totalPaid += v._paid;
+        totalPending += v._pending;
     });
     
     res.render('vendors', { 

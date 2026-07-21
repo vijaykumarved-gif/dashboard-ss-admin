@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Business Dashboard — Searvator CRM</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <%- include('partials/mobile-head') %>
+</head>
+<body>
+<div class="app-layout">
+    <%- include('partials/sidebar', { user: user, activePage: 'dashboard' }) %>
+    
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">📊 Business Dashboard
+                    <span style="display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700; color:#16a34a; background:#f0fdf4; border:1px solid #bbf7d0; padding:3px 10px; border-radius:20px; vertical-align:middle; margin-left:8px;">
+                        <span style="width:7px; height:7px; border-radius:50%; background:#16a34a; animation:livePulse 1.5s ease-in-out infinite;"></span> LIVE
+                    </span>
+                </h1>
+                <p class="page-subtitle">Aapke saare businesses ka hisaab — auto-cleaned, self-checked · updated <span id="lastUpdate"></span></p>
+            </div>
+            <div style="display: flex; gap: 6px;">
+                <% [['today','Today'],['7d','7 Days'],['month','This Month'],['all','All Time']].forEach(([pd, lbl]) => { %>
+                    <a href="/dashboard?period=<%= pd %>" class="btn btn-sm <%= period === pd ? 'btn-primary' : 'btn-secondary' %>"><%= lbl %></a>
+                <% }) %>
+            </div>
+        </div>
+        <style>@keyframes livePulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }</style>
+        
+        <!-- ===== 🧠 DATA INTELLIGENCE ===== -->
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;">
+            <% cleaning.notes.forEach(n => { %>
+                <span style="font-size: 11px; font-weight: 600; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; padding: 5px 12px; border-radius: 20px;">🧠 <%= n %></span>
+            <% }) %>
+            <% if (growth) { %>
+                <span style="font-size: 11px; font-weight: 700; background: <%= growth.revenue >= 0 ? '#f0fdf4' : '#fef2f2' %>; color: <%= growth.revenue >= 0 ? '#16a34a' : '#dc2626' %>; border: 1px solid <%= growth.revenue >= 0 ? '#bbf7d0' : '#fecaca' %>; padding: 5px 12px; border-radius: 20px;">
+                    <%= growth.revenue >= 0 ? '▲' : '▼' %> Revenue <%= Math.abs(growth.revenue) %>% <%= growth.label %>
+                </span>
+            <% } %>
+        </div>
+        
+        <!-- ===== HERO TOTALS ===== -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px;">
+            <div class="card" style="background: linear-gradient(135deg, #1e3a8a, #2563eb); color: white; border: none;">
+                <div class="card-body" style="padding: 18px;">
+                    <div style="font-size: 11px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em;">💰 Total Revenue</div>
+                    <div style="font-size: 26px; font-weight: 800; margin-top: 4px;"><%= formatINR(totals.totalRevenue) %></div>
+                </div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #065f46, #059669); color: white; border: none;">
+                <div class="card-body" style="padding: 18px;">
+                    <div style="font-size: 11px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em;">✅ Received</div>
+                    <div style="font-size: 26px; font-weight: 800; margin-top: 4px;"><%= formatINR(totals.totalReceived) %></div>
+                </div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #991b1b, #dc2626); color: white; border: none;">
+                <div class="card-body" style="padding: 18px;">
+                    <div style="font-size: 11px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em;">⏳ Pending Due</div>
+                    <div style="font-size: 26px; font-weight: 800; margin-top: 4px;"><%= formatINR(totals.totalDue) %></div>
+                </div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #4c1d95, #7c3aed); color: white; border: none;">
+                <div class="card-body" style="padding: 18px;">
+                    <div style="font-size: 11px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em;">📈 Net Profit</div>
+                    <div style="font-size: 26px; font-weight: 800; margin-top: 4px;"><%= formatINR(totals.totalProfit) %></div>
+                    <div style="font-size: 10px; opacity: 0.8;">Expenses: <%= formatINR(totals.totalExpense) %></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ===== 7-DAY TREND ===== -->
+        <div class="card" style="margin-bottom: 18px;">
+            <div class="card-header">
+                <div class="card-title">📅 Daily Revenue — Last 7 Days</div>
+                <div class="card-subtitle">Har din ka business (sab modules combined)</div>
+            </div>
+            <div class="card-body">
+                <div style="display: flex; align-items: flex-end; gap: 10px; height: 130px;">
+                    <% trend.forEach(t => { const pct = Math.round((t.amount / trendMax) * 100); %>
+                        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; justify-content: flex-end;">
+                            <div style="font-size: 10px; font-weight: 700; color: <%= t.amount > 0 ? '#059669' : 'var(--text-3)' %>;">
+                                <%= t.amount > 0 ? '₹' + (t.amount >= 1000 ? (t.amount/1000).toFixed(1) + 'k' : t.amount) : '—' %>
+                            </div>
+                            <div style="width: 100%; max-width: 56px; height: <%= Math.max(4, pct) %>%; background: <%= t.isToday ? 'linear-gradient(180deg, #7c3aed, #2563eb)' : '#bfdbfe' %>; border-radius: 8px 8px 3px 3px; transition: height 0.4s;"></div>
+                            <div style="font-size: 10px; color: <%= t.isToday ? '#7c3aed' : 'var(--text-3)' %>; font-weight: <%= t.isToday ? '800' : '500' %>;"><%= t.isToday ? 'Today' : t.label %></div>
+                        </div>
+                    <% }) %>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ===== 🔍 SMART AUDIT — kya sahi kya galat ===== -->
+        <div class="card" style="margin-bottom: 18px; border-left: 4px solid #7c3aed;">
+            <div class="card-header">
+                <div class="card-title">🔍 Smart Audit — system ne khud check kiya</div>
+                <div class="card-subtitle">Mismatch, loss, pending collection — sab auto-detect</div>
+            </div>
+            <div class="card-body" style="padding-top: 8px;">
+                <% insights.forEach(ins => { 
+                    const c = ins.type === 'good' ? ['#f0fdf4','#16a34a','✅'] : ins.type === 'warn' ? ['#fffbeb','#b45309','⚠️'] : ['#fef2f2','#dc2626','❌'];
+                %>
+                    <div style="display: flex; gap: 10px; align-items: flex-start; background: <%= c[0] %>; border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; font-size: 13px; color: <%= c[1] %>; font-weight: 500;">
+                        <span><%= c[2] %></span><span><%= ins.text %></span>
+                    </div>
+                <% }) %>
+            </div>
+        </div>
+        
+        <!-- ===== BUSINESS PERFORMANCE ===== -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">🏆 Business Performance</div>
+                <div class="card-subtitle">Kaunsa business kitna de raha hai — rank wise</div>
+            </div>
+            <div class="card-body">
+                <% businesses.forEach((b, i) => { %>
+                    <div style="display: flex; align-items: center; gap: 14px; padding: 14px; border-radius: 12px; margin-bottom: 10px; background: <%= i === 0 && b.received > 0 ? 'linear-gradient(135deg, #fefce8, #ffffff)' : 'var(--surface-2)' %>; border: 1px solid <%= i === 0 && b.received > 0 ? '#fde047' : 'var(--border)' %>; cursor: pointer;" onclick="location.href='<%= b.link %>'">
+                        <div style="font-size: 26px; width: 40px; text-align: center;"><%= b.icon %></div>
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-weight: 800; font-size: 15px;"><%= b.name %></span>
+                                <% if (i === 0 && b.received > 0) { %><span class="badge success" style="font-size: 9px;">🏆 BEST PERFORMER</span><% } %>
+                                <span style="font-size: 11px; color: var(--text-3);"><%= b.count %> entries</span>
+                            </div>
+                            <!-- Share bar -->
+                            <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+                                <div style="flex: 1; height: 8px; background: #e5e7eb; border-radius: 5px; overflow: hidden;">
+                                    <div style="height: 100%; width: <%= b.share %>%; background: <%= i === 0 ? 'linear-gradient(90deg, #f59e0b, #eab308)' : 'linear-gradient(90deg, #60a5fa, #3b82f6)' %>; border-radius: 5px;"></div>
+                                </div>
+                                <span style="font-size: 11px; font-weight: 700; color: var(--text-3); width: 34px;"><%= b.share %>%</span>
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(4, minmax(78px, auto)); gap: 14px; text-align: right;">
+                            <div>
+                                <div style="font-size: 9px; color: var(--text-3); text-transform: uppercase;">Revenue</div>
+                                <div class="font-mono font-bold" style="font-size: 13px;"><%= formatINR(b.revenue) %></div>
+                            </div>
+                            <div>
+                                <div style="font-size: 9px; color: var(--text-3); text-transform: uppercase;">Received</div>
+                                <div class="font-mono font-bold" style="font-size: 13px; color: #16a34a;"><%= formatINR(b.received) %></div>
+                            </div>
+                            <div>
+                                <div style="font-size: 9px; color: var(--text-3); text-transform: uppercase;">Due</div>
+                                <div class="font-mono" style="font-size: 13px; color: <%= b.due > 0 ? '#dc2626' : 'var(--text-3)' %>;"><%= formatINR(b.due) %></div>
+                            </div>
+                            <div>
+                                <div style="font-size: 9px; color: var(--text-3); text-transform: uppercase;">Profit</div>
+                                <div class="font-mono font-bold" style="font-size: 13px; color: <%= b.profit >= 0 ? '#059669' : '#dc2626' %>;"><%= formatINR(b.profit) %></div>
+                            </div>
+                        </div>
+                    </div>
+                <% }) %>
+                
+                <% if (totals.totalRevenue === 0) { %>
+                    <div style="text-align: center; padding: 20px; color: var(--text-3); font-size: 13px;">
+                        Is period me koi business entry nahi. Filter change karke dekho (All Time).
+                    </div>
+                <% } %>
+            </div>
+        </div>
+        
+        <div style="height: 20px;"></div>
+    </main>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+    // LIVE: last-updated time + auto refresh every 60s
+    document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    setTimeout(() => location.reload(), 60000);
+</script>
+</body>
+</html>

@@ -70,22 +70,24 @@
                                 No vendors yet. Click <strong>+ Add Vendor</strong> to start.
                             </td></tr>
                         <% } else { vendors.forEach(v => {
-                            const billsTotal = (v.bills || []).reduce((s, b) => s + (b.grandTotal || 0), 0);
-                            const paid = (v.payments || []).reduce((s, p) => s + (p.amount || 0), 0);
-                            const pending = Math.max(0, billsTotal - paid);
+                            // Combined totals (bills + order procurement) computed server-side
+                            const billsTotal = v._purchased !== undefined ? v._purchased : (v.bills || []).reduce((s, b) => s + (b.grandTotal || 0), 0);
+                            const paid = v._paid !== undefined ? v._paid : (v.payments || []).reduce((s, p) => s + (p.amount || 0), 0);
+                            const pending = v._pending !== undefined ? v._pending : Math.max(0, billsTotal - paid);
                             const sc = v.status === 'Active' ? 'success' : v.status === 'Blacklisted' ? 'danger' : 'neutral';
                         %>
                             <tr style="cursor: pointer;" onclick="location.href='/vendors/<%= v._id %>'">
                                 <td>
                                     <div class="font-bold"><%= v.vendorName %></div>
                                     <% if (v.gstNumber) { %><div class="text-muted" style="font-size: 11px;">GST: <%= v.gstNumber %></div><% } %>
+                                    <% if (v._orderCount > 0) { %><div style="font-size: 10px; color: #7c3aed;">📋 <%= v._orderCount %> order items</div><% } %>
                                 </td>
                                 <td>
                                     <div><%= v.contactPerson %></div>
                                     <div class="text-muted" style="font-size: 11px;"><%= v.mobile %></div>
                                 </td>
                                 <td><span class="badge info"><%= v.category %></span></td>
-                                <td class="font-mono"><%= v.bills.length %></td>
+                                <td class="font-mono"><%= (v.bills || []).length %></td>
                                 <td class="font-mono font-bold"><%= formatINR(billsTotal) %></td>
                                 <td class="font-mono text-success"><%= formatINR(paid) %></td>
                                 <td class="font-mono text-danger"><%= formatINR(pending) %></td>
