@@ -44,19 +44,19 @@
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px;">
             <div class="card" style="background: linear-gradient(135deg, #1e3a8a, #2563eb); color: white; border: none;">
                 <div class="card-body" style="padding: 18px;">
-                    <div style="font-size: 11px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em;">💰 Total Revenue</div>
+                    <div style="font-size: 11px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em;">💰 New Business (booked)</div>
                     <div style="font-size: 26px; font-weight: 800; margin-top: 4px;"><%= formatINR(totals.totalRevenue) %></div>
                 </div>
             </div>
             <div class="card" style="background: linear-gradient(135deg, #065f46, #059669); color: white; border: none;">
                 <div class="card-body" style="padding: 18px;">
-                    <div style="font-size: 11px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em;">✅ Received</div>
+                    <div style="font-size: 11px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em;">✅ Received (is period me aaya)</div>
                     <div style="font-size: 26px; font-weight: 800; margin-top: 4px;"><%= formatINR(totals.totalReceived) %></div>
                 </div>
             </div>
             <div class="card" style="background: linear-gradient(135deg, #991b1b, #dc2626); color: white; border: none;">
                 <div class="card-body" style="padding: 18px;">
-                    <div style="font-size: 11px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em;">⏳ Pending Due</div>
+                    <div style="font-size: 11px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em;">⏳ Total Pending Due (all-time)</div>
                     <div style="font-size: 26px; font-weight: 800; margin-top: 4px;"><%= formatINR(totals.totalDue) %></div>
                 </div>
             </div>
@@ -72,8 +72,8 @@
         <!-- ===== 7-DAY TREND ===== -->
         <div class="card" style="margin-bottom: 18px;">
             <div class="card-header">
-                <div class="card-title">📅 Daily Revenue — Last 7 Days</div>
-                <div class="card-subtitle">Har din ka business (sab modules combined)</div>
+                <div class="card-title">📅 Daily Collection — Last 7 Days</div>
+                <div class="card-subtitle">Har din kitna paisa AAYA (sab modules combined)</div>
             </div>
             <div class="card-body">
                 <div style="display: flex; align-items: flex-end; gap: 10px; height: 130px;">
