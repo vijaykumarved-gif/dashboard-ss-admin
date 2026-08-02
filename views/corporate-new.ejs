@@ -186,6 +186,28 @@
             </div>
         </div>
         
+        <!-- ===== DIAGNOSTIC SUMMARY TABLE (all PCs at a glance) ===== -->
+        <div class="card" id="summaryTableCard" style="display: none;">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">📊 Diagnostic Summary — All PCs</div>
+                    <div class="card-subtitle" id="summaryStats">-</div>
+                </div>
+                <button class="btn btn-sm btn-secondary" onclick="copySummaryText()">📋 Copy as Text</button>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table" id="summaryTable">
+                    <thead>
+                        <tr>
+                            <th>#</th><th>PC / Model</th><th>Type</th><th>User / Dept</th>
+                            <th>Issues Found</th><th>Status</th><th>Rate</th>
+                        </tr>
+                    </thead>
+                    <tbody id="summaryTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+        
         <!-- Future requirements summary -->
         <div class="card">
             <div class="card-header">
@@ -360,6 +382,119 @@
         );
     }
     
+    // ═══ HARDWARE FIELD CONFIG (type-aware) ═══
+    const HW_LABELS = {
+        motherboard:'Motherboard', cpu:'CPU', ramStatus:'RAM', ramSlots:'RAM Slots',
+        hddHealth:'Storage', drive:'Optical Drive', fan:'Fan', temperature:'Temperature',
+        battery:'Battery', charger:'Charger', monitor:'Monitor', display:'Display',
+        webcam:'Webcam', connectors:'Connectors'
+    };
+    const HW_OPTIONS = {
+        temperature: ['Normal','Overheating','N/A','Missing'],
+        display: ['Good','In Line','Blur','No Power','Flickering','Dead Pixel','N/A','Missing'],
+        monitor: ['Good','In Line','Blur','No Power','Flickering','Dead Pixel','N/A','Missing'],
+        battery: ['Good','Weak Backup','Not Charging','Dead','N/A','Missing'],
+        charger: ['Good','Issue/Repair','N/A','Missing']
+    };
+    // Which components apply to which machine type
+    function hwFieldsFor(type) {
+        const base = ['motherboard','cpu','ramStatus','ramSlots','hddHealth','fan','temperature','connectors'];
+        if (type === 'Laptop') {
+            // Laptop: built-in display + battery + charger + webcam; no separate monitor, no optical drive
+            return [...base, 'battery', 'charger', 'display', 'webcam'];
+        }
+        if (type === 'AIO') {
+            // All-in-one: built-in display, no battery
+            return [...base, 'display', 'webcam', 'powerCable'].filter(f => HW_LABELS[f] || f === 'powerCable');
+        }
+        if (type === 'Server') {
+            // Server: no battery, no webcam, no display
+            return [...base, 'drive'];
+        }
+        // Desktop: external monitor, optical drive, webcam — NO battery
+        return [...base, 'drive', 'monitor', 'webcam'];
+    }
+    HW_LABELS.powerCable = 'Power Cable';
+    
+    // ═══ COPY TO ALL PCs ═══
+    function copyToAll(srcIdx) {
+        const src = pcs[srcIdx];
+        if (!src) return;
+        if (pcs.length < 2) { showToast('Sirf ek hi PC hai', 'error'); return; }
+        if (!confirm(`Is PC ki details (type, model, department, rate, hardware status) baaki ${pcs.length - 1} PCs me copy kar du?\n\nSerial number aur PC number safe rahenge.`)) return;
+        // Fields to copy (NOT pcSrNo / serialNumber — those are unique per machine)
+        const copyFields = ['pcType','pcName','pcModel','user','department','serviceRate',
+            'motherboard','cpu','ramStatus','ramSlots','hddHealth','drive','fan','temperature',
+            'connectors','battery','charger','powerCable','monitor','display','webcam','workDone','remarks'];
+        let n = 0;
+        pcs.forEach((p, i) => {
+            if (i === srcIdx) return;
+            copyFields.forEach(f => { if (src[f] !== undefined) p[f] = src[f]; });
+            n++;
+        });
+        renderPCs();
+        showToast(`✓ ${n} PCs me details copy ho gayi`, 'success');
+    }
+    
+    // ═══ DIAGNOSTIC SUMMARY TABLE (all PCs at a glance) ═══
+    function pcIssues(p) {
+        const DISPLAY_ISSUES = ['In Line','Blur','No Power','Flickering','Dead Pixel'];
+        const BATTERY_ISSUES = ['Weak Backup','Not Charging','Dead'];
+        const issues = [];
+        hwFieldsFor(p.pcType).forEach(f => {
+            const v = p[f], lbl = HW_LABELS[f] || f;
+            if (f === 'temperature') { if (v === 'Overheating') issues.push('Overheating'); else if (v === 'Missing') issues.push(lbl + ' missing'); }
+            else if (f === 'display' || f === 'monitor') { if (DISPLAY_ISSUES.includes(v)) issues.push(lbl + ': ' + v); else if (v === 'Missing') issues.push(lbl + ' missing'); }
+            else if (f === 'battery') { if (BATTERY_ISSUES.includes(v)) issues.push(lbl + ': ' + v); else if (v === 'Issue/Repair') issues.push(lbl); else if (v === 'Missing') issues.push(lbl + ' missing'); }
+            else { if (v === 'Issue/Repair') issues.push(lbl); else if (v === 'Missing') issues.push(lbl + ' missing'); }
+        });
+        return issues;
+    }
+    
+    function renderSummaryTable() {
+        const card = document.getElementById('summaryTableCard');
+        const body = document.getElementById('summaryTableBody');
+        if (!card || !body) return;
+        if (!pcs.length) { card.style.display = 'none'; return; }
+        card.style.display = '';
+        
+        let allGood = 0, attention = 0, critical = 0, totalRate = 0;
+        body.innerHTML = pcs.map((p, i) => {
+            const issues = pcIssues(p);
+            totalRate += Number(p.serviceRate) || 0;
+            let status, cls;
+            if (issues.length === 0) { status = 'All Good'; cls = 'success'; allGood++; }
+            else if (issues.length <= 2) { status = 'Needs Attention'; cls = 'warning'; attention++; }
+            else { status = 'Critical'; cls = 'danger'; critical++; }
+            return `<tr>
+                <td class="font-mono">${i + 1}</td>
+                <td>
+                    <div class="font-bold" style="font-size:12px;">${p.pcSrNo || p.pcName || 'PC-' + String(i+1).padStart(2,'0')}</div>
+                    <div class="text-muted" style="font-size:10px;">${p.pcModel || '-'}</div>
+                </td>
+                <td><span class="badge info" style="font-size:9px;">${p.pcType}</span></td>
+                <td style="font-size:11px;">${p.user || '-'}${p.department ? '<div class="text-muted" style="font-size:10px;">' + p.department + '</div>' : ''}</td>
+                <td style="font-size:11px; max-width:280px;">${issues.length ? '<span style="color:#dc2626;">' + issues.join(', ') + '</span>' : '<span style="color:#16a34a;">No issues</span>'}</td>
+                <td><span class="badge ${cls}" style="font-size:9px;">${status}</span></td>
+                <td class="font-mono" style="font-size:11px;">₹${p.serviceRate || 0}</td>
+            </tr>`;
+        }).join('');
+        
+        document.getElementById('summaryStats').innerHTML =
+            `${pcs.length} PCs · <span style="color:#16a34a;">${allGood} All Good</span> · <span style="color:#d97706;">${attention} Needs Attention</span> · <span style="color:#dc2626;">${critical} Critical</span> · Total ₹${totalRate.toLocaleString('en-IN')}`;
+    }
+    
+    function copySummaryText() {
+        const lines = pcs.map((p, i) => {
+            const issues = pcIssues(p);
+            const name = p.pcSrNo || p.pcName || ('PC-' + String(i+1).padStart(2,'0'));
+            return `${i+1}. ${name} (${p.pcType}${p.pcModel ? ' - ' + p.pcModel : ''})${p.user ? ' | User: ' + p.user : ''}\n   ${issues.length ? 'Issues: ' + issues.join(', ') : 'No issues - working fine'}`;
+        });
+        const txt = 'DIAGNOSTIC SUMMARY\n' + '='.repeat(40) + '\n' + lines.join('\n') + '\n' + '='.repeat(40) +
+            `\nTotal PCs: ${pcs.length}`;
+        navigator.clipboard.writeText(txt).then(() => showToast('✓ Summary copied', 'success')).catch(() => showToast('Copy failed', 'error'));
+    }
+    
     function addPC() {
         const id = 'pc_' + Date.now() + '_' + pcs.length;
         pcs.push({
@@ -369,7 +504,7 @@
             motherboard: 'Good', cpu: 'Good', ramStatus: 'Good', ramSlots: 'Good',
             hddHealth: 'Good', drive: 'Good', fan: 'Good', temperature: 'Normal',
             connectors: 'Good', battery: 'Good', charger: 'Good', powerCable: 'Good',
-            monitor: 'Good', webcam: 'Good',
+            monitor: 'Good', display: 'Good', webcam: 'Good',
             workDone: '', serviceRate: 79, remarks: '',
             beforePhoto: '', afterPhoto: '',
             futureRequirements: []
@@ -419,7 +554,7 @@
                 motherboard: 'Good', cpu: 'Good', ramStatus: 'Good', ramSlots: 'Good',
                 hddHealth: 'Good', drive: 'Good', fan: 'Good', temperature: 'Normal',
                 connectors: 'Good', battery: 'Good', charger: 'Good', powerCable: 'Good',
-                monitor: 'Good', webcam: 'Good',
+                monitor: 'Good', display: 'Good', webcam: 'Good',
                 workDone: '', serviceRate: rate, remarks: '',
                 beforePhoto: '', afterPhoto: '',
                 futureRequirements: []
@@ -481,7 +616,7 @@
                     <div class="form-grid" style="margin-bottom: 10px;">
                         <div class="form-group">
                             <label class="form-label">Type</label>
-                            <select onchange="update(${idx},'pcType',this.value)">
+                            <select onchange="update(${idx},'pcType',this.value); renderPCs();">
                                 <option ${p.pcType==='Desktop'?'selected':''}>Desktop</option>
                                 <option ${p.pcType==='Laptop'?'selected':''}>Laptop</option>
                                 <option ${p.pcType==='AIO'?'selected':''}>AIO</option>
@@ -510,13 +645,15 @@
                         </div>
                     </div>
                     
-                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-2); margin-bottom: 8px;">Hardware Component Health</div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-2);">Hardware Component Health</span>
+                        <button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); copyToAll(${idx})" title="Is PC ki details sab PCs me copy karo">📋 Copy to All PCs</button>
+                    </div>
                     <div class="hw-grid">
-                        ${['motherboard','cpu','ramStatus','ramSlots','hddHealth','drive','fan','temperature','battery','monitor','webcam','connectors'].map(f => {
-                            const opts = f === 'temperature' ? ['Normal','Overheating','N/A','Missing'] : ['Good','Issue/Repair','N/A','Missing'];
-                            const labels = { motherboard:'Motherboard', cpu:'CPU', ramStatus:'RAM', ramSlots:'RAM Slots', hddHealth:'Storage', drive:'Optical Drive', fan:'Fan', temperature:'Temperature', battery:'Battery', monitor:'Monitor', webcam:'Webcam', connectors:'Connectors' };
+                        ${hwFieldsFor(p.pcType).map(f => {
+                            const opts = HW_OPTIONS[f] || ['Good','Issue/Repair','N/A','Missing'];
                             return `<div class="form-group" style="margin-bottom: 0;">
-                                <label>${labels[f]}</label>
+                                <label>${HW_LABELS[f]}</label>
                                 <select onchange="update(${idx},'${f}',this.value)">
                                     ${opts.map(o => `<option ${p[f]===o?'selected':''}>${o}</option>`).join('')}
                                 </select>
@@ -563,6 +700,7 @@
         
         // Populate auto-diagnostic summary for every PC after render
         pcs.forEach((p, i) => updateHealthSummary(i));
+        renderSummaryTable();
     }
     
     function expandAll(open) {
@@ -598,9 +736,10 @@
             recalc();
         }
         // Refresh auto-summary when any hardware component changes
-        const hwFields = ['motherboard','cpu','ramStatus','ramSlots','hddHealth','drive','fan','temperature','battery','monitor','webcam','connectors'];
+        const hwFields = ['motherboard','cpu','ramStatus','ramSlots','hddHealth','drive','fan','temperature','battery','charger','powerCable','monitor','display','webcam','connectors','pcType'];
         if (hwFields.includes(f)) {
             updateHealthSummary(idx);
+            renderSummaryTable();
         }
     }
     
@@ -610,10 +749,14 @@
         const labels = {
             motherboard: 'Motherboard', cpu: 'CPU', ramStatus: 'RAM', ramSlots: 'RAM Slots',
             hddHealth: 'Storage/HDD', drive: 'Optical Drive', fan: 'Cooling Fan',
-            temperature: 'Temperature', battery: 'Battery', monitor: 'Monitor',
+            temperature: 'Temperature', battery: 'Battery', charger: 'Charger',
+            powerCable: 'Power Cable', monitor: 'Monitor', display: 'Display',
             webcam: 'Webcam', connectors: 'Ports/Connectors'
         };
-        const fields = ['motherboard','cpu','ramStatus','ramSlots','hddHealth','drive','fan','temperature','battery','monitor','webcam','connectors'];
+        // Only the components that apply to THIS machine type (Desktop has no battery, etc.)
+        const fields = hwFieldsFor(p.pcType);
+        const DISPLAY_ISSUES = ['In Line','Blur','No Power','Flickering','Dead Pixel'];
+        const BATTERY_ISSUES = ['Weak Backup','Not Charging','Dead'];
         
         const good = [], repair = [], missing = [], na = [];
         
@@ -622,6 +765,17 @@
             const label = labels[f];
             if (f === 'temperature') {
                 if (val === 'Overheating') repair.push(label + ' (Overheating)');
+                else if (val === 'Missing') missing.push(label);
+                else if (val === 'N/A') na.push(label);
+                else good.push(label);
+            } else if (f === 'display' || f === 'monitor') {
+                if (DISPLAY_ISSUES.includes(val)) repair.push(label + ' (' + val + ')');
+                else if (val === 'Missing') missing.push(label);
+                else if (val === 'N/A') na.push(label);
+                else good.push(label);
+            } else if (f === 'battery') {
+                if (BATTERY_ISSUES.includes(val)) repair.push(label + ' (' + val + ')');
+                else if (val === 'Issue/Repair') repair.push(label);
                 else if (val === 'Missing') missing.push(label);
                 else if (val === 'N/A') na.push(label);
                 else good.push(label);
