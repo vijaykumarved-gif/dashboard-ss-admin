@@ -26,6 +26,9 @@ const corporatePcSchema = new mongoose.Schema({
     powerCable: { type: String, default: 'Good' },
     monitor: { type: String, default: 'Good' },
     display: { type: String, default: 'Good' }, // Good, In Line, Blur, No Power, Flickering, Dead Pixel, N/A
+    keyboard: { type: String, default: 'Good' },
+    mouse: { type: String, default: 'Good' },
+    smps: { type: String, default: 'Good' }, // Power supply (desktop/server)
     webcam: { type: String, default: 'Good' },
     
     // Service done

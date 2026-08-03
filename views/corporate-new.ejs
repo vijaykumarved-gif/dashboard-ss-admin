@@ -387,6 +387,7 @@
         motherboard:'Motherboard', cpu:'CPU', ramStatus:'RAM', ramSlots:'RAM Slots',
         hddHealth:'Storage', drive:'Optical Drive', fan:'Fan', temperature:'Temperature',
         battery:'Battery', charger:'Charger', monitor:'Monitor', display:'Display',
+        keyboard:'Keyboard', mouse:'Mouse', smps:'SMPS / Power Supply',
         webcam:'Webcam', connectors:'Connectors'
     };
     const HW_OPTIONS = {
@@ -400,19 +401,19 @@
     function hwFieldsFor(type) {
         const base = ['motherboard','cpu','ramStatus','ramSlots','hddHealth','fan','temperature','connectors'];
         if (type === 'Laptop') {
-            // Laptop: built-in display + battery + charger + webcam; no separate monitor, no optical drive
-            return [...base, 'battery', 'charger', 'display', 'webcam'];
+            // Laptop: built-in display/keyboard + battery + charger + webcam; no separate monitor/mouse/SMPS
+            return [...base, 'battery', 'charger', 'display', 'keyboard', 'webcam'];
         }
         if (type === 'AIO') {
-            // All-in-one: built-in display, no battery
-            return [...base, 'display', 'webcam', 'powerCable'].filter(f => HW_LABELS[f] || f === 'powerCable');
+            // All-in-one: built-in display, external keyboard/mouse, no battery
+            return [...base, 'display', 'keyboard', 'mouse', 'webcam', 'powerCable'];
         }
         if (type === 'Server') {
-            // Server: no battery, no webcam, no display
-            return [...base, 'drive'];
+            // Server: no battery/webcam/display
+            return [...base, 'drive', 'smps'];
         }
-        // Desktop: external monitor, optical drive, webcam — NO battery
-        return [...base, 'drive', 'monitor', 'webcam'];
+        // Desktop: monitor, keyboard, mouse, SMPS, optical drive, webcam — NO battery
+        return [...base, 'drive', 'monitor', 'keyboard', 'mouse', 'smps', 'webcam'];
     }
     HW_LABELS.powerCable = 'Power Cable';
     
@@ -425,7 +426,7 @@
         // Fields to copy (NOT pcSrNo / serialNumber — those are unique per machine)
         const copyFields = ['pcType','pcName','pcModel','user','department','serviceRate',
             'motherboard','cpu','ramStatus','ramSlots','hddHealth','drive','fan','temperature',
-            'connectors','battery','charger','powerCable','monitor','display','webcam','workDone','remarks'];
+            'connectors','battery','charger','powerCable','monitor','display','keyboard','mouse','smps','webcam','workDone','remarks'];
         let n = 0;
         pcs.forEach((p, i) => {
             if (i === srcIdx) return;
@@ -504,7 +505,7 @@
             motherboard: 'Good', cpu: 'Good', ramStatus: 'Good', ramSlots: 'Good',
             hddHealth: 'Good', drive: 'Good', fan: 'Good', temperature: 'Normal',
             connectors: 'Good', battery: 'Good', charger: 'Good', powerCable: 'Good',
-            monitor: 'Good', display: 'Good', webcam: 'Good',
+            monitor: 'Good', display: 'Good', keyboard: 'Good', mouse: 'Good', smps: 'Good', webcam: 'Good',
             workDone: '', serviceRate: 79, remarks: '',
             beforePhoto: '', afterPhoto: '',
             futureRequirements: []
@@ -554,7 +555,7 @@
                 motherboard: 'Good', cpu: 'Good', ramStatus: 'Good', ramSlots: 'Good',
                 hddHealth: 'Good', drive: 'Good', fan: 'Good', temperature: 'Normal',
                 connectors: 'Good', battery: 'Good', charger: 'Good', powerCable: 'Good',
-                monitor: 'Good', display: 'Good', webcam: 'Good',
+                monitor: 'Good', display: 'Good', keyboard: 'Good', mouse: 'Good', smps: 'Good', webcam: 'Good',
                 workDone: '', serviceRate: rate, remarks: '',
                 beforePhoto: '', afterPhoto: '',
                 futureRequirements: []
@@ -736,7 +737,7 @@
             recalc();
         }
         // Refresh auto-summary when any hardware component changes
-        const hwFields = ['motherboard','cpu','ramStatus','ramSlots','hddHealth','drive','fan','temperature','battery','charger','powerCable','monitor','display','webcam','connectors','pcType'];
+        const hwFields = ['motherboard','cpu','ramStatus','ramSlots','hddHealth','drive','fan','temperature','battery','charger','powerCable','monitor','display','keyboard','mouse','smps','webcam','connectors','pcType'];
         if (hwFields.includes(f)) {
             updateHealthSummary(idx);
             renderSummaryTable();
@@ -751,6 +752,7 @@
             hddHealth: 'Storage/HDD', drive: 'Optical Drive', fan: 'Cooling Fan',
             temperature: 'Temperature', battery: 'Battery', charger: 'Charger',
             powerCable: 'Power Cable', monitor: 'Monitor', display: 'Display',
+            keyboard: 'Keyboard', mouse: 'Mouse', smps: 'SMPS/Power Supply',
             webcam: 'Webcam', connectors: 'Ports/Connectors'
         };
         // Only the components that apply to THIS machine type (Desktop has no battery, etc.)

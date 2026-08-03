@@ -3997,19 +3997,29 @@ function generateCorporateInvoicePDF(doc, entry) {
     
     y += 130;
     
-    // Items table
-    doc.rect(40, y, 515, 24).fill('#0f172a');
-    doc.fillColor('#ffffff').fontSize(10).font('Helvetica-Bold');
-    doc.text('#', 50, y + 8, { width: 25, lineBreak: false });
-    doc.text('PC ID / Description', 78, y + 8, { width: 210, lineBreak: false });
-    doc.text('Model / SN', 290, y + 8, { width: 130, lineBreak: false });
-    doc.text('Service', 422, y + 8, { width: 60, lineBreak: false });
-    doc.text('Amount', 482, y + 8, { width: 65, align: 'right', lineBreak: false });
-    y += 24;
+    // Reusable table header drawer (used on first page + every continuation page)
+    function drawInvoiceTableHeader() {
+        doc.rect(40, y, 515, 24).fill('#0f172a');
+        doc.fillColor('#ffffff').fontSize(10).font('Helvetica-Bold');
+        doc.text('#', 50, y + 8, { width: 25, lineBreak: false });
+        doc.text('PC ID / Description', 78, y + 8, { width: 210, lineBreak: false });
+        doc.text('Model / SN', 290, y + 8, { width: 130, lineBreak: false });
+        doc.text('Service', 422, y + 8, { width: 60, lineBreak: false });
+        doc.text('Amount', 482, y + 8, { width: 65, align: 'right', lineBreak: false });
+        y += 24;
+    }
+    drawInvoiceTableHeader();
     
     let serial = 1;
     entry.pcs.forEach((pc, idx) => {
         const rowH = 28;
+        // PAGE BREAK: keep room for rows; totals block needs ~200px so break earlier
+        if (y + rowH > doc.page.height - 90) {
+            doc.addPage();
+            drawPdfHeader(doc, 'TAX INVOICE', entry.entryNumber + ' (cont.)');
+            y = 155;
+            drawInvoiceTableHeader();
+        }
         if (idx % 2 === 0) doc.rect(40, y, 515, rowH).fill('#f8fafc');
         
         doc.fillColor('#475569').fontSize(9).font('Helvetica').text(String(serial++), 50, y + 9, { width: 25, lineBreak: false });
@@ -4024,6 +4034,13 @@ function generateCorporateInvoicePDF(doc, entry) {
     });
     
     y += 10;
+    
+    // Totals + signature block need ~140px — move to a fresh page if not enough room
+    if (y + 140 > doc.page.height - 60) {
+        doc.addPage();
+        drawPdfHeader(doc, 'TAX INVOICE', entry.entryNumber + ' (cont.)');
+        y = 155;
+    }
     
     // Totals box
     const totalsX = 320, totalsW = 235;
@@ -4098,6 +4115,55 @@ function generateCorporateDiagnosticPDF(doc, entry) {
     );
     
     y += 80;
+    
+    // ============ ACTION REQUIRED SUMMARY (what needs to be arranged) ============
+    // Count how many units of each component need repair/replacement across ALL PCs
+    const COMP_LABELS = {
+        motherboard: 'Motherboard', cpu: 'CPU', ramStatus: 'RAM', ramSlots: 'RAM Slot',
+        hddHealth: 'Storage/HDD', drive: 'Optical Drive', fan: 'Fan', temperature: 'Cooling',
+        battery: 'Battery', charger: 'Charger', powerCable: 'Power Cable',
+        monitor: 'Monitor', display: 'Display', keyboard: 'Keyboard', mouse: 'Mouse',
+        smps: 'SMPS / Power Supply', webcam: 'Webcam', connectors: 'Ports/Connectors'
+    };
+    const DISPLAY_BAD = ['In Line','Blur','No Power','Flickering','Dead Pixel'];
+    const BATTERY_BAD = ['Weak Backup','Not Charging','Dead'];
+    const needCounts = {};  // component -> count of PCs needing it
+    const bump = (k) => { needCounts[k] = (needCounts[k] || 0) + 1; };
+    
+    entry.pcs.forEach(pc => {
+        Object.keys(COMP_LABELS).forEach(f => {
+            const v = pc[f];
+            if (!v) return;
+            if (f === 'temperature') { if (v === 'Overheating') bump(f); }
+            else if (f === 'display' || f === 'monitor') { if (DISPLAY_BAD.includes(v) || v === 'Missing') bump(f); }
+            else if (f === 'battery') { if (BATTERY_BAD.includes(v) || v === 'Issue/Repair' || v === 'Missing') bump(f); }
+            else { if (v === 'Issue/Repair' || v === 'Missing') bump(f); }
+        });
+    });
+    const needList = Object.entries(needCounts).sort((a, b) => b[1] - a[1]);
+    
+    // Box: total PCs + per-component requirement
+    const boxH = needList.length ? Math.max(56, 40 + Math.ceil(needList.length / 3) * 16) : 50;
+    doc.roundedRect(40, y, 515, boxH, 8).fillAndStroke('#fffbeb', '#fcd34d');
+    doc.fillColor('#92400e').fontSize(9).font('Helvetica-Bold')
+        .text('ACTION REQUIRED SUMMARY', 52, y + 10, { lineBreak: false });
+    doc.fillColor('#451a03').fontSize(10).font('Helvetica-Bold')
+        .text(`Total PCs Serviced: ${entry.pcs.length}`, 52, y + 25, { lineBreak: false });
+    
+    if (needList.length === 0) {
+        doc.fillColor('#15803d').fontSize(10).font('Helvetica-Bold')
+            .text('All systems OK - no parts or replacements required.', 200, y + 25, { lineBreak: false });
+    } else {
+        // three columns of "12 x Monitor needed"
+        let cx = 52, cy = y + 42, col = 0;
+        needList.forEach(([f, n]) => {
+            doc.fillColor('#b91c1c').fontSize(9).font('Helvetica-Bold')
+                .text(`${n} x ${COMP_LABELS[f]}`, cx, cy, { width: 165, lineBreak: false });
+            col++;
+            if (col % 3 === 0) { cx = 52; cy += 16; } else { cx += 170; }
+        });
+    }
+    y += boxH + 14;
     
     // ============ SUMMARY TABLE (all PCs at a glance) ============
     doc.fillColor('#0f172a').fontSize(12).font('Helvetica-Bold').text('Summary - All Systems', 40, y, { lineBreak: false });
@@ -4202,15 +4268,16 @@ function generateCorporateDiagnosticPDF(doc, entry) {
             y = 155;
         }
         
-        const sc = pc.overallStatus === 'Good' ? '#15803d' : pc.overallStatus === 'Needs Attention' ? '#b45309' : '#b91c1c';
-        const scBg = pc.overallStatus === 'Good' ? '#dcfce7' : pc.overallStatus === 'Needs Attention' ? '#fef3c7' : '#fee2e2';
+        const pcStatus = pc.overallStatus || 'Good';
+        const sc = pcStatus === 'Good' ? '#15803d' : pcStatus === 'Needs Attention' ? '#b45309' : '#b91c1c';
+        const scBg = pcStatus === 'Good' ? '#dcfce7' : pcStatus === 'Needs Attention' ? '#fef3c7' : '#fee2e2';
         
         doc.roundedRect(xPos, y, colW, rowH, 8).fillAndStroke('#ffffff', '#e2e8f0');
         doc.rect(xPos, y, colW, 30).fill('#0f172a');
         
         doc.fillColor('#ffffff').fontSize(11).font('Helvetica-Bold').text(pc.pcSrNo || `PC-${idx+1}`, xPos + 10, y + 9, { width: 100, lineBreak: false });
         doc.fillColor(scBg).rect(xPos + colW - 90, y + 6, 80, 18).fill();
-        doc.fillColor(sc).fontSize(8).font('Helvetica-Bold').text(pc.overallStatus.toUpperCase(), xPos + colW - 90, y + 11, { width: 80, align: 'center', lineBreak: false });
+        doc.fillColor(sc).fontSize(8).font('Helvetica-Bold').text(pcStatus.toUpperCase(), xPos + colW - 90, y + 11, { width: 80, align: 'center', lineBreak: false });
         
         let py = y + 38;
         doc.fillColor('#0f172a').fontSize(10).font('Helvetica-Bold').text(pc.pcType + ' · ' + (pc.pcModel || 'N/A'), xPos + 10, py, { width: colW - 20, lineBreak: false });
@@ -4225,13 +4292,41 @@ function generateCorporateDiagnosticPDF(doc, entry) {
         }
         py += 4;
         
-        // Component grid 2 col
-        const checks = [
-            ['Motherboard', pc.motherboard], ['CPU', pc.cpu],
-            ['RAM', pc.ramStatus], ['Storage', pc.hddHealth],
-            ['Fan', pc.fan], ['Temp', pc.temperature],
-            ['Monitor', pc.monitor], ['Battery', pc.battery]
-        ];
+        // Component grid 2 col — type-aware (Desktop has no battery; shows keyboard/mouse/SMPS)
+        const t = pc.pcType || 'Desktop';
+        let checks;
+        if (t === 'Laptop') {
+            checks = [
+                ['Motherboard', pc.motherboard], ['CPU', pc.cpu],
+                ['RAM', pc.ramStatus], ['Storage', pc.hddHealth],
+                ['Fan', pc.fan], ['Temp', pc.temperature],
+                ['Display', pc.display], ['Battery', pc.battery],
+                ['Charger', pc.charger], ['Keyboard', pc.keyboard]
+            ];
+        } else if (t === 'Server') {
+            checks = [
+                ['Motherboard', pc.motherboard], ['CPU', pc.cpu],
+                ['RAM', pc.ramStatus], ['Storage', pc.hddHealth],
+                ['Fan', pc.fan], ['Temp', pc.temperature],
+                ['SMPS', pc.smps], ['Ports', pc.connectors]
+            ];
+        } else if (t === 'AIO') {
+            checks = [
+                ['Motherboard', pc.motherboard], ['CPU', pc.cpu],
+                ['RAM', pc.ramStatus], ['Storage', pc.hddHealth],
+                ['Fan', pc.fan], ['Temp', pc.temperature],
+                ['Display', pc.display], ['Keyboard', pc.keyboard],
+                ['Mouse', pc.mouse], ['Ports', pc.connectors]
+            ];
+        } else {
+            checks = [
+                ['Motherboard', pc.motherboard], ['CPU', pc.cpu],
+                ['RAM', pc.ramStatus], ['Storage', pc.hddHealth],
+                ['Fan', pc.fan], ['Temp', pc.temperature],
+                ['Monitor', pc.monitor], ['Keyboard', pc.keyboard],
+                ['Mouse', pc.mouse], ['SMPS', pc.smps]
+            ];
+        }
         checks.forEach((c, i) => {
             const cx = xPos + 10 + (i % 2) * ((colW - 20) / 2);
             const cy = py + Math.floor(i / 2) * 12;
@@ -4239,7 +4334,7 @@ function generateCorporateDiagnosticPDF(doc, entry) {
             doc.fillColor('#64748b').fontSize(7).font('Helvetica').text(c[0] + ':', cx, cy, { lineBreak: false });
             doc.fillColor(good ? '#15803d' : '#b91c1c').fontSize(7).font('Helvetica-Bold').text(c[1] || '-', cx + 50, cy, { lineBreak: false });
         });
-        py += 12 * 4 + 6;
+        py += 12 * Math.ceil(checks.length / 2) + 6;
         
         if (pc.remarks) {
             doc.fillColor('#475569').fontSize(7).font('Helvetica-Oblique').text('Remarks: ' + pc.remarks, xPos + 10, py, { width: colW - 20, height: 24, lineBreak: true });
