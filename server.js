@@ -267,6 +267,19 @@ app.post('/api/order/delete/:id', requireAuth, async (req, res) => {
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// ===== SINGLE SOURCE OF TRUTH: hardware entry payment figures =====
+// Older entries were saved with amountReceived = 0 while paymentStatus defaulted to 'Paid'
+// (cash collected on the spot). Treat those as fully received so every screen agrees.
+function hwPayment(e) {
+    const revenue = Number(e.revenue) || 0;
+    const explicit = Number(e.amountReceived) || 0;
+    let received;
+    if (explicit > 0) received = Math.min(explicit, revenue);
+    else if (e.paymentStatus === 'Partial' || e.paymentStatus === 'Pending') received = 0;
+    else received = revenue; // legacy default
+    return { revenue, received, due: Math.max(0, revenue - received) };
+}
+
 // ============ HARDWARE SERVICE APIS ============
 app.post('/api/admin/assign', requireAuth, async (req, res) => {
     try {
@@ -361,6 +374,33 @@ app.post('/api/admin/update-km/:id', requireAuth, async (req, res) => {
     const expense = (km / 50) * 100;
     await Entry.findByIdAndUpdate(req.params.id, { kmTraveled: km, travelExpense: expense });
     res.redirect('/admin');
+});
+
+// Set/update payment on a hardware entry (admin can mark partial/unpaid/full)
+app.post('/api/admin/entry-payment/:id', requireAuth, async (req, res) => {
+    if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+    try {
+        const e = await Entry.findById(req.params.id);
+        if (!e) return res.status(404).json({ error: 'Entry not found' });
+
+        const revenue = e.revenue || 0;
+        const received = Number(req.body.amountReceived);
+        if (isNaN(received) || received < 0) {
+            return res.status(400).json({ error: 'Enter a valid amount (0 or more)' });
+        }
+        // VALIDATION: cannot receive more than the job value
+        if (received > revenue) {
+            return res.status(400).json({ error: `Received cannot exceed job value of Rs.${revenue.toLocaleString('en-IN')}` });
+        }
+
+        e.amountReceived = received;
+        e.amountDue = Math.max(0, revenue - received);
+        e.paymentStatus = received >= revenue && revenue > 0 ? 'Paid' : received > 0 ? 'Partial' : 'Pending';
+        if (req.body.mode) e.paymentMode = req.body.mode;
+
+        await e.save();
+        res.json({ success: true, amountReceived: e.amountReceived, amountDue: e.amountDue, paymentStatus: e.paymentStatus });
+    } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 app.post('/api/admin/followup/:id', requireAuth, async (req, res) => {
@@ -847,9 +887,19 @@ app.get('/admin', requireAuth, async (req, res) => {
     const pendingVijay = entries.filter(e => e.agentName === 'vijay' && e.jobStatus === 'Assigned');
     const pendingRahul = entries.filter(e => e.agentName === 'rahul' && e.jobStatus === 'Assigned');
 
+    // Attach unified payment figures so the ledger UI matches every other screen
+    entries.forEach(e => {
+        const hp = hwPayment(e);
+        e._recd = hp.received;
+        e._due = hp.due;
+    });
+    const totalCollected = entries.filter(e => e.jobStatus === 'Completed').reduce((s, e) => s + e._recd, 0);
+    const totalPendingDue = entries.filter(e => e.jobStatus === 'Completed').reduce((s, e) => s + e._due, 0);
+
     res.render('admin', {
         user: req.session.user,
         entries, orders: allOrders, totalRevenue, totalExpense,
+        totalCollected, totalPendingDue,
         todayRevenue, weekRevenue, monthRevenue, targets,
         weakPoint, query: req.query, sources, followUpRevenue,
         pendingVijay, pendingRahul
@@ -1074,9 +1124,10 @@ app.get('/cctv/quotation/:id', requireAuth, requireAdmin, async (req, res) => {
                 orderCount++;
             });
             hwEntries.forEach(e => {
-                totalOrderValue += e.revenue || 0;
-                totalPaid += e.amountReceived || 0;
-                totalDue += e.amountDue || 0;
+                const hp = hwPayment(e);
+                totalOrderValue += hp.revenue;
+                totalPaid += hp.received;
+                totalDue += hp.due;
                 orderCount++;
             });
             
@@ -2414,8 +2465,9 @@ app.get('/dashboard', requireAuth, requireAdmin, async (req, res) => {
         {
             let rev = 0, recd = 0, dueAll = 0, exp = 0, cnt = 0;
             hwEntries.forEach(e => {
-                dueAll += e.amountDue || 0;
-                if (inPeriod(e.createdAt)) { rev += e.revenue || 0; recd += (e.amountReceived !== undefined ? e.amountReceived : e.revenue) || 0; exp += e.travelExpense || 0; cnt++; }
+                const hp = hwPayment(e);
+                dueAll += hp.due;
+                if (inPeriod(e.createdAt)) { rev += hp.revenue; recd += hp.received; exp += e.travelExpense || 0; cnt++; }
             });
             businesses.push({ key: 'hardware', name: 'Hardware & Repair', icon: '🔧', link: '/admin', revenue: rev, received: recd, due: dueAll, expense: exp, profit: rev - exp, count: cnt });
         }
@@ -2497,7 +2549,7 @@ app.get('/dashboard', requireAuth, requireAdmin, async (req, res) => {
             const spanMs = Math.max(now.getTime() - fromDate.getTime(), 24*60*60*1000);
             const prevFrom = new Date(fromDate.getTime() - spanMs);
             let prevRevenue = 0, prevReceived = 0;
-            hwEntries.forEach(e => { if (inRange(e.createdAt, prevFrom, fromDate)) { prevRevenue += e.revenue||0; prevReceived += e.amountReceived||e.revenue||0; } });
+            hwEntries.forEach(e => { if (inRange(e.createdAt, prevFrom, fromDate)) { const hp = hwPayment(e); prevRevenue += hp.revenue; prevReceived += hp.received; } });
             corpEntries.forEach(c => { if (inRange(c.createdAt, prevFrom, fromDate)) { prevRevenue += c.grandTotal||0; prevReceived += c.amountReceived||0; } });
             quotes.forEach(q => {
                 if (inRange(q.createdAt, prevFrom, fromDate)) prevRevenue += q.grandTotal||0;
@@ -2525,7 +2577,7 @@ app.get('/dashboard', requireAuth, requireAdmin, async (req, res) => {
             let amt = 0;
             quotes.forEach(q => (q.payments||[]).forEach(p => { if (inRange(p.date, day, next)) amt += p.amount||0; }));
             amcOffices.forEach(o => (o.payments||[]).forEach(p => { if (inRange(p.paidDate, day, next)) amt += p.amount||0; }));
-            hwEntries.forEach(e => { if (inRange(e.createdAt, day, next)) amt += e.amountReceived||e.revenue||0; });
+            hwEntries.forEach(e => { if (inRange(e.createdAt, day, next)) amt += hwPayment(e).received; });
             corpEntries.forEach(c => { if (inRange(c.createdAt, day, next)) amt += c.amountReceived||0; });
             otherBiz.forEach(o => { if (inRange(o.createdAt, day, next)) amt += o.revenue||0; });
             swInvoices.forEach(s => { if (inRange(s.createdAt, day, next)) amt += s.amountReceived||0; });
@@ -4553,7 +4605,7 @@ app.get('/api/operations', requireAuth, requireAdmin, async (req, res) => {
                 ref: e.entryNumber || ('HW-' + String(e._id).slice(-5)),
                 customer: e.customerName, mobile: e.mobileNumber, company: '',
                 title: e.workType || e.deviceType || 'Hardware Service',
-                amount: e.revenue || 0, received: e.amountReceived || 0, due: e.amountDue || 0,
+                amount: hwPayment(e).revenue, received: hwPayment(e).received, due: hwPayment(e).due,
                 status: e.jobStatus || 'Pending', paymentStatus: e.paymentStatus || 'Pending',
                 date: e.createdAt, link: '/admin', remark: e.remarks || '',
                 hasInvoice: true, invoiceLink: ''
@@ -4815,11 +4867,12 @@ app.post('/api/operations/payment', requireAuth, requireAdmin, async (req, res) 
         if (dept === 'Hardware') {
             const e = await Entry.findById(id);
             if (!e) return res.status(404).json({ error: 'Not found' });
-            const due = Math.max(0, (e.revenue || 0) - (e.amountReceived || 0));
-            if (amt > due) return res.status(400).json({ error: `Payment cannot exceed due of Rs.${due.toLocaleString('en-IN')}` });
-            e.amountReceived = (e.amountReceived || 0) + amt;
-            e.amountDue = Math.max(0, (e.revenue || 0) - e.amountReceived);
-            e.paymentStatus = e.amountReceived >= (e.revenue || 0) ? 'Paid' : e.amountReceived > 0 ? 'Partial' : 'Pending';
+            const cur = hwPayment(e);
+            if (amt > cur.due) return res.status(400).json({ error: `Payment cannot exceed due of Rs.${cur.due.toLocaleString('en-IN')}` });
+            e.amountReceived = cur.received + amt;
+            e.amountDue = Math.max(0, cur.revenue - e.amountReceived);
+            e.paymentStatus = e.amountReceived >= cur.revenue && cur.revenue > 0 ? 'Paid' : e.amountReceived > 0 ? 'Partial' : 'Pending';
+            if (mode) e.paymentMode = mode;
             await e.save();
             return res.json({ success: true, totalPaid: e.amountReceived, balanceDue: e.amountDue });
         }

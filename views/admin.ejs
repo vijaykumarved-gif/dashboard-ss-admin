@@ -133,18 +133,26 @@
         </div>
         
         <!-- ===== TOTALS BAR ===== -->
-        <div style="background: var(--accent); border-radius: var(--radius-md); padding: 20px; margin-bottom: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; text-align: center; color: white;">
+        <div style="background: var(--accent); border-radius: var(--radius-md); padding: 20px; margin-bottom: 24px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; text-align: center; color: white;">
             <div>
                 <div style="font-size: 11px; opacity: 0.7; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Gross Revenue</div>
-                <div style="font-size: 26px; font-weight: 800; color: #4ade80; margin-top: 4px;" class="font-mono">₹<%= totalRevenue %></div>
+                <div style="font-size: 22px; font-weight: 800; color: #4ade80; margin-top: 4px;" class="font-mono">₹<%= (totalRevenue || 0).toLocaleString('en-IN') %></div>
+            </div>
+            <div>
+                <div style="font-size: 11px; opacity: 0.7; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Collected</div>
+                <div style="font-size: 22px; font-weight: 800; color: #34d399; margin-top: 4px;" class="font-mono">₹<%= (typeof totalCollected !== 'undefined' ? totalCollected : 0).toLocaleString('en-IN') %></div>
+            </div>
+            <div>
+                <div style="font-size: 11px; opacity: 0.7; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Pending Due</div>
+                <div style="font-size: 22px; font-weight: 800; color: #fbbf24; margin-top: 4px;" class="font-mono">₹<%= (typeof totalPendingDue !== 'undefined' ? totalPendingDue : 0).toLocaleString('en-IN') %></div>
             </div>
             <div>
                 <div style="font-size: 11px; opacity: 0.7; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Total Travel Cost</div>
-                <div style="font-size: 26px; font-weight: 800; color: #f87171; margin-top: 4px;" class="font-mono">₹<%= totalExpense %></div>
+                <div style="font-size: 22px; font-weight: 800; color: #f87171; margin-top: 4px;" class="font-mono">₹<%= (totalExpense || 0).toLocaleString('en-IN') %></div>
             </div>
             <div>
                 <div style="font-size: 11px; opacity: 0.7; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Net Profit</div>
-                <div style="font-size: 26px; font-weight: 800; color: #60a5fa; margin-top: 4px;" class="font-mono">₹<%= totalRevenue - totalExpense %></div>
+                <div style="font-size: 22px; font-weight: 800; color: #60a5fa; margin-top: 4px;" class="font-mono">₹<%= ((totalRevenue || 0) - (totalExpense || 0)).toLocaleString('en-IN') %></div>
             </div>
         </div>
         
@@ -422,8 +430,20 @@
                             <td>
                                 <% if (entry.jobStatus === 'Assigned') { %>
                                     <span class="badge warning">Pending</span>
-                                <% } else { %>
-                                    <span class="badge success font-mono" style="font-size: 12px; font-weight: 800;">₹<%= entry.revenue %></span>
+                                <% } else { 
+                                    const rev = entry.revenue || 0;
+                                    const recd = entry._recd !== undefined ? entry._recd : rev;
+                                    const due = entry._due !== undefined ? entry._due : 0;
+                                %>
+                                    <div class="font-mono font-bold" style="font-size: 13px;">₹<%= rev.toLocaleString('en-IN') %></div>
+                                    <% if (due > 0) { %>
+                                        <div style="font-size: 10px; color: var(--success);">Recd: ₹<%= recd.toLocaleString('en-IN') %></div>
+                                        <div style="font-size: 11px; color: var(--danger); font-weight: 700;">Due: ₹<%= due.toLocaleString('en-IN') %></div>
+                                    <% } else { %>
+                                        <span class="badge success" style="font-size: 9px;">✓ Paid</span>
+                                    <% } %>
+                                    <button class="btn btn-xs <%= due > 0 ? 'btn-success' : 'btn-secondary' %>" style="margin-top: 4px;"
+                                        onclick="openHwPay('<%= entry._id %>', '<%= (entry.customerName || '').replace(/'/g, '') %>', <%= rev %>, <%= recd %>)">💰 Payment</button>
                                 <% } %>
                             </td>
                             
@@ -523,6 +543,52 @@
             setLedgerRange('all', allBtn);
         }
     });
+
+    // === HARDWARE PAYMENT ===
+    let hpId = null, hpTotal = 0;
+    function openHwPay(id, name, total, recd) {
+        hpId = id; hpTotal = total;
+        document.getElementById('hp_name').textContent = name || '-';
+        document.getElementById('hp_total').textContent = '₹' + total.toLocaleString('en-IN');
+        document.getElementById('hp_recd').textContent = '₹' + recd.toLocaleString('en-IN');
+        document.getElementById('hp_due').textContent = '₹' + Math.max(0, total - recd).toLocaleString('en-IN');
+        document.getElementById('hp_amount').value = recd;
+        document.getElementById('hp_error').style.display = 'none';
+        openModal('hwPayModal');
+        validateHwPay();
+    }
+    function hwPayFull() { document.getElementById('hp_amount').value = hpTotal; validateHwPay(); }
+    function hwPayNone() { document.getElementById('hp_amount').value = 0; validateHwPay(); }
+    function validateHwPay() {
+        const amt = Number(document.getElementById('hp_amount').value);
+        const err = document.getElementById('hp_error'), btn = document.getElementById('hp_submit'), pv = document.getElementById('hp_preview');
+        if (isNaN(amt) || amt < 0) { err.textContent = '⚠️ Valid amount daalo'; err.style.display = 'block'; btn.disabled = true; pv.textContent = ''; return false; }
+        if (amt > hpTotal) {
+            err.textContent = `⚠️ Job value se zyada nahi (₹${hpTotal.toLocaleString('en-IN')})`;
+            err.style.display = 'block'; btn.disabled = true; pv.textContent = ''; return false;
+        }
+        err.style.display = 'none'; btn.disabled = false;
+        const due = hpTotal - amt;
+        pv.innerHTML = due > 0
+            ? `<span style="color:#dc2626;">Baaki due rahega: ₹${due.toLocaleString('en-IN')}</span>`
+            : `<span style="color:#16a34a;">✓ Fully paid</span>`;
+        return true;
+    }
+    async function submitHwPay() {
+        if (!validateHwPay()) return;
+        const body = {
+            amountReceived: Number(document.getElementById('hp_amount').value),
+            mode: document.getElementById('hp_mode').value
+        };
+        try {
+            const res = await fetch('/api/admin/entry-payment/' + hpId, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (data.success) { showToast('✓ Payment updated', 'success'); setTimeout(() => location.reload(), 700); }
+            else showToast(data.error || 'Failed', 'error');
+        } catch (e) { showToast('Error: ' + e.message, 'error'); }
+    }
 
     // === DELETE PART/SERVICE REQUEST ===
     async function deleteOrder(id, name) {
@@ -634,6 +700,53 @@
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="closeModal('dupModal')">Close</button>
             <button class="btn btn-danger" id="dupDeleteBtn" onclick="deleteDuplicates()" style="display:none;">🗑️ Delete Selected</button>
+        </div>
+    </div>
+</div>
+
+<!-- Hardware Payment Modal -->
+<div class="modal-overlay" id="hwPayModal">
+    <div class="modal" style="max-width: 420px;">
+        <div class="modal-header">
+            <div class="modal-title">💰 Add Payment</div>
+            <button class="modal-close" onclick="closeModal('hwPayModal')">×</button>
+        </div>
+        <div class="modal-body">
+            <div style="background: #f0fdf4; border-radius: 8px; padding: 12px; margin-bottom: 14px;">
+                <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;">
+                    <span style="color: var(--text-3);">Customer:</span><span class="font-bold" id="hp_name">-</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;">
+                    <span style="color: var(--text-3);">Total:</span><span class="font-mono" id="hp_total">-</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;">
+                    <span style="color: var(--text-3);">Already Received:</span><span class="font-mono" style="color:#16a34a;" id="hp_recd">-</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-size:14px; font-weight:700; padding-top:6px; border-top:1px solid #bbf7d0;">
+                    <span>Balance Due:</span><span class="font-mono" style="color:#dc2626;" id="hp_due">-</span>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Total Amount Received (₹) *</label>
+                <input type="number" id="hp_amount" placeholder="0" style="font-size:18px; font-weight:700;" oninput="validateHwPay()">
+                <div style="font-size:11px; color:var(--text-3); margin-top:4px;">Customer ne ab tak kul kitna diya — poora ya aadha</div>
+                <div id="hp_error" style="color:#dc2626; font-size:12px; margin-top:4px; display:none;"></div>
+                <div id="hp_preview" style="font-size:12px; margin-top:6px; font-weight:700;"></div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Payment Mode</label>
+                <select id="hp_mode">
+                    <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Card</option><option>Cheque</option>
+                </select>
+            </div>
+            <div style="display:flex; gap:6px;">
+                <button class="btn btn-xs btn-secondary" type="button" onclick="hwPayFull()">Full Paid</button>
+                <button class="btn btn-xs btn-secondary" type="button" onclick="hwPayNone()">Nothing Received</button>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('hwPayModal')">Cancel</button>
+            <button class="btn btn-success" id="hp_submit" onclick="submitHwPay()">Record Payment</button>
         </div>
     </div>
 </div>
