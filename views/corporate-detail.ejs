@@ -233,15 +233,20 @@
             <div class="card-header">
                 <div>
                     <div class="card-title">🔩 Extra Parts & Additional Services</div>
-                    <div class="card-subtitle"><%= entry.extraItems.length %> item(s) beyond PC service charges</div>
+                    <div class="card-subtitle"><%= entry.extraItems.length %> item(s) beyond PC service · vendor cost internal hai, invoice pe nahi jata</div>
                 </div>
             </div>
             <div class="table-wrap">
                 <table class="data-table">
-                    <thead><tr><th>#</th><th>Description</th><th>Type</th><th>For PC</th><th>Qty × Rate</th><th class="text-right">Amount</th></tr></thead>
+                    <thead><tr><th>#</th><th>Description</th><th>Type</th><th>For PC</th><th>Qty × Rate</th><th class="text-right">Amount</th><th>🏪 Vendor</th><th class="text-right">Cost</th><th class="text-right">Profit</th></tr></thead>
                     <tbody>
-                        <% entry.extraItems.forEach(function(it, i) { 
-                            const amt = it.amount !== undefined ? it.amount : (it.quantity || 0) * (it.rate || 0); %>
+                        <% 
+                        let _vCost = 0, _vPaid = 0, _sell = 0;
+                        entry.extraItems.forEach(function(it, i) { 
+                            const amt = it.amount !== undefined ? it.amount : (it.quantity || 0) * (it.rate || 0);
+                            const vTot = it.vendorTotal !== undefined ? it.vendorTotal : (it.quantity || 0) * (it.vendorCost || 0);
+                            const prof = amt - vTot;
+                            _sell += amt; _vCost += vTot; _vPaid += (it.vendorPaid || 0); %>
                             <tr>
                                 <td class="font-mono"><%= i + 1 %></td>
                                 <td class="font-bold"><%= it.description %></td>
@@ -249,11 +254,22 @@
                                 <td style="font-size:11px; color: var(--text-3);"><%= it.pcRef || '—' %></td>
                                 <td class="font-mono" style="font-size:12px;"><%= it.quantity %> × <%= formatINR(it.rate) %></td>
                                 <td class="font-mono font-bold text-right" style="color:#7c3aed;"><%= formatINR(amt) %></td>
+                                <td style="font-size:11px;">
+                                    <%= it.vendorName || '—' %>
+                                    <% if (vTot > 0) { %>
+                                        <div><span class="badge <%= (it.vendorPaid||0) >= vTot ? 'success' : (it.vendorPaid||0) > 0 ? 'warning' : 'danger' %>" style="font-size:8px;"><%= (it.vendorPaid||0) >= vTot ? 'Paid' : (it.vendorPaid||0) > 0 ? 'Partial' : 'Unpaid' %></span></div>
+                                    <% } %>
+                                </td>
+                                <td class="font-mono text-right" style="font-size:12px; color:#dc2626;"><%= vTot > 0 ? formatINR(vTot) : '—' %></td>
+                                <td class="font-mono font-bold text-right" style="color:<%= prof >= 0 ? '#16a34a' : '#dc2626' %>;"><%= formatINR(prof) %></td>
                             </tr>
                         <% }) %>
                         <tr style="background:#f5f3ff;">
-                            <td colspan="5" class="font-bold" style="color:#5b21b6;">Parts & Services Subtotal</td>
-                            <td class="font-mono font-bold text-right" style="color:#5b21b6;"><%= formatINR(entry.partsSubtotal || entry.extraItems.reduce((s,i2)=>s+(i2.amount||0),0)) %></td>
+                            <td colspan="5" class="font-bold" style="color:#5b21b6;">Totals</td>
+                            <td class="font-mono font-bold text-right" style="color:#5b21b6;"><%= formatINR(_sell) %></td>
+                            <td style="font-size:10px; color:var(--text-3);">Vendor due: <%= formatINR(Math.max(0, _vCost - _vPaid)) %></td>
+                            <td class="font-mono font-bold text-right" style="color:#dc2626;"><%= formatINR(_vCost) %></td>
+                            <td class="font-mono font-bold text-right" style="color:<%= (_sell - _vCost) >= 0 ? '#16a34a' : '#dc2626' %>;"><%= formatINR(_sell - _vCost) %></td>
                         </tr>
                     </tbody>
                 </table>

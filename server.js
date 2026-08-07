@@ -2615,6 +2615,23 @@ app.get('/vendors', requireAuth, requireAdmin, async (req, res) => {
     });
     
     // AUTO-ADD: create Vendor docs for procurement vendors that don't exist yet
+    // Also pull supplier usage from corporate extra parts
+    const corpWithVendors = await CorporateEntry.find({ 'extraItems.vendorName': { $nin: ['', null] } })
+        .select('entryNumber customerName extraItems createdAt').lean();
+    corpWithVendors.forEach(c => {
+        (c.extraItems || []).forEach(it => {
+            const rawName = (it.vendorName || '').trim();
+            if (!rawName) return;
+            const key = rawName.toLowerCase();
+            if (!procByVendor[key]) procByVendor[key] = { name: rawName, purchased: 0, paid: 0, orderCount: 0, lastUsed: null };
+            procByVendor[key].purchased += it.vendorTotal || 0;
+            procByVendor[key].paid += it.vendorPaid || 0;
+            procByVendor[key].orderCount += 1;
+            const d = c.createdAt;
+            if (!procByVendor[key].lastUsed || d > procByVendor[key].lastUsed) procByVendor[key].lastUsed = d;
+        });
+    });
+
     const existingVendors = await Vendor.find().select('vendorName').lean();
     const existingNames = new Set(existingVendors.map(v => (v.vendorName || '').trim().toLowerCase()));
     const toCreate = Object.values(procByVendor).filter(p => !existingNames.has(p.name.toLowerCase()));
@@ -3698,16 +3715,29 @@ function computeCorporateTotals(entry) {
     (entry.pcs || []).forEach(p => { pcSubtotal += (Number(p.serviceRate) || 0); });
 
     // Extra parts / additional services (same customer, same visit)
-    let partsSubtotal = 0;
+    let partsSubtotal = 0, totalVendorCost = 0, totalVendorPaid = 0;
     (entry.extraItems || []).forEach(it => {
         const qty = Number(it.quantity) || 0;
         const rate = Number(it.rate) || 0;
+        const vCost = Number(it.vendorCost) || 0;
         it.amount = qty * rate;
+        it.vendorTotal = qty * vCost;
+        it.vendorPaid = Math.min(Number(it.vendorPaid) || 0, it.vendorTotal);
+        it.vendorPaymentStatus = it.vendorTotal <= 0 ? 'Pending'
+            : it.vendorPaid >= it.vendorTotal ? 'Paid'
+            : it.vendorPaid > 0 ? 'Partial' : 'Pending';
+        it.profit = it.amount - it.vendorTotal;
         partsSubtotal += it.amount;
+        totalVendorCost += it.vendorTotal;
+        totalVendorPaid += it.vendorPaid;
     });
 
     entry.pcSubtotal = pcSubtotal;
     entry.partsSubtotal = partsSubtotal;
+    entry.totalVendorCost = totalVendorCost;
+    entry.totalVendorPaid = totalVendorPaid;
+    entry.vendorDue = Math.max(0, totalVendorCost - totalVendorPaid);
+    entry.partsProfit = partsSubtotal - totalVendorCost;
     entry.subtotal = pcSubtotal + partsSubtotal;
 
     const afterDiscount = entry.subtotal - (Number(entry.discount) || 0);
@@ -3829,6 +3859,22 @@ app.post('/api/corporate', requireAuth, async (req, res) => {
                 gstNumber: entry.gstNumber || ''
             }, 'Corporate');
         } catch (se) { console.error('customer sync failed', se.message); }
+
+        // Auto-add any new supplier used in extra parts to Vendor Management
+        try {
+            const names = [...new Set((entry.extraItems || [])
+                .map(it => (it.vendorName || '').trim()).filter(Boolean))];
+            for (const vn of names) {
+                const esc = vn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const exists = await Vendor.findOne({ vendorName: new RegExp('^' + esc + '$', 'i') }).lean();
+                if (!exists) {
+                    await Vendor.create({
+                        vendorName: vn, category: 'Auto-added from orders',
+                        notes: 'Auto-created from ' + entry.entryNumber
+                    });
+                }
+            }
+        } catch (ve) { console.error('vendor sync failed', ve.message); }
 
         res.json({ success: true, entry });
     } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }

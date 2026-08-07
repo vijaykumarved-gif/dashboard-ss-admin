@@ -91,12 +91,23 @@ const corporateEntrySchema = new mongoose.Schema({
         category: { type: String, default: 'Part' },  // Part, Service, Software, Other
         pcRef: { type: String, default: '' },         // which PC it belongs to (optional)
         quantity: { type: Number, default: 1 },
-        rate: { type: Number, default: 0 },
+        rate: { type: Number, default: 0 },           // charged to customer (per unit)
         amount: { type: Number, default: 0 },         // quantity * rate
+        // Vendor / purchase side (internal — never printed on the customer invoice)
+        vendorName: { type: String, default: '' },
+        vendorCost: { type: Number, default: 0 },     // our purchase cost per unit
+        vendorTotal: { type: Number, default: 0 },    // quantity * vendorCost
+        vendorPaid: { type: Number, default: 0 },
+        vendorPaymentStatus: { type: String, default: 'Pending' }, // Pending, Partial, Paid
+        profit: { type: Number, default: 0 },         // amount - vendorTotal
         addedAt: { type: Date, default: Date.now },
         addedBy: { type: String, default: '' }
     }],
     partsSubtotal: { type: Number, default: 0 },      // sum of extraItems
+    totalVendorCost: { type: Number, default: 0 },    // what we pay suppliers
+    totalVendorPaid: { type: Number, default: 0 },
+    vendorDue: { type: Number, default: 0 },
+    partsProfit: { type: Number, default: 0 },        // partsSubtotal - totalVendorCost
     pcSubtotal: { type: Number, default: 0 },         // sum of PC service rates
     subtotal: { type: Number, default: 0 },           // pcSubtotal + partsSubtotal
     discount: { type: Number, default: 0 },
