@@ -3901,7 +3901,7 @@ app.put('/api/corporate/:id', requireAuth, async (req, res) => {
         const wasPaid = entry.paymentStatus === 'Paid';
         
         // Track changes for simple top-level fields
-        const trackedFields = ['customerName', 'companyName', 'mobileNumber', 'location', 'visitDate', 'visitTime', 'serviceType', 'overallRemarks', 'amountReceived', 'discount', 'discountReason', 'paymentMode', 'gstPercent'];
+        const trackedFields = ['customerName', 'companyName', 'mobileNumber', 'email', 'gstNumber', 'location', 'visitDate', 'visitTime', 'serviceType', 'overallRemarks', 'amountReceived', 'discount', 'discountReason', 'paymentMode', 'gstPercent'];
         const changedFields = [];
         trackedFields.forEach(f => {
             if (updates[f] !== undefined && String(entry[f] || '') !== String(updates[f] || '')) {
@@ -3924,6 +3924,23 @@ app.put('/api/corporate/:id', requireAuth, async (req, res) => {
             changedFields.push('PC services');
             updates.pcs.forEach(p => { p.overallStatus = computePcStatus(p); });
             entry.pcs = updates.pcs;
+        }
+
+        // Extra parts / additional services (replace if provided)
+        if (updates.extraItems !== undefined) {
+            const oldCount = (entry.extraItems || []).length;
+            const oldTotal = entry.partsSubtotal || 0;
+            const newItems = (updates.extraItems || []).filter(it => (it.description || '').trim());
+            const newTotal = newItems.reduce((s, it) => s + ((Number(it.quantity) || 0) * (Number(it.rate) || 0)), 0);
+            if (oldCount !== newItems.length || oldTotal !== newTotal) {
+                editLogs.push({
+                    editedBy: editor, field: 'extraItems',
+                    oldValue: `${oldCount} items (Rs.${oldTotal})`,
+                    newValue: `${newItems.length} items (Rs.${newTotal})`
+                });
+                changedFields.push('Extra parts/services');
+            }
+            entry.extraItems = newItems;
         }
         
         editLogs.forEach(log => entry.editLogs.push(log));
@@ -3949,6 +3966,23 @@ app.put('/api/corporate/:id', requireAuth, async (req, res) => {
         }
         
         await entry.save();
+
+        // Auto-add any new supplier used in extra parts to Vendor Management
+        try {
+            const names = [...new Set((entry.extraItems || [])
+                .map(it => (it.vendorName || '').trim()).filter(Boolean))];
+            for (const vn of names) {
+                const esc = vn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const exists = await Vendor.findOne({ vendorName: new RegExp('^' + esc + '$', 'i') }).lean();
+                if (!exists) {
+                    await Vendor.create({
+                        vendorName: vn, category: 'Auto-added from orders',
+                        notes: 'Auto-created from ' + entry.entryNumber
+                    });
+                }
+            }
+        } catch (ve) { console.error('vendor sync failed', ve.message); }
+
         res.json({ success: true, entry });
     } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
 });
