@@ -3693,15 +3693,28 @@ async function genSequentialNumber(Model, prefix, fieldName) {
 
 // Helper: compute totals from PCs
 function computeCorporateTotals(entry) {
-    let subtotal = 0;
-    (entry.pcs || []).forEach(p => { subtotal += (Number(p.serviceRate) || 0); });
-    entry.subtotal = subtotal;
-    
-    const afterDiscount = subtotal - (Number(entry.discount) || 0);
+    // PC service charges
+    let pcSubtotal = 0;
+    (entry.pcs || []).forEach(p => { pcSubtotal += (Number(p.serviceRate) || 0); });
+
+    // Extra parts / additional services (same customer, same visit)
+    let partsSubtotal = 0;
+    (entry.extraItems || []).forEach(it => {
+        const qty = Number(it.quantity) || 0;
+        const rate = Number(it.rate) || 0;
+        it.amount = qty * rate;
+        partsSubtotal += it.amount;
+    });
+
+    entry.pcSubtotal = pcSubtotal;
+    entry.partsSubtotal = partsSubtotal;
+    entry.subtotal = pcSubtotal + partsSubtotal;
+
+    const afterDiscount = entry.subtotal - (Number(entry.discount) || 0);
     entry.gstAmount = afterDiscount * (Number(entry.gstPercent) || 0) / 100;
     entry.grandTotal = afterDiscount + entry.gstAmount;
     entry.amountDue = Math.max(0, entry.grandTotal - (Number(entry.amountReceived) || 0));
-    entry.paymentStatus = entry.amountDue <= 0 ? 'Paid' : entry.amountReceived > 0 ? 'Partial' : 'Pending';
+    entry.paymentStatus = entry.amountDue <= 0 && entry.grandTotal > 0 ? 'Paid' : entry.amountReceived > 0 ? 'Partial' : 'Pending';
     return entry;
 }
 
@@ -3806,6 +3819,17 @@ app.post('/api/corporate', requireAuth, async (req, res) => {
         
         const entry = new CorporateEntry(data);
         await entry.save();
+
+        // Auto-sync to Customer master so next time details auto-fill
+        try {
+            await syncCustomer({
+                name: entry.customerName, mobile: entry.mobileNumber,
+                companyName: entry.companyName || '', email: entry.email || '',
+                location: entry.location || '', address: entry.location || '',
+                gstNumber: entry.gstNumber || ''
+            }, 'Corporate');
+        } catch (se) { console.error('customer sync failed', se.message); }
+
         res.json({ success: true, entry });
     } catch (e) { console.error(e); res.status(400).json({ error: e.message }); }
 });
@@ -4085,10 +4109,57 @@ function generateCorporateInvoicePDF(doc, entry) {
         y += rowH;
     });
     
+    // ===== EXTRA PARTS & ADDITIONAL SERVICES =====
+    const extras = entry.extraItems || [];
+    if (extras.length) {
+        // section header
+        if (y + 46 > doc.page.height - 90) {
+            doc.addPage(); drawPdfHeader(doc, 'TAX INVOICE', entry.entryNumber + ' (cont.)'); y = 155;
+        }
+        y += 6;
+        doc.rect(40, y, 515, 20).fill('#f5f3ff');
+        doc.fillColor('#6d28d9').fontSize(9).font('Helvetica-Bold')
+            .text('EXTRA PARTS & ADDITIONAL SERVICES', 50, y + 6, { lineBreak: false });
+        y += 20;
+
+        extras.forEach((it, i) => {
+            const rowH = 26;
+            if (y + rowH > doc.page.height - 90) {
+                doc.addPage(); drawPdfHeader(doc, 'TAX INVOICE', entry.entryNumber + ' (cont.)'); y = 155;
+                doc.rect(40, y, 515, 20).fill('#f5f3ff');
+                doc.fillColor('#6d28d9').fontSize(9).font('Helvetica-Bold')
+                    .text('EXTRA PARTS & ADDITIONAL SERVICES (cont.)', 50, y + 6, { lineBreak: false });
+                y += 20;
+            }
+            if (i % 2 === 0) doc.rect(40, y, 515, rowH).fill('#faf9ff');
+            const qty = Number(it.quantity) || 0, rate = Number(it.rate) || 0;
+            const amt = it.amount !== undefined ? it.amount : qty * rate;
+            doc.fillColor('#475569').fontSize(9).font('Helvetica').text(String(i + 1), 50, y + 8, { width: 25, lineBreak: false });
+            doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(9)
+                .text(it.description || '-', 78, y + 4, { width: 210, lineBreak: false });
+            doc.fillColor('#64748b').font('Helvetica').fontSize(7.5)
+                .text((it.category || 'Part') + (it.pcRef ? ' · ' + it.pcRef : ''), 78, y + 16, { width: 210, lineBreak: false });
+            doc.fillColor('#475569').fontSize(9).font('Helvetica')
+                .text(qty + ' x Rs.' + rate.toLocaleString('en-IN'), 290, y + 8, { width: 130, lineBreak: false });
+            doc.fillColor('#0f172a').fontSize(10).font('Helvetica-Bold')
+                .text('Rs.' + Math.round(amt).toLocaleString('en-IN'), 482, y + 8, { width: 65, align: 'right', lineBreak: false });
+            y += rowH;
+        });
+
+        // parts subtotal strip
+        const partsTotal = extras.reduce((s, it) => s + (it.amount !== undefined ? it.amount : (Number(it.quantity) || 0) * (Number(it.rate) || 0)), 0);
+        doc.rect(40, y, 515, 20).fill('#ede9fe');
+        doc.fillColor('#5b21b6').fontSize(9).font('Helvetica-Bold')
+            .text('Parts & Services Subtotal', 78, y + 6, { lineBreak: false })
+            .text('Rs.' + Math.round(partsTotal).toLocaleString('en-IN'), 482, y + 6, { width: 65, align: 'right', lineBreak: false });
+        y += 20;
+    }
+
     y += 10;
     
     // Totals + signature block need ~140px — move to a fresh page if not enough room
-    if (y + 140 > doc.page.height - 60) {
+    const _needH = 150 + ((entry.extraItems || []).length ? 32 : 0);
+    if (y + _needH > doc.page.height - 60) {
         doc.addPage();
         drawPdfHeader(doc, 'TAX INVOICE', entry.entryNumber + ' (cont.)');
         y = 155;
@@ -4096,9 +4167,22 @@ function generateCorporateInvoicePDF(doc, entry) {
     
     // Totals box
     const totalsX = 320, totalsW = 235;
-    doc.roundedRect(totalsX, y, totalsW, 130, 8).fillAndStroke('#f8fafc', '#e2e8f0');
+    // Box grows when extra parts rows are shown
+    const _boxH = 130 + ((entry.extraItems || []).length ? 32 : 0);
+    doc.roundedRect(totalsX, y, totalsW, _boxH, 8).fillAndStroke('#f8fafc', '#e2e8f0');
     
     let ty = y + 12;
+    const _extras = entry.extraItems || [];
+    if (_extras.length) {
+        const _parts = entry.partsSubtotal || _extras.reduce((s, it) => s + (it.amount || 0), 0);
+        const _pcSub = entry.pcSubtotal !== undefined ? entry.pcSubtotal : Math.max(0, (entry.subtotal || 0) - _parts);
+        doc.fillColor('#64748b').fontSize(9).font('Helvetica').text('PC Service:', totalsX + 14, ty, { lineBreak: false });
+        doc.fillColor('#0f172a').font('Helvetica-Bold').text('Rs. ' + Math.round(_pcSub).toLocaleString('en-IN'), totalsX + 14, ty, { width: totalsW - 28, align: 'right', lineBreak: false });
+        ty += 16;
+        doc.fillColor('#64748b').font('Helvetica').text('Parts & Services:', totalsX + 14, ty, { lineBreak: false });
+        doc.fillColor('#6d28d9').font('Helvetica-Bold').text('Rs. ' + Math.round(_parts).toLocaleString('en-IN'), totalsX + 14, ty, { width: totalsW - 28, align: 'right', lineBreak: false });
+        ty += 16;
+    }
     doc.fillColor('#64748b').fontSize(9).font('Helvetica').text('Subtotal:', totalsX + 14, ty, { lineBreak: false });
     doc.fillColor('#0f172a').font('Helvetica-Bold').text('Rs. ' + entry.subtotal.toLocaleString('en-IN'), totalsX + 14, ty, { width: totalsW - 28, align: 'right', lineBreak: false });
     ty += 18;
@@ -4130,7 +4214,7 @@ function generateCorporateInvoicePDF(doc, entry) {
     }
     
     // Engineer signature box
-    doc.roundedRect(40, y, 270, 130, 8).fillAndStroke('#fffbeb', '#fcd34d');
+    doc.roundedRect(40, y, 270, _boxH, 8).fillAndStroke('#fffbeb', '#fcd34d');
     doc.fillColor('#92400e').fontSize(8).font('Helvetica-Bold').text('ENGINEER SIGNATURE', 52, y + 12, { lineBreak: false });
     doc.fillColor('#451a03').fontSize(18).font('Helvetica-Bold').text(entry.agentName.toUpperCase(), 52, y + 28, { width: 246, lineBreak: false });
     doc.fillColor('#92400e').fontSize(8).font('Helvetica').text('Authorized Signatory', 52, y + 54, { lineBreak: false });
@@ -5173,17 +5257,51 @@ app.get('/api/customers/lookup', requireAuth, async (req, res) => {
     try {
         const q = (req.query.q || '').trim();
         if (q.length < 3) return res.json({ suggestions: [] });
-        
+
         const digits = q.replace(/\D/g, '');
-        const filter = digits.length >= 3
-            ? { mobile: { $regex: digits, $options: 'i' } }
-            : { $or: [
-                { name: { $regex: q, $options: 'i' } },
-                { companyName: { $regex: q, $options: 'i' } }
-            ] };
-        
-        const suggestions = await Customer.find(filter).limit(8).sort({ totalRevenue: -1, updatedAt: -1 });
-        res.json({ suggestions });
+        const byMobile = digits.length >= 3;
+        const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        const mobRx = new RegExp(digits, 'i');
+
+        // 1) Customer master
+        const custFilter = byMobile
+            ? { mobile: { $regex: mobRx } }
+            : { $or: [{ name: { $regex: rx } }, { companyName: { $regex: rx } }] };
+        const masters = await Customer.find(custFilter).limit(8).sort({ totalRevenue: -1, updatedAt: -1 }).lean();
+
+        // 2) Past corporate visits (older data may not exist in Customer master yet)
+        const corpFilter = byMobile
+            ? { mobileNumber: { $regex: mobRx } }
+            : { $or: [{ customerName: { $regex: rx } }, { companyName: { $regex: rx } }] };
+        const corpPast = await CorporateEntry.find(corpFilter)
+            .select('customerName companyName mobileNumber email location gstNumber createdAt')
+            .sort({ createdAt: -1 }).limit(20).lean();
+
+        // Merge, de-duplicating by last-10 mobile digits (master wins)
+        const seen = new Set();
+        const suggestions = [];
+        masters.forEach(c => {
+            const key = String(c.mobile || '').replace(/\D/g, '').slice(-10);
+            if (key && seen.has(key)) return;
+            if (key) seen.add(key);
+            suggestions.push({
+                name: c.name, mobile: c.mobile, companyName: c.companyName || '',
+                email: c.email || '', primaryAddress: c.primaryAddress || '', location: c.primaryAddress || '',
+                gstNumber: c.gstNumber || '', totalServices: c.totalServices || 0, source: 'master'
+            });
+        });
+        corpPast.forEach(e => {
+            const key = String(e.mobileNumber || '').replace(/\D/g, '').slice(-10);
+            if (!key || seen.has(key)) return;
+            seen.add(key);
+            suggestions.push({
+                name: e.customerName, mobile: e.mobileNumber, companyName: e.companyName || '',
+                email: e.email || '', primaryAddress: e.location || '', location: e.location || '',
+                gstNumber: e.gstNumber || '', totalServices: 0, source: 'corporate'
+            });
+        });
+
+        res.json({ suggestions: suggestions.slice(0, 8) });
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

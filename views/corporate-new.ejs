@@ -77,13 +77,21 @@
         <!-- Customer details (ONCE) -->
         <div class="card">
             <div class="card-header">
-                <div class="card-title">🏢 Customer / Office Details</div>
+                <div>
+                    <div class="card-title">🏢 Customer / Office Details</div>
+                    <div class="card-subtitle">Purana customer hai? Naam ya mobile type karo — sab auto-fill ho jayega</div>
+                </div>
+                <button class="btn btn-sm btn-secondary" onclick="freshEntry()" title="Sab clear karke nayi entry shuru karo">🆕 Fresh Entry</button>
             </div>
             <div class="card-body">
+                <div id="repeatBanner" style="display:none; background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:13px;"></div>
                 <div class="form-grid">
                     <div class="form-group">
                         <label class="form-label">Customer / Contact Name *</label>
-                        <input type="text" id="customerName">
+                        <div style="position: relative;">
+                            <input type="text" id="customerName" autocomplete="off" oninput="lookupCustomer(this.value, 'name')" placeholder="Naam ya company type karo — purana customer auto-fill ho jayega">
+                            <div id="custDropdownName" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid var(--border);border-radius:8px;margin-top:2px;max-height:240px;overflow-y:auto;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Company Name</label>
@@ -92,7 +100,7 @@
                     <div class="form-group">
                         <label class="form-label">Mobile *</label>
                         <div style="position: relative;">
-                            <input type="tel" id="mobileNumber" autocomplete="off" oninput="lookupCustomer(this.value)">
+                            <input type="tel" id="mobileNumber" autocomplete="off" oninput="lookupCustomer(this.value, 'mobile')" placeholder="10-digit number — poora daalte hi details aa jayengi">
                             <div id="custDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid var(--border);border-radius:8px;margin-top:2px;max-height:240px;overflow-y:auto;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
                         </div>
                     </div>
@@ -218,6 +226,27 @@
             </div>
         </div>
         
+        <!-- Extra Parts & Additional Services -->
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">🔩 Extra Parts & Additional Services</div>
+                    <div class="card-subtitle">Koi part kharab hua ya customer ne extra service li — yahan add karo</div>
+                </div>
+                <button class="btn btn-sm btn-primary" onclick="addExtraItem()">+ Add Item</button>
+            </div>
+            <div class="card-body">
+                <div id="extraItemsList"></div>
+                <div id="extraEmpty" style="text-align: center; padding: 20px; color: var(--text-3); font-size: 13px;">
+                    Koi extra part/service nahi. PC service ke alawa kuch bill karna ho to <strong>+ Add Item</strong> dabao.
+                </div>
+                <div id="extraTotalBar" style="display: none; text-align: right; padding-top: 10px; border-top: 1px dashed var(--border); margin-top: 10px;">
+                    <span style="font-size: 12px; color: var(--text-3);">Parts & Services Total:</span>
+                    <span class="font-mono font-bold" id="extraTotal" style="font-size: 15px; color: #7c3aed; margin-left: 8px;">₹0</span>
+                </div>
+            </div>
+        </div>
+
         <!-- Billing -->
         <div class="card">
             <div class="card-header"><div class="card-title">💰 Billing</div></div>
@@ -253,7 +282,15 @@
                 </div>
                 
                 <div style="margin-top: 16px; padding: 14px; background: var(--surface-2); border-radius: 8px;">
-                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; font-size: 13px;">
+                    <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; font-size: 13px;">
+                        <div>
+                            <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">PC Service</div>
+                            <div class="font-bold font-mono" id="tPcSub">₹0</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Parts/Extra</div>
+                            <div class="font-bold font-mono" id="tParts" style="color: #7c3aed;">₹0</div>
+                        </div>
                         <div>
                             <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">Subtotal</div>
                             <div class="font-bold font-mono" id="tSub">₹0</div>
@@ -270,10 +307,10 @@
                             <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">GRAND TOTAL</div>
                             <div class="font-bold font-mono" id="tGrand" style="color: var(--primary); font-size: 16px;">₹0</div>
                         </div>
-                        <div>
-                            <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">DUE</div>
-                            <div class="font-bold font-mono" id="tDue" style="color: var(--danger); font-size: 16px;">₹0</div>
-                        </div>
+                    </div>
+                    <div style="text-align: right; margin-top: 8px;">
+                        <span style="font-size: 10px; color: var(--text-3); text-transform: uppercase;">DUE:</span>
+                        <span class="font-bold font-mono" id="tDue" style="color: var(--danger); font-size: 16px; margin-left: 6px;">₹0</span>
                     </div>
                 </div>
             </div>
@@ -299,41 +336,101 @@
     const EDIT_ID = EDIT_ENTRY ? EDIT_ENTRY._id : null;
     
     // === CUSTOMER AUTO-FILL ===
-    async function lookupCustomer(query) {
+    let lastAutoFilledMobile = '';
+
+    function hideCustDropdowns() {
+        ['custDropdown', 'custDropdownName'].forEach(id => {
+            const d = document.getElementById(id); if (d) d.style.display = 'none';
+        });
+    }
+
+    async function lookupCustomer(query, source) {
         clearTimeout(lookupTimer);
-        const dropdown = document.getElementById('custDropdown');
-        const q = query.trim();
-        if (q.length < 3) { dropdown.style.display = 'none'; return; }
-        
+        const dropdown = document.getElementById(source === 'name' ? 'custDropdownName' : 'custDropdown');
+        const q = (query || '').trim();
+        if (q.length < 3) { if (dropdown) dropdown.style.display = 'none'; return; }
+
         lookupTimer = setTimeout(async () => {
             try {
                 const res = await fetch('/api/customers/lookup?q=' + encodeURIComponent(q));
                 const data = await res.json();
-                
-                if (!data.suggestions || data.suggestions.length === 0) {
-                    dropdown.style.display = 'none'; return;
+                const list = data.suggestions || [];
+
+                if (!list.length) { if (dropdown) dropdown.style.display = 'none'; return; }
+
+                // Exact 10-digit mobile typed → fill straight away, no click needed
+                const digits = q.replace(/\D/g, '');
+                if (source === 'mobile' && digits.length >= 10) {
+                    const exact = list.find(c => String(c.mobile || '').replace(/\D/g, '').slice(-10) === digits.slice(-10));
+                    if (exact && lastAutoFilledMobile !== digits.slice(-10)) {
+                        lastAutoFilledMobile = digits.slice(-10);
+                        fillCustomer(exact, true);
+                        return;
+                    }
                 }
-                
-                dropdown.innerHTML = data.suggestions.map(c => `
+
+                dropdown.innerHTML = list.map(c => `
                     <div onclick='fillCustomer(${JSON.stringify(c).replace(/'/g, "&#39;")})' style="padding:10px 12px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:13px;">
                         <div style="font-weight:700;">${c.name}${c.companyName ? ' · ' + c.companyName : ''}</div>
-                        <div style="font-size:11px;color:#64748b;">📞 ${c.mobile} · ${c.location || c.primaryAddress || 'No address'} · ${c.totalServices || 0} services</div>
+                        <div style="font-size:11px;color:#64748b;">📞 ${c.mobile} · ${c.location || c.primaryAddress || 'No address'}${c.totalServices ? ' · ' + c.totalServices + ' services' : ''}${c.source === 'corporate' ? ' · past visit' : ''}</div>
                     </div>
                 `).join('');
                 dropdown.style.display = 'block';
             } catch (e) { console.error(e); }
         }, 250);
     }
+
+    // Click outside closes the dropdowns
+    document.addEventListener('click', (ev) => {
+        if (!ev.target.closest('#customerName') && !ev.target.closest('#mobileNumber')
+            && !ev.target.closest('#custDropdown') && !ev.target.closest('#custDropdownName')) {
+            hideCustDropdowns();
+        }
+    });
+
+    // ═══ FRESH ENTRY: clear everything and start a brand-new visit ═══
+    function freshEntry() {
+        if (!confirm('Form clear karke fresh entry shuru karein? Bhari hui details chali jayengi.')) return;
+        ['customerName','companyName','mobileNumber','email','location','gstNumber','discountReason','futureSummary'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.value = '';
+        });
+        const setV = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+        setV('discount', 0); setV('gstPercent', 18); setV('travelExpense', 0);
+        setV('amountReceived', 0); setV('paymentMode', '');
+        const vd = document.getElementById('visitDate');
+        if (vd) vd.value = new Date().toISOString().split('T')[0];
+        pcs = [];
+        extraItems = [];
+        lastAutoFilledMobile = '';
+        hideCustDropdowns();
+        const rb = document.getElementById('repeatBanner');
+        if (rb) { rb.style.display = 'none'; rb.innerHTML = ''; }
+        renderPCs();
+        renderExtraItems();
+        recalc();
+        showToast('✓ Fresh entry ready', 'success');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        const cn = document.getElementById('customerName'); if (cn) cn.focus();
+    }
     
-    function fillCustomer(c) {
+    function fillCustomer(c, silentMobile) {
         document.getElementById('customerName').value = c.name || '';
-        document.getElementById('mobileNumber').value = c.mobile || '';
+        if (!silentMobile) document.getElementById('mobileNumber').value = c.mobile || '';
         if (c.companyName) document.getElementById('companyName').value = c.companyName;
         if (c.email) document.getElementById('email').value = c.email;
         if (c.primaryAddress || c.location) document.getElementById('location').value = c.primaryAddress || c.location;
         if (c.gstNumber) document.getElementById('gstNumber').value = c.gstNumber;
-        document.getElementById('custDropdown').style.display = 'none';
-        showToast('Customer details auto-filled', 'success');
+        lastAutoFilledMobile = String(c.mobile || '').replace(/\D/g, '').slice(-10);
+        hideCustDropdowns();
+        showToast('✓ ' + (c.name || 'Customer') + ' ki details auto-fill ho gayi', 'success');
+        // Banner so it's obvious this is a repeat customer
+        const banner = document.getElementById('repeatBanner');
+        if (banner) {
+            banner.style.display = 'block';
+            banner.innerHTML = '🔁 <strong>Repeat customer</strong> — ' + (c.name || '') +
+                (c.totalServices ? ' · ' + c.totalServices + ' previous services' : ' · previously served') +
+                ' &nbsp;<span style="color:#64748b;">(details auto-filled, badal sakte ho)</span>';
+        }
     }
     
     // Hide dropdown on outside click
@@ -895,8 +992,95 @@
         reader.readAsDataURL(file);
     }
     
+    // ═══ EXTRA PARTS & ADDITIONAL SERVICES ═══
+    let extraItems = [];
+
+    function addExtraItem() {
+        extraItems.push({ description: '', category: 'Part', pcRef: '', quantity: 1, rate: 0 });
+        renderExtraItems();
+    }
+    function removeExtraItem(i) { extraItems.splice(i, 1); renderExtraItems(); }
+    function updateExtra(i, field, val) {
+        if (!extraItems[i]) return;
+        extraItems[i][field] = (field === 'quantity' || field === 'rate') ? (Number(val) || 0) : val;
+        // refresh just the line total + totals (no full re-render so focus stays)
+        const amtEl = document.getElementById('exAmt_' + i);
+        if (amtEl) amtEl.textContent = '₹' + ((extraItems[i].quantity || 0) * (extraItems[i].rate || 0)).toLocaleString('en-IN');
+        updateExtraTotal();
+        recalc();
+    }
+    function extraSubtotal() {
+        return extraItems.reduce((s, it) => s + ((Number(it.quantity) || 0) * (Number(it.rate) || 0)), 0);
+    }
+    function updateExtraTotal() {
+        const t = extraSubtotal();
+        const bar = document.getElementById('extraTotalBar');
+        const el = document.getElementById('extraTotal');
+        if (el) el.textContent = '₹' + t.toLocaleString('en-IN');
+        if (bar) bar.style.display = extraItems.length ? 'block' : 'none';
+    }
+    function renderExtraItems() {
+        const list = document.getElementById('extraItemsList');
+        const empty = document.getElementById('extraEmpty');
+        if (!list) return;
+        if (!extraItems.length) {
+            list.innerHTML = '';
+            if (empty) empty.style.display = 'block';
+            updateExtraTotal(); recalc();
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+        // PC options so an item can be tied to a specific machine
+        const pcOpts = ['<option value="">-- General (no specific PC) --</option>']
+            .concat(pcs.map((p, i) => {
+                const label = p.pcSrNo || p.pcName || ('PC-' + String(i + 1).padStart(2, '0'));
+                return `<option value="${label}">${label}</option>`;
+            })).join('');
+
+        list.innerHTML = extraItems.map((it, i) => {
+            const amt = (Number(it.quantity) || 0) * (Number(it.rate) || 0);
+            return `
+            <div style="display:grid; grid-template-columns: 2fr 1fr 1.2fr 0.7fr 0.9fr 0.9fr auto; gap:8px; align-items:end; padding:10px; background:var(--surface-2); border-radius:8px; margin-bottom:8px;">
+                <div class="form-group" style="margin:0;">
+                    <label style="font-size:10px;">Description *</label>
+                    <input type="text" value="${(it.description || '').replace(/"/g, '&quot;')}" placeholder="e.g. 500GB HDD replace"
+                        onchange="updateExtra(${i},'description',this.value)">
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label style="font-size:10px;">Type</label>
+                    <select onchange="updateExtra(${i},'category',this.value)">
+                        ${['Part','Service','Software','Other'].map(c => `<option ${it.category===c?'selected':''}>${c}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label style="font-size:10px;">For which PC</label>
+                    <select onchange="updateExtra(${i},'pcRef',this.value)">
+                        ${pcOpts.replace('value="' + (it.pcRef || '') + '"', 'value="' + (it.pcRef || '') + '" selected')}
+                    </select>
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label style="font-size:10px;">Qty</label>
+                    <input type="number" value="${it.quantity}" min="1" oninput="updateExtra(${i},'quantity',this.value)">
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label style="font-size:10px;">Rate (₹)</label>
+                    <input type="number" value="${it.rate}" min="0" oninput="updateExtra(${i},'rate',this.value)">
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label style="font-size:10px;">Amount</label>
+                    <div class="font-mono font-bold" id="exAmt_${i}" style="padding:9px 0; color:#7c3aed;">₹${amt.toLocaleString('en-IN')}</div>
+                </div>
+                <button class="btn btn-xs btn-danger" style="margin-bottom:9px;" onclick="removeExtraItem(${i})">×</button>
+            </div>`;
+        }).join('');
+        updateExtraTotal();
+        recalc();
+    }
+
     function recalc() {
-        const sub = pcs.reduce((s, p) => s + (Number(p.serviceRate) || 0), 0);
+        const pcSub = pcs.reduce((s, p) => s + (Number(p.serviceRate) || 0), 0);
+        const parts = extraSubtotal();
+        const sub = pcSub + parts;
         const disc = Number(document.getElementById('discount').value) || 0;
         const gstP = Number(document.getElementById('gstPercent').value) || 0;
         const afterDisc = sub - disc;
@@ -904,12 +1088,15 @@
         const grand = afterDisc + gst;
         const recv = Number(document.getElementById('amountReceived').value) || 0;
         const due = Math.max(0, grand - recv);
-        
-        document.getElementById('tSub').textContent = '₹' + sub.toLocaleString('en-IN');
-        document.getElementById('tDisc').textContent = '₹' + disc.toLocaleString('en-IN');
-        document.getElementById('tGst').textContent = '₹' + Math.round(gst).toLocaleString('en-IN');
-        document.getElementById('tGrand').textContent = '₹' + Math.round(grand).toLocaleString('en-IN');
-        document.getElementById('tDue').textContent = '₹' + Math.round(due).toLocaleString('en-IN');
+
+        const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        set('tPcSub', '₹' + pcSub.toLocaleString('en-IN'));
+        set('tParts', '₹' + parts.toLocaleString('en-IN'));
+        set('tSub', '₹' + sub.toLocaleString('en-IN'));
+        set('tDisc', '₹' + disc.toLocaleString('en-IN'));
+        set('tGst', '₹' + Math.round(gst).toLocaleString('en-IN'));
+        set('tGrand', '₹' + Math.round(grand).toLocaleString('en-IN'));
+        set('tDue', '₹' + Math.round(due).toLocaleString('en-IN'));
     }
     
     async function submitEntry() {
@@ -926,6 +1113,8 @@
             return showToast('Customer name, mobile, and address required', 'error');
         }
         if (pcs.length === 0) return showToast('Add at least one PC', 'error');
+        const badExtra = extraItems.find(it => !(it.description || '').trim() && ((Number(it.rate) || 0) > 0));
+        if (badExtra) return showToast('Extra item me description likho (ya row hatao)', 'error');
         
         const data = {
             agentName: AGENT,
@@ -939,6 +1128,17 @@
             visitDate: document.getElementById('visitDate').value,
             visitTime: document.getElementById('visitTime').value,
             pcs: pcs.map(p => { const { id, _suggestedWork, ...rest } = p; return rest; }),
+            extraItems: extraItems
+                .filter(it => (it.description || '').trim())
+                .map(it => ({
+                    description: it.description.trim(),
+                    category: it.category || 'Part',
+                    pcRef: it.pcRef || '',
+                    quantity: Number(it.quantity) || 0,
+                    rate: Number(it.rate) || 0,
+                    amount: (Number(it.quantity) || 0) * (Number(it.rate) || 0),
+                    addedBy: AGENT
+                })),
             discount: Number(document.getElementById('discount').value || 0),
             discountReason: document.getElementById('discountReason').value,
             gstPercent: Number(document.getElementById('gstPercent').value || 18),
@@ -1017,6 +1217,15 @@
             ...p,
             id: 'pc_edit_' + i + '_' + Date.now()
         }));
+
+        // Load extra parts / additional services
+        extraItems = (EDIT_ENTRY.extraItems || []).map(it => ({
+            description: it.description || '',
+            category: it.category || 'Part',
+            pcRef: it.pcRef || '',
+            quantity: Number(it.quantity) || 1,
+            rate: Number(it.rate) || 0
+        }));
         
         // Load GPS if present
         if (EDIT_ENTRY.gpsLatitude) {
@@ -1024,6 +1233,7 @@
         }
         
         renderPCs();
+        renderExtraItems();
         recalc();
         
         // Update page heading + submit button

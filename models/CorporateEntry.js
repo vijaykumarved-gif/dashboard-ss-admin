@@ -84,7 +84,21 @@ const corporateEntrySchema = new mongoose.Schema({
     futureRequirementsSummary: { type: String, default: '' }, // text summary
     
     // Billing
-    subtotal: { type: Number, default: 0 },
+    // Extra parts / additional services beyond the per-PC service charge.
+    // Use when the same customer needs a part replaced or another service on the same visit.
+    extraItems: [{
+        description: { type: String, default: '' },   // e.g. "500GB HDD replacement"
+        category: { type: String, default: 'Part' },  // Part, Service, Software, Other
+        pcRef: { type: String, default: '' },         // which PC it belongs to (optional)
+        quantity: { type: Number, default: 1 },
+        rate: { type: Number, default: 0 },
+        amount: { type: Number, default: 0 },         // quantity * rate
+        addedAt: { type: Date, default: Date.now },
+        addedBy: { type: String, default: '' }
+    }],
+    partsSubtotal: { type: Number, default: 0 },      // sum of extraItems
+    pcSubtotal: { type: Number, default: 0 },         // sum of PC service rates
+    subtotal: { type: Number, default: 0 },           // pcSubtotal + partsSubtotal
     discount: { type: Number, default: 0 },
     discountReason: { type: String, default: '' },
     gstPercent: { type: Number, default: 18 },

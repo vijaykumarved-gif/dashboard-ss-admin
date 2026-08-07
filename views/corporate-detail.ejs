@@ -227,12 +227,56 @@
         </div>
         <% } %>
         
+        <!-- Extra Parts & Additional Services -->
+        <% if (entry.extraItems && entry.extraItems.length) { %>
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">🔩 Extra Parts & Additional Services</div>
+                    <div class="card-subtitle"><%= entry.extraItems.length %> item(s) beyond PC service charges</div>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>#</th><th>Description</th><th>Type</th><th>For PC</th><th>Qty × Rate</th><th class="text-right">Amount</th></tr></thead>
+                    <tbody>
+                        <% entry.extraItems.forEach(function(it, i) { 
+                            const amt = it.amount !== undefined ? it.amount : (it.quantity || 0) * (it.rate || 0); %>
+                            <tr>
+                                <td class="font-mono"><%= i + 1 %></td>
+                                <td class="font-bold"><%= it.description %></td>
+                                <td><span class="badge info" style="font-size:9px;"><%= it.category || 'Part' %></span></td>
+                                <td style="font-size:11px; color: var(--text-3);"><%= it.pcRef || '—' %></td>
+                                <td class="font-mono" style="font-size:12px;"><%= it.quantity %> × <%= formatINR(it.rate) %></td>
+                                <td class="font-mono font-bold text-right" style="color:#7c3aed;"><%= formatINR(amt) %></td>
+                            </tr>
+                        <% }) %>
+                        <tr style="background:#f5f3ff;">
+                            <td colspan="5" class="font-bold" style="color:#5b21b6;">Parts & Services Subtotal</td>
+                            <td class="font-mono font-bold text-right" style="color:#5b21b6;"><%= formatINR(entry.partsSubtotal || entry.extraItems.reduce((s,i2)=>s+(i2.amount||0),0)) %></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <% } %>
+
         <!-- Billing -->
         <div class="card">
             <div class="card-header"><div class="card-title">💰 Billing Summary</div></div>
             <div class="card-body">
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                     <div>
+                        <% if (entry.extraItems && entry.extraItems.length) { 
+                            const _parts = entry.partsSubtotal || entry.extraItems.reduce((s,i2)=>s+(i2.amount||0),0);
+                            const _pcSub = entry.pcSubtotal !== undefined ? entry.pcSubtotal : Math.max(0, (entry.subtotal||0) - _parts); %>
+                            <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border);">
+                                <span>PC Service:</span><span class="font-mono"><%= formatINR(_pcSub) %></span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border);">
+                                <span>Parts & Services:</span><span class="font-mono" style="color:#7c3aed;"><%= formatINR(_parts) %></span>
+                            </div>
+                        <% } %>
                         <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border);">
                             <span>Subtotal:</span><span class="font-mono font-bold"><%= formatINR(entry.subtotal) %></span>
                         </div>
